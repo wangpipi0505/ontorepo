@@ -45,6 +45,7 @@ const tree = computed(() => buildTree(classes.data.value)),
   selected = computed(() => classes.data.value.find((item) => item.id === selectedId.value))
 const viewMode = ref<'graph' | 'tree'>('graph'),
   linkMode = ref(false),
+  draggingNew = ref(false),
   graphKey = ref(0),
   relationOpen = ref(false),
   conflictIds = ref<string[]>([]),
@@ -78,6 +79,11 @@ const classLabel = (id: string) =>
   classes.data.value.find((item) => item.id === id)?.name || id
 function selectGraph(id: string) {
   selectedId.value = id
+}
+function dropNewObject() {
+  if (!draggingNew.value) return
+  draggingNew.value = false
+  if (workspace.canWrite) edit(null)
 }
 function editGraph(id: string) {
   const item = classes.data.value.find((entry) => entry.id === id)
@@ -291,19 +297,37 @@ onMounted(load)
           发现 {{ conflictIds.length }} 个对象涉及冲突，已在画布标红。
           <RouterLink :to="`/spaces/${workspace.space?.id}/conflicts`">查看冲突检查</RouterLink>
         </p>
-        <OntoGraph
-          :key="graphKey"
-          :nodes="graphNodes"
-          :edges="graphEdges"
-          :selected-id="selectedId"
-          :editable="workspace.canWrite"
-          :link-mode="linkMode"
-          :height="560"
-          @select="selectGraph"
-          @edit="editGraph"
-          @create-edge="openRelation"
-          @create-node="edit(null)"
-        />
+        <div v-if="workspace.canWrite" class="row graph-tools">
+          <span
+            class="node-palette"
+            draggable="true"
+            @dragstart="draggingNew = true"
+            @dragend="draggingNew = false"
+          >
+            ＋ 拖拽新建对象
+          </span>
+          <span class="muted">把此卡片拖到画布空白处，或双击画布空白处。</span>
+        </div>
+        <div
+          class="graph-drop"
+          :class="{ 'graph-drop-active': draggingNew }"
+          @dragover.prevent
+          @drop.prevent="dropNewObject"
+        >
+          <OntoGraph
+            :key="graphKey"
+            :nodes="graphNodes"
+            :edges="graphEdges"
+            :selected-id="selectedId"
+            :editable="workspace.canWrite"
+            :link-mode="linkMode"
+            :height="560"
+            @select="selectGraph"
+            @edit="editGraph"
+            @create-edge="openRelation"
+            @create-node="edit(null)"
+          />
+        </div>
       </section>
       <PropertyPanel
         v-if="selected"
@@ -361,6 +385,25 @@ onMounted(load)
   />
 </template>
 <style scoped>
+.node-palette {
+  display: inline-block;
+  padding: 6px 12px;
+  border: 1px dashed #2563eb;
+  border-radius: 6px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 13px;
+  cursor: grab;
+  user-select: none;
+}
+.graph-drop {
+  border-radius: 8px;
+  outline: 2px dashed transparent;
+  transition: outline-color 0.15s;
+}
+.graph-drop-active {
+  outline-color: #2563eb;
+}
 .model-grid {
   display: grid;
   grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
