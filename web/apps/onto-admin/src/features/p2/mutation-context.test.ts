@@ -155,10 +155,10 @@ describe('实际页面写上下文隔离', () => {
         .find((button) => button.text() === '新建知识')!
         .trigger('click')
       await flushPromises()
-      const textInputs = old.findAll('input[type=text]')
+      const textInputs = old.get('.el-dialog').findAll('input[type=text]')
       await textInputs[0]!.setValue('旧空间术语')
       await textInputs[1]!.setValue('原始来源')
-      await old.get('form').trigger('submit')
+      await old.get('.el-dialog form').trigger('submit')
       expect(write).toHaveBeenCalledWith(
         '/knowledge',
         expect.objectContaining({ spaceId: 'A', expectedDraftRev: 5 }),

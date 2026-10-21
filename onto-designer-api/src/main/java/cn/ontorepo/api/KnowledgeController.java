@@ -81,4 +81,15 @@ public class KnowledgeController {
         return Envelope.ok(
                 t.as(candidates.search(t.user(r), id, q, limit), P2Dtos.KnowledgeSearch.class));
     }
+
+    @io.swagger.v3.oas.annotations.Operation(summary = "检索正式版本冻结知识")
+    @RequiresPermission("knowledge.read")
+    @GetMapping("/releases/{id}/knowledge-search")
+    public Envelope<Map<String, Object>> releaseSearch(
+            HttpServletRequest r,
+            @PathVariable UUID id,
+            @RequestParam String q,
+            @RequestParam(defaultValue = "10") int limit) {
+        return Envelope.ok(candidates.releaseSearch(t.user(r), id, q, limit));
+    }
 }

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** 知识列表与同空间概念同批读取并核对修订；冻结后的知识只在候选供给页查看。 */
 import { computed, onMounted, ref, shallowRef } from 'vue'
-import type { KnowledgeEntry, OntClass, Space } from '@onto/api-client'
+import type { KnowledgeEntry, OntClass, Release, Space } from '@onto/api-client'
 import { useSession } from '../../stores/session'
 import { useDraftDocument } from './useDraftDocument'
 import { useDraftRevision } from '../../composables/useDraftRevision'
@@ -33,9 +33,45 @@ const form = ref<KnowledgeDraft>({
   sourceRef: '',
   conceptRef: '',
 })
+const releases = ref<Release[]>([]),
+  releaseId = ref(''),
+  query = ref(''),
+  hits = ref<{ entryId: string; term: string; definition: string; score: number }[]>([]),
+  searching = ref(false),
+  searchError = ref('')
+async function searchRelease() {
+  const id = releaseId.value,
+    q = query.value.trim()
+  if (!id || !q) return
+  searching.value = true
+  searchError.value = ''
+  try {
+    const result = await api.get<{
+      releaseId: string
+      candidateSha256: string
+      hits: { entryId: string; term: string; definition: string; score: number }[]
+    }>(`/releases/${id}/knowledge-search?q=${encodeURIComponent(q)}&limit=10`)
+    hits.value = result.hits
+  } catch (cause) {
+    hits.value = []
+    searchError.value = cause instanceof Error ? cause.message : '版本知识检索失败。'
+  } finally {
+    searching.value = false
+  }
+}
 async function load() {
   open.value = false
   await editor.load()
+  const id = editor.workspace.space?.id
+  if (id)
+    try {
+      const list = await api.get<Release[]>(`/releases?spaceId=${id}`)
+      releases.value = Array.isArray(list) ? list : []
+      if (!releases.value.some((item) => item.id === releaseId.value))
+        releaseId.value = releases.value[0]?.id || ''
+    } catch {
+      releases.value = []
+    }
 }
 function edit(item: KnowledgeEntry | null) {
   const snapshot = editor.resource.data.value
@@ -143,6 +179,35 @@ onMounted(load)
       </el-table>
     </section>
   </AsyncState>
+  <section class="panel stack">
+    <h2>正式版本知识检索</h2>
+    <p class="muted">检索已发布的冻结版本，不读取当前知识草稿。</p>
+    <div class="row">
+      <select v-model="releaseId" aria-label="正式版本">
+        <option value="">选择正式版本</option>
+        <option v-for="release in releases" :key="release.id" :value="release.id">
+          v{{ release.versionNo }} · {{ release.id.slice(0, 8) }}
+        </option>
+      </select>
+      <el-input v-model="query" placeholder="输入中文检索词" clearable @keyup.enter="searchRelease" />
+      <el-button
+        type="primary"
+        :loading="searching"
+        :disabled="!releaseId || !query.trim()"
+        @click="searchRelease"
+      >
+        检索版本知识
+      </el-button>
+    </div>
+    <p v-if="searchError" class="error-text" role="alert">{{ searchError }}</p>
+    <p v-else-if="searching" class="muted">正在检索冻结知识…</p>
+    <p v-else-if="!hits.length" class="muted">输入检索词后显示命中条目。</p>
+    <article v-for="hit in hits" v-else :key="hit.entryId" class="record">
+      <b>{{ hit.term }}</b>
+      <p>{{ hit.definition }}</p>
+      <p class="muted">相关度 {{ hit.score.toFixed(3) }}</p>
+    </article>
+  </section>
   <el-dialog
     v-model="open"
     destroy-on-close
