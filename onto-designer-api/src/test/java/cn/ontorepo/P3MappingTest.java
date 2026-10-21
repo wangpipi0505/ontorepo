@@ -582,6 +582,36 @@ class P3MappingTest extends P3Fixture {
     }
 
     @Test
+    void catalogDrillsDownToFieldsAndPropertyBindings() throws Exception {
+        var x = scenario();
+        var catalog = data(get("/onto/data-catalog").param("spaceId", x.space()), null);
+        var source = catalog.path("datasources").get(0);
+        assertEquals(x.source(), source.path("id").asText());
+        var resources = source.path("resources");
+        assertTrue(resources.isArray());
+        var tasks =
+                java.util.stream.StreamSupport.stream(resources.spliterator(), false)
+                        .filter(r -> "p3_source.tasks".equals(r.path("name").asText()))
+                        .findFirst()
+                        .orElseThrow();
+        var taskId =
+                java.util.stream.StreamSupport.stream(tasks.path("fields").spliterator(), false)
+                        .filter(f -> "task_id".equals(f.path("name").asText()))
+                        .findFirst()
+                        .orElseThrow();
+        assertEquals("text", taskId.path("type").asText());
+        assertEquals(1, taskId.path("bindings").size());
+        assertEquals("任务编号", taskId.path("bindings").get(0).path("propertyName").asText());
+        assertEquals(x.taskMap(), taskId.path("bindings").get(0).path("objectMappingId").asText());
+        var alias =
+                data(get("/onto/spaces/" + x.space() + "/catalog"), null);
+        assertEquals(
+                catalog.path("datasources").size(),
+                alias.path("datasources").size(),
+                "空间路径目录别名应返回同一视图");
+    }
+
+    @Test
     void snapshotCanonicalDigestIsRecomputableAndLegacyIsExplicit() throws Exception {
         var x = scenario();
         var path = "/onto/datasources/" + x.source() + "/snapshots/" + x.snapshot() + "/verify";

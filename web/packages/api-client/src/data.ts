@@ -196,6 +196,13 @@ export interface ExtractionRequest {
   resource?: string
   fileId?: string
 }
+export interface CatalogFieldBinding {
+  objectMappingId: string
+  classId: string
+  className: string
+  propertyId: string
+  propertyName: string
+}
 /** 目录读取视图保留服务端提供的来源和关联，不推造未定义的统计分母。 */
 export interface DataCatalog {
   datasources: (Datasource & {
@@ -203,6 +210,10 @@ export interface DataCatalog {
     mappingCount: number
     classIds: string[]
     operationIds: string[]
+    resources?: {
+      name: string
+      fields: { name: string; type: string; bindings: CatalogFieldBinding[] }[]
+    }[]
   })[]
   bindings: {
     datasourceId: string

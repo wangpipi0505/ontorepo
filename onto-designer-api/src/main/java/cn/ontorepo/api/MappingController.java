@@ -59,6 +59,14 @@ public class MappingController {
         return Envelope.ok(service.catalog(t.user(r), spaceId));
     }
 
+    /** 按空间路径提供目录别名，语义与 /data-catalog 完全一致。 */
+    @RequiresPermission("mapping.read")
+    @GetMapping("/spaces/{id}/catalog")
+    public Envelope<Map<String, Object>> catalogBySpace(
+            HttpServletRequest r, @PathVariable UUID id) {
+        return Envelope.ok(service.catalog(t.user(r), id));
+    }
+
     @RequiresPermission("mapping.write")
     @PostMapping("/mappings/objects")
     public Envelope<Map<String, Object>> object(

@@ -589,6 +589,11 @@ public class MappingService {
                             .toList();
             var sn = sources.snapshots(u, s, Input.uuid(sourceId));
             source.put("latestSnapshotId", sn.isEmpty() ? null : sn.getFirst().get("id"));
+            source.put(
+                    "resources",
+                    sn.isEmpty()
+                            ? List.of()
+                            : catalogResources(s, sourceId, sn.getFirst().get("id")));
             Set<Object> objectIds = new HashSet<>();
             os.forEach(object -> objectIds.add(object.get("id")));
             source.put(
@@ -651,5 +656,52 @@ public class MappingService {
             srcs.add(source);
         }
         return Map.of("datasources", srcs, "bindings", bindings);
+    }
+
+    /** 数据目录下钻：资源 → 字段 → 已绑定本体属性；未绑定字段保留空数组，不伪造映射。 */
+    private List<Map<String, Object>> catalogResources(UUID s, Object sourceId, Object snapshotId) {
+        var snapshot = sources.snapshot(s, sourceId, snapshotId);
+        var resources = node(snapshot.get("resources"));
+        if (!resources.isArray()) return List.of();
+        var objects = all(s, "objects");
+        var properties = all(s, "properties");
+        var out = new ArrayList<Map<String, Object>>();
+        for (var resource : resources) {
+            String resourceName = resource.path("name").asText();
+            var view = new LinkedHashMap<String, Object>();
+            view.put("name", resourceName);
+            var fields = new ArrayList<Map<String, Object>>();
+            for (var field : resource.path("fields")) {
+                String fieldName = field.path("name").asText();
+                var fieldView = new LinkedHashMap<String, Object>();
+                fieldView.put("name", fieldName);
+                fieldView.put("type", field.path("type").asText());
+                var bound = new ArrayList<Map<String, Object>>();
+                for (var object : objects)
+                    if (resourceName.equals(object.get("sourceResource")))
+                        for (var property : properties)
+                            if (Objects.equals(property.get("objectMappingId"), object.get("id"))
+                                    && fieldName.equals(property.get("sourceField"))) {
+                                var binding = new LinkedHashMap<String, Object>();
+                                binding.put("objectMappingId", object.get("id"));
+                                binding.put("classId", object.get("targetClassId"));
+                                binding.put(
+                                        "className",
+                                        model(s, "ont_class", object.get("targetClassId"))
+                                                .get("name"));
+                                binding.put("propertyId", property.get("targetPropertyId"));
+                                binding.put(
+                                        "propertyName",
+                                        model(s, "ont_property", property.get("targetPropertyId"))
+                                                .get("name"));
+                                bound.add(binding);
+                            }
+                fieldView.put("bindings", bound);
+                fields.add(fieldView);
+            }
+            view.put("fields", fields);
+            out.add(view);
+        }
+        return out;
     }
 }
