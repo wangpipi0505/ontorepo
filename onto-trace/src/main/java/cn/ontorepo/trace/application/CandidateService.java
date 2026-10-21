@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -560,6 +561,7 @@ public class CandidateService {
             for (var row : evaluated.rows()) rows.add(new java.util.LinkedHashMap<>(row));
             steps.addAll(evaluated.steps());
             supply.output(op, Map.of("columns", columns, "rows", rows));
+            steps.add(step("EXPLAIN", "SUCCEEDED", explain(op, rows, input)));
             evidence.addAll(evaluated.evidence());
             recordDefinitionEvidence(evidence, p, op, id, c.get("sha256").toString(), formal);
             authorization.add(auth(5, "SCOPE_INTERSECTION", true, "策略、端点、空间范围求交与冻结源白名单验证通过"));
@@ -826,6 +828,34 @@ public class CandidateService {
 
     private Map<String, String> step(String kind, String status, String detail) {
         return Map.of("kind", kind, "status", status, "detail", detail);
+    }
+
+    /** NL 结果解释：优先渲染冻结 return_spec.modelSummary 模板，缺省时给出可读摘要。 */
+    private String explain(
+            Map<String, Object> op, List<Map<String, Object>> rows, Object input) {
+        String template = null;
+        if (op.get("assistantTool") instanceof Map<?, ?> tool
+                && tool.get("return_spec") instanceof Map<?, ?> returns
+                && returns.get("modelSummary") instanceof Map<?, ?> summary
+                && "TEMPLATE".equals(summary.get("mode")))
+            template = Objects.toString(summary.get("template"), null);
+        Map<String, Object> variables = new LinkedHashMap<>();
+        if (input instanceof Map<?, ?> values)
+            values.forEach((key, value) -> variables.put(String.valueOf(key), value));
+        if (!rows.isEmpty())
+            rows.getFirst().forEach((key, value) -> variables.putIfAbsent(key, value));
+        variables.put("opCode", op.get("code"));
+        variables.put("rowCount", rows.size());
+        String text =
+                template == null || template.isBlank()
+                        ? "操作 " + op.get("code") + " 返回 " + rows.size() + " 行"
+                        : template;
+        for (var entry : variables.entrySet())
+            text =
+                    text.replace(
+                            "${" + entry.getKey() + "}",
+                            Objects.toString(entry.getValue(), ""));
+        return text.length() > 500 ? text.substring(0, 500) : text;
     }
 
     /** 执行历史按空间授权读取，首批仅保留最近50条返回，不暴露内部身份事实字段。 */

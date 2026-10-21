@@ -41,18 +41,18 @@
 
 ## OM-R-A3
 
-- [ ] **目标**：NL 链路补"结果解释"与 EXPLAIN 步骤。
-- [ ] 后端
-  - [ ] `CandidateService`：执行成功后按 `return_spec.modelSummary` 模板渲染解释；无模板用"操作 {opCode} 返回 {n} 行"；落 `step("EXPLAIN", ...)`。
-  - [ ] `CandidateTestService`：NL 用例支持 `expected.explanationKeywords` 包含匹配；失败使用例失败。
-  - [ ] `TestCaseService`：`expected` 白名单增 `explanationKeywords`（数组、≤20 项、每项≤200）。
-- [ ] 前端：`TestCasesView.vue` 增加解释关键词；`CandidateTestsPanel.vue` 展示解释与断言结果。
-- [ ] 测试（`P2NlExplanationTest`）
-  - [ ] T1 命中 + 关键词匹配 → PASSED，追溯含 TERM_MATCH/QUERY_EXEC/EXPLAIN。
-  - [ ] T2 关键词不匹配 → FAILED。
-  - [ ] T3 无 return_spec → 默认解释，不报错。
-  - [ ] T4 DIRECT 用例不变。
-  - [ ] T5 解释不含凭据/守卫敏感值。
+- [x] **目标**：NL 链路补"结果解释"与 EXPLAIN 步骤。
+- [x] 后端
+  - [x] `CandidateService`：执行成功后按 `return_spec.modelSummary` 模板渲染解释；无模板用"操作 {opCode} 返回 {n} 行"；落 `step("EXPLAIN", ...)`。
+  - [x] `CandidateTestService`：NL 用例支持 `expected.explanationKeywords` 包含匹配；失败使用例失败。
+  - [x] `TestCaseService`：`expected` 白名单增 `explanationKeywords`（数组、≤20 项、每项≤200）。
+- [x] 前端：`TestCasesView.vue` 增加解释关键词；`CandidateTestsPanel.vue` 展示解释与断言结果。
+- [x] 测试（`P2NlExplanationTest`）
+  - [x] T1 命中 + 关键词匹配 → PASSED，追溯含 TERM_MATCH/QUERY_EXEC/EXPLAIN。
+  - [x] T2 关键词不匹配 → FAILED。
+  - [x] T3 无 return_spec → 默认解释，不报错。
+  - [x] T4 DIRECT 用例不变。
+  - [x] T5 解释不含凭据/守卫敏感值。
 
 ## OM-R-A4
 

@@ -183,6 +183,8 @@ onMounted(load)
       </el-form-item>
       <p v-if="form.mode === 'NL'" class="muted">
         服务端根据冻结词典、操作说明和参数示例匹配；存在歧义或实际命中与期望操作不同均判失败。
+        需要断言结果解释时，在"预期结果"中增加 explanationKeywords（如
+        {"explanationKeywords":["任务","算法"]}）。
       </p>
       <el-checkbox v-model="form.enabled">启用此用例</el-checkbox>
       <p class="muted">只有候选中已冻结且启用的用例会执行，当前草稿变更不改变旧候选。</p>

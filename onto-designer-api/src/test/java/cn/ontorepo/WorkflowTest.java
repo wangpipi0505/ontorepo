@@ -196,7 +196,11 @@ class WorkflowTest extends WorkflowFixture {
         assertEquals(first.get("sha256"), execution.get("candidateSha256"));
         assertEquals(1, execution.get("rows").size());
         assertNotEquals("新名称", execution.get("rows").get(0).get("name").asText());
-        assertEquals(3, execution.get("steps").size());
+        boolean explained = false;
+        for (JsonNode step : execution.get("steps"))
+            if ("EXPLAIN".equals(step.get("kind").asText())) explained = true;
+        assertTrue(explained, "执行事实必须包含结果解释步骤");
+        assertEquals(4, execution.get("steps").size());
         assertEquals(1, data(get("/onto/spaces/" + s + "/executions"), null).size());
         assertTrue(
                 db.queryForObject(

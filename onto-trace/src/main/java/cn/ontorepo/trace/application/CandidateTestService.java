@@ -82,12 +82,32 @@ public class CandidateTestService {
                 Map<String, Object> actual = new LinkedHashMap<>();
                 for (String key : List.of("status", "errorCode", "opCode", "columns", "rows"))
                     if (expected.containsKey(key)) actual.put(key, execution.get(key));
+                Map<String, Object> assertion = new LinkedHashMap<>(expected);
+                assertion.remove("explanationKeywords");
+                boolean explanationOk = true;
+                if (expected.get("explanationKeywords") instanceof List<?> keywords) {
+                    String explanation = explanation(execution);
+                    actual.put("explanation", explanation);
+                    explanationOk =
+                            keywords.stream()
+                                    .allMatch(
+                                            keyword ->
+                                                    explanation.contains(
+                                                            Objects.toString(keyword, "")));
+                }
                 boolean allowed =
-                        Set.of("status", "errorCode", "opCode", "columns", "rows")
+                        Set.of(
+                                        "status",
+                                        "errorCode",
+                                        "opCode",
+                                        "columns",
+                                        "rows",
+                                        "explanationKeywords")
                                 .containsAll(expected.keySet());
                 passed =
                         allowed
                                 && !expected.isEmpty()
+                                && explanationOk
                                 && RdfCodec.rows(payload, "operations").stream()
                                         .anyMatch(
                                                 op ->
@@ -103,8 +123,11 @@ public class CandidateTestService {
                                 && ("FAILED".equals(expected.get("status"))
                                         || "SUCCEEDED".equals(execution.get("status")))
                                 && matches(
-                                        expected, actual, "CONTAINS".equals(test.get("matchMode")));
-                message = passed ? "操作命中且结果断言匹配" : "操作结果不符合冻结断言";
+                                        assertion, actual, "CONTAINS".equals(test.get("matchMode")));
+                message =
+                        !explanationOk
+                                ? "结果解释未包含冻结关键词"
+                                : passed ? "操作命中且结果断言匹配" : "操作结果不符合冻结断言";
             } catch (ContractProblem e) {
                 message = e.getMessage();
             } catch (Problem e) {
@@ -126,6 +149,16 @@ public class CandidateTestService {
         }
         return Map.of(
                 "candidateSha256", candidate.get("sha256"), "passed", all, "results", results);
+    }
+
+    /** 从执行事实的步骤中取 EXPLAIN 解释文本；缺失时返回空串。 */
+    private String explanation(Map<String, Object> execution) {
+        if (execution.get("steps") instanceof List<?> steps)
+            for (Object item : steps)
+                if (item instanceof Map<?, ?> step
+                        && "EXPLAIN".equals(Objects.toString(step.get("kind"), "")))
+                    return Objects.toString(step.get("detail"), "");
+        return "";
     }
 
     /** EXACT 逐层相等；CONTAINS 对象按字段子集、数组按元素包含，数值按数学值比较。 */

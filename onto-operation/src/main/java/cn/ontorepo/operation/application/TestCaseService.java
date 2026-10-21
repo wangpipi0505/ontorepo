@@ -37,10 +37,22 @@ public class TestCaseService {
                 || !(b.get("expected") instanceof Map<?, ?>)) throw Problem.bad("用例匹配或输入断言无效");
         Map<?, ?> expected = (Map<?, ?>) b.get("expected");
         if (expected.isEmpty()
-                || !Set.of("status", "errorCode", "opCode", "columns", "rows")
+                || !Set.of("status", "errorCode", "opCode", "columns", "rows", "explanationKeywords")
                         .containsAll(expected.keySet())
                 || mode.equals("EXACT") && !expected.containsKey("rows"))
             throw Problem.bad("精确匹配须提供完整rows，包含匹配也必须有明确断言");
+        if (expected.containsKey("explanationKeywords")) {
+            if (!(expected.get("explanationKeywords") instanceof List<?> keywords)
+                    || keywords.isEmpty()
+                    || keywords.size() > 20
+                    || keywords.stream()
+                            .anyMatch(
+                                    item ->
+                                            !(item instanceof String text)
+                                                    || text.isBlank()
+                                                    || text.length() > 200))
+                throw Problem.bad("解释关键词必须为1~20个非空字符串");
+        }
         return spaces.write(
                 u,
                 s,

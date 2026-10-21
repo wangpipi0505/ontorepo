@@ -62,6 +62,118 @@ class P2SupplyTest extends WorkflowFixture {
     }
 
     @Test
+    void nlExplanationRendersFrozenTemplateAndPersistsExplainStep() throws Exception {
+        String s = createSpace(), op = createOperation(s, 20);
+        createClass(s, "任务", null);
+        guards(s);
+        var declaration = assistant(s, List.of("region"));
+        var tool = new LinkedHashMap<>((Map<String, Object>) declaration.get("assistantTool"));
+        tool.put(
+                "return_spec",
+                Map.of(
+                        "modelSummary",
+                        Map.of("mode", "TEMPLATE", "template", "查询 ${opCode} 返回 ${rowCount} 条"),
+                        "structuredPath",
+                        "$.data",
+                        "fileRefPaths",
+                        List.of(),
+                        "cardTemplate",
+                        "结果",
+                        "ontologyMetaPath",
+                        "$.meta"));
+        declaration.put("assistantTool", tool);
+        data(put("/onto/operations/" + op + "/assistant"), declaration);
+        var test =
+                new LinkedHashMap<String, Object>(
+                        Map.of(
+                                "spaceId",
+                                s,
+                                "expectedDraftRev",
+                                rev(s),
+                                "name",
+                                "解释断言",
+                                "question",
+                                "列出对象",
+                                "operationId",
+                                op,
+                                "input",
+                                Map.of(),
+                                "expected",
+                                Map.of(
+                                        "status",
+                                        "SUCCEEDED",
+                                        "explanationKeywords",
+                                        List.of("查询", "返回 1 条")),
+                                "enabled",
+                                true));
+        test.put("mode", "NL");
+        test.put("matchMode", "CONTAINS");
+        data(post("/onto/test-cases"), test);
+        String c = freeze(s).path("id").asText();
+        var result = data(post("/onto/candidates/" + c + "/tests"), null);
+        assertTrue(result.path("passed").asBoolean(), result.toString());
+        assertEquals(
+                1,
+                db.queryForObject(
+                        "SELECT count(*) FROM op_execution_step WHERE kind='EXPLAIN'",
+                        Integer.class));
+    }
+
+    @Test
+    void nlExplanationKeywordMismatchFailsTheCase() throws Exception {
+        String s = createSpace(), op = createOperation(s, 20);
+        createClass(s, "任务", null);
+        guards(s);
+        var declaration = assistant(s, List.of("region"));
+        var tool = new LinkedHashMap<>((Map<String, Object>) declaration.get("assistantTool"));
+        tool.put(
+                "return_spec",
+                Map.of(
+                        "modelSummary",
+                        Map.of("mode", "TEMPLATE", "template", "查询 ${opCode} 返回 ${rowCount} 条"),
+                        "structuredPath",
+                        "$.data",
+                        "fileRefPaths",
+                        List.of(),
+                        "cardTemplate",
+                        "结果",
+                        "ontologyMetaPath",
+                        "$.meta"));
+        declaration.put("assistantTool", tool);
+        data(put("/onto/operations/" + op + "/assistant"), declaration);
+        var test =
+                new LinkedHashMap<String, Object>(
+                        Map.of(
+                                "spaceId",
+                                s,
+                                "expectedDraftRev",
+                                rev(s),
+                                "name",
+                                "解释反向断言",
+                                "question",
+                                "列出对象",
+                                "operationId",
+                                op,
+                                "input",
+                                Map.of(),
+                                "expected",
+                                Map.of(
+                                        "status",
+                                        "SUCCEEDED",
+                                        "explanationKeywords",
+                                        List.of("不存在的解释词")),
+                                "enabled",
+                                true));
+        test.put("mode", "NL");
+        test.put("matchMode", "CONTAINS");
+        data(post("/onto/test-cases"), test);
+        String c = freeze(s).path("id").asText();
+        var result = data(post("/onto/candidates/" + c + "/tests"), null);
+        assertFalse(result.path("passed").asBoolean());
+        assertTrue(result.path("results").get(0).path("message").asText().contains("解释"));
+    }
+
+    @Test
     void contextPackContainsConceptPropertiesAndFrozenExampleAnswers() throws Exception {
         String s = createSpace(), cl = createClass(s, "设备", null), op = createOperation(s, 20);
         guards(s);
