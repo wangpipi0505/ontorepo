@@ -9,6 +9,18 @@ const overview = useOverviewCards(() => (workspace.space ? [workspace.space] : [
 const state = computed(() =>
   workspace.space ? overview.states.value[overview.key(workspace.space)] : undefined,
 )
+function mappingIssueTo(issue: { entityId?: string; field?: string }) {
+  const params = new URLSearchParams()
+  if (issue.entityId) params.set('entityId', issue.entityId)
+  if (issue.field) params.set('field', issue.field)
+  return `/spaces/${workspace.space?.id}/mappings?${params.toString()}`
+}
+const mappingKindLabels: Record<string, string> = {
+  CLASS_OBJECT: '类与对象映射',
+  REQUIRED_PROPERTY: '必填属性',
+  RELATION_KEYS: '关系连接键',
+  REACHABLE_REFERENCE: '可达引用',
+}
 const links = [
   ['model', '对象与属性', '管理模型层级与属性分面'],
   ['relations', '关系', '维护方向、基数与逆关系'],
@@ -214,9 +226,14 @@ const nextStep = computed(() => readiness.value.find((item) => !item.done))
       <template v-if="state?.value?.mappings.value">
         <p v-if="!state.value.mappings.value.checks.length">尚未检查映射完整性。</p>
         <article v-for="check in state.value.mappings.value.checks" :key="check.kind" class="issue">
-          <strong>{{ check.kind }} · {{ check.passed ? '检查完成，未发现问题' : '未通过' }}</strong>
+          <strong>{{ mappingKindLabels[check.kind] ?? check.kind }} · {{ check.passed ? '检查完成，未发现问题' : '未通过' }}</strong>
           <p v-for="(issue, i) in check.issues" :key="i">
             {{ issue.message }} · {{ issue.entityId }} {{ issue.field }}
+            <RouterLink
+              :to="mappingIssueTo(issue)"
+            >
+              去映射工作台定位 →
+            </RouterLink>
           </p>
         </article>
         <router-link :to="`/spaces/${workspace.space.id}/mappings`">

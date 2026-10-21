@@ -7,6 +7,16 @@ const total = computed(
   () =>
     props.value.coverage.mapped + props.value.coverage.pending + props.value.coverage.unmappable,
 )
+const issueLabels: Record<string, string> = {
+  UNMAPPED: '未映射',
+  TYPE_MISMATCH: '类型不匹配',
+  TYPE_INCOMPATIBLE: '类型不兼容',
+  MISSING_OBJECT_MAPPING: '缺少对象映射',
+  MISSING_PROPERTY_MAPPING: '缺少属性映射',
+  INVALID_REFERENCE: '引用无效',
+  UNREACHABLE_REFERENCE: '引用不可达',
+  KEY_MISMATCH: '连接键不匹配',
+}
 const labels = {
   CLASS_OBJECT: '类与对象映射',
   REQUIRED_PROPERTY: '必填属性',
@@ -29,7 +39,7 @@ const labels = {
     <div v-for="check in value.checks" :key="check.kind">
       <h3>{{ labels[check.kind] }} · {{ check.passed ? '通过' : '未通过' }}</h3>
       <p v-for="(issue, index) in check.issues" :key="index" class="error-text">
-        {{ issue.code }}：{{ issue.message }}
+        {{ issueLabels[issue.code] ?? issue.code }}：{{ issue.message }}
         <code>{{ issue.entityId }} {{ issue.field }}</code>
       </p>
     </div>

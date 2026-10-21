@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /** 三层工作台的读基线固定到一致性快照；变更先读取影响，再打开可审查表单。 */
-import { computed, nextTick, onMounted, ref, shallowRef } from 'vue'
+import { computed, inject, nextTick, onMounted, ref, shallowRef } from 'vue'
+import { routeLocationKey } from 'vue-router'
 import type {
   Codebook,
   Datasource,
@@ -24,6 +25,12 @@ import MappingCoverage from './MappingCoverage.vue'
 import MappingList from './MappingList.vue'
 import MappingWorkbench from './MappingWorkbench.vue'
 import type { MappingEdge, MappingPrefill } from './mappingGraph'
+const route = inject(routeLocationKey, undefined)
+const focusIssue = computed(() => {
+  const entityId = typeof route?.query.entityId === 'string' ? route.query.entityId : ''
+  const field = typeof route?.query.field === 'string' ? route.query.field : ''
+  return entityId || field ? [entityId, field].filter(Boolean).join(' · ') : ''
+})
 const api = useSession().api
 const editor = useDraftDocument(async (id) => {
   const [mappings, sources, classes, properties, relations, codebooks, validation] =
@@ -138,6 +145,10 @@ onMounted(load)
     </div>
     <el-button :disabled="open || editor.mutation.pending.value" @click="load">刷新映射</el-button>
   </div>
+  <p v-if="focusIssue" class="notice" role="status">
+    已定位映射问题：<span class="mono">{{ focusIssue }}</span>
+    ；请在对象/属性/关系映射中检查对应条目。
+  </p>
   <AsyncState
     :loading="editor.resource.loading.value"
     :error="editor.resource.error.value"

@@ -23,6 +23,15 @@ const filters = reactive({
   to: '',
 })
 const subjectTypes = ['CANDIDATE', 'RELEASE', 'DATASOURCE', 'MAPPING', 'OPERATION', 'SPACE']
+const subjectTypeLabels: Record<string, string> = {
+  CANDIDATE: '候选',
+  RELEASE: '版本',
+  DATASOURCE: '数据源',
+  MAPPING: '映射',
+  OPERATION: '操作',
+  SPACE: '空间',
+}
+const resultLabels: Record<string, string> = { SUCCESS: '成功', FAILURE: '失败', DENIED: '拒绝' }
 const actionLabels: Record<string, string> = {
   SPACE_CREATE: '创建空间',
   SPACE_ARCHIVE: '归档空间',
@@ -120,7 +129,9 @@ watch(
         <el-input v-model="filters.action" placeholder="动作编码，如 RELEASE_COMMIT" clearable />
         <select v-model="filters.subjectType" aria-label="对象类型">
           <option value="">全部对象类型</option>
-          <option v-for="type in subjectTypes" :key="type" :value="type">{{ type }}</option>
+          <option v-for="type in subjectTypes" :key="type" :value="type">
+              {{ subjectTypeLabels[type] ?? type }}
+            </option>
         </select>
         <el-input v-model="filters.subjectId" placeholder="对象 ID" clearable />
         <el-input v-model="filters.from" placeholder="开始（ISO，如 2026-10-21T00:00:00Z）" />
@@ -143,8 +154,8 @@ watch(
         </div>
         <p class="muted">
           操作人 {{ item.actorName || item.actorId || '未记录' }} · 对象
-          {{ item.subjectType || '—' }}
-          {{ item.subjectId || '未记录' }} · 结果 {{ item.result || '—' }}
+          {{ item.subjectType ? (subjectTypeLabels[item.subjectType] ?? item.subjectType) : '—' }}
+          {{ item.subjectId || '未记录' }} · 结果 {{ item.result ? (resultLabels[item.result] ?? item.result) : '—' }}
         </p>
         <details>
           <summary>安全审计详情</summary>
