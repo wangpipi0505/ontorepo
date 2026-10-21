@@ -1,16 +1,18 @@
 <script setup lang="ts">
-/** 空间管理入口，只展示服务端授权可见的数据；删除性归档须确认，列表失败允许手动重试。 */
+/** 本体空间管理首页：列表即入口，行内进入建模、数据配置、测试与设置。 */
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import type { Space } from '@onto/api-client'
 import AsyncState from '@onto/shared-ui/AsyncState.vue'
 import { useSession } from '../stores/session'
 import { useResource } from '../composables/useResource'
 import { useMutation, confirmAction } from '../composables/useMutation'
-import { roleLabels } from '../composables/labels'
 import SpaceDialog from '../components/SpaceDialog.vue'
 import OverviewMetrics from '../features/overview/OverviewMetrics.vue'
 import { useOverviewCards } from '../features/overview/useOverviewCards'
+import { releaseLabels } from '../features/overview/overview'
 const session = useSession(),
+  router = useRouter(),
   api = session.api,
   spaces = useResource<Space[]>([]),
   mutation = useMutation()
@@ -18,7 +20,7 @@ const dialog = ref(false),
   selected = ref<Space | null>(null)
 const filters = reactive({ name: '', code: '', domain: '', status: '' })
 const page = ref(1),
-  pageSize = 6
+  pageSize = 10
 const filtered = computed(() =>
   spaces.data.value.filter(
     (space) =>
@@ -38,6 +40,44 @@ watch(filters, () => {
 })
 function clearFilters() {
   Object.assign(filters, { name: '', code: '', domain: '', status: '' })
+}
+function overviewState(space: Space) {
+  return overview.states.value[overview.key(space)]?.value
+}
+function releaseText(space: Space) {
+  const release = overviewState(space)?.release
+  if (release?.value) return `v${release.value.versionNo} · ${releaseLabels[release.value.status]}`
+  if (release?.error) return release.error
+  return '—'
+}
+function conflictText(space: Space) {
+  const conflicts = overviewState(space)?.conflicts
+  if (!conflicts?.value) return conflicts?.error || '—'
+  return `${conflicts.value.errors.length} 项错误 · ${conflicts.value.warnings.length} 项警告`
+}
+function relationRuleText(space: Space) {
+  const value = overviewState(space)
+  if (!value) return '—'
+  return `关系 ${value.relations.value ?? '—'} · 规则 ${value.rules.value ?? '—'}`
+}
+function mappingText(space: Space) {
+  const mapping = overviewState(space)?.mappings
+  if (!mapping?.value) return mapping?.error || '—'
+  const issues = mapping.value.coverage.pending + mapping.value.coverage.unmappable
+  return `${issues} 项问题`
+}
+function overviewError(space: Space) {
+  const value = overviewState(space)
+  return (
+    value?.release.error ||
+    value?.conflicts.error ||
+    value?.mappings.error ||
+    (overview.states.value[overview.key(space)]?.error ?? '')
+  )
+}
+function enter(space: Space) {
+  if (space.status === 'ARCHIVED') return
+  void router.push(`/spaces/${space.id}/model`)
 }
 async function load() {
   overview.reset()
@@ -63,19 +103,15 @@ onMounted(load)
 <template>
   <div class="page-heading">
     <div>
-      <h1>工作空间</h1>
-      <p class="muted">从一个领域开始，组织对象、属性与可执行的模型查询。</p>
+      <h1>本体建模</h1>
+      <p class="muted">先选择一套领域本体，再进入建模工作台；数据配置与测试也可从本列表直接发起。</p>
     </div>
     <el-button v-if="session.has('space.create')" type="primary" @click="edit(null)">
-      新建空间
+      新建本体空间
     </el-button>
   </div>
   <p v-if="mutation.error.value" class="error-text">{{ mutation.error.value }}</p>
-  <section class="panel">
-    <div class="row spread list-heading">
-      <h2>我的空间</h2>
-      <el-button text @click="load">刷新</el-button>
-    </div>
+  <section class="panel space-panel">
     <form class="space-filters" @submit.prevent>
       <label>
         空间名称
@@ -98,79 +134,149 @@ onMounted(load)
         </select>
       </label>
       <el-button @click="clearFilters">清除筛选</el-button>
+      <el-button text @click="load">刷新</el-button>
     </form>
     <AsyncState
       :loading="spaces.loading.value"
       :error="spaces.error.value"
       :empty="!spaces.data.value.length"
-      empty-text="还没有可见空间。新建空间，开始建立领域模型。"
+      empty-text="还没有可见的本体空间。新建空间，开始建立领域模型。"
       @retry="load"
     >
-      <p v-if="!filtered.length" role="status">没有符合筛选条件的空间，请调整或清除筛选。</p>
-      <div class="space-grid">
-        <article v-for="space in visible" :key="space.id" class="space-card">
-          <div class="row spread">
-            <span class="mono muted">{{ space.code }}</span>
-            <el-tag :type="space.status === 'ARCHIVED' ? 'info' : 'success'" size="small">
-              {{ space.status === 'ACTIVE' ? '使用中' : '已归档' }}
+      <p v-if="!filtered.length" role="status">没有符合筛选条件的本体空间，请调整或清除筛选。</p>
+      <el-table
+        v-else
+        :data="visible"
+        row-key="id"
+        class="space-table"
+        row-class-name="space-card"
+        @row-click="enter"
+      >
+        <el-table-column type="expand" width="36">
+          <template #default="{ row }">
+            <OverviewMetrics
+              :state="overview.states.value[overview.key(row)]"
+              @retry="overview.retry(row)"
+            />
+          </template>
+        </el-table-column>
+        <el-table-column label="本体名称" min-width="220">
+          <template #default="{ row }">
+            <router-link class="space-title" :to="`/spaces/${row.id}/model`" @click.stop>
+              {{ row.name }}
+            </router-link>
+            <div class="mono muted row-sub">{{ row.code }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column label="领域" min-width="120">
+          <template #default="{ row }">{{ row.domain || '—' }}</template>
+        </el-table-column>
+        <el-table-column label="状态" width="90">
+          <template #default="{ row }">
+            <el-tag :type="row.status === 'ARCHIVED' ? 'info' : 'success'" size="small">
+              {{ row.status === 'ACTIVE' ? '使用中' : '已归档' }}
             </el-tag>
-          </div>
-          <router-link :to="`/spaces/${space.id}`" class="space-title">
-            {{ space.name }}
-          </router-link>
-          <p class="muted domain">{{ space.description || space.domain || '暂无说明' }}</p>
-          <p v-if="space.updatedAt" class="muted card-updated">
-            最近修改 {{ new Date(space.updatedAt).toLocaleString('zh-CN') }}
-          </p>
-          <div class="space-counts">
-            <span>
-              <b>{{ space.classCount }}</b>
-              对象
+          </template>
+        </el-table-column>
+        <el-table-column label="规模" width="150">
+          <template #default="{ row }">
+            {{ row.classCount }} 对象 · {{ row.propertyCount }} 属性
+          </template>
+        </el-table-column>
+        <el-table-column label="关系 / 规则" width="140">
+          <template #default="{ row }">{{ relationRuleText(row) }}</template>
+        </el-table-column>
+        <el-table-column label="正式版本" width="170">
+          <template #default="{ row }">
+            <span :class="{ 'error-text-inline': overviewState(row)?.release.error }">
+              {{ releaseText(row) }}
             </span>
-            <span>
-              <b>{{ space.propertyCount }}</b>
-              属性
-            </span>
-            <span>
-              <b>{{ space.operationCount }}</b>
-              操作
-            </span>
-          </div>
-          <OverviewMetrics
-            :state="overview.states.value[overview.key(space)]"
-            @retry="overview.retry(space)"
-          />
-          <div class="row spread card-foot">
-            <span class="muted">{{ roleLabels[space.role] }} · r{{ space.draftRev }}</span>
-            <div class="row">
+          </template>
+        </el-table-column>
+        <el-table-column label="校验 / 映射" width="170">
+          <template #default="{ row }">
+            <span>{{ conflictText(row) }} · {{ mappingText(row) }}</span>
+            <div v-if="overviewError(row)" class="error-text-inline">{{ overviewError(row) }}</div>
+            <el-button
+              v-if="overviewError(row)"
+              link
+              type="primary"
+              class="retry-inline"
+              @click.stop="overview.retry(row)"
+            >
+              重试概览
+            </el-button>
+          </template>
+        </el-table-column>
+        <el-table-column label="最近修改" width="160">
+          <template #default="{ row }">
+            {{ row.updatedAt ? new Date(row.updatedAt).toLocaleString('zh-CN') : '—' }}
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="300" fixed="right">
+          <template #default="{ row }">
+            <div class="row-actions" @click.stop>
+              <el-button v-if="row.status === 'ACTIVE'" link type="primary" @click="enter(row)">
+                进入建模
+              </el-button>
               <el-button
-                v-if="
-                  space.role !== 'VIEWER' && space.status === 'ACTIVE' && session.has('space.write')
-                "
                 link
                 type="primary"
-                @click="edit(space)"
+                @click="router.push(`/spaces/${row.id}/data?tab=datasources`)"
               >
-                编辑
+                数据配置
               </el-button>
               <el-button
-                v-if="
-                  space.role === 'OWNER' && space.status === 'ACTIVE' && session.has('space.write')
-                "
                 link
-                type="danger"
-                :disabled="mutation.pending.value"
-                @click="archive(space)"
+                type="primary"
+                @click="router.push(`/spaces/${row.id}/delivery?tab=testing`)"
               >
-                归档
+                发起测试
               </el-button>
-              <router-link :to="`/spaces/${space.id}`">进入空间 →</router-link>
+              <details class="row-more" @click.stop>
+                <summary>更多</summary>
+                <div class="more-panel">
+                  <button type="button" @click="router.push(`/spaces/${row.id}`)">空间概览</button>
+                  <button
+                    v-if="row.role === 'OWNER'"
+                    type="button"
+                    @click="router.push(`/spaces/${row.id}/settings`)"
+                  >
+                    空间设置
+                  </button>
+                  <button
+                    v-if="
+                      row.role !== 'VIEWER' &&
+                      row.status === 'ACTIVE' &&
+                      session.has('space.write')
+                    "
+                    type="button"
+                    @click="edit(row)"
+                  >
+                    编辑
+                  </button>
+                  <button
+                    v-if="
+                      row.role === 'OWNER' &&
+                      row.status === 'ACTIVE' &&
+                      session.has('space.write')
+                    "
+                    type="button"
+                    class="danger"
+                    @click="archive(row)"
+                  >
+                    归档
+                  </button>
+                </div>
+              </details>
             </div>
-          </div>
-        </article>
-      </div>
+          </template>
+        </el-table-column>
+      </el-table>
       <div v-if="filtered.length" class="row spread pagination">
-        <span class="muted">共 {{ filtered.length }} 个空间 · 第 {{ page }} / {{ pages }} 页</span>
+        <span class="muted">
+          共 {{ filtered.length }} 个本体空间 · 第 {{ page }} / {{ pages }} 页
+        </span>
         <div class="row">
           <el-button :disabled="page === 1" @click="page--">上一页</el-button>
           <el-button :disabled="page === pages" @click="page++">下一页</el-button>
@@ -181,18 +287,21 @@ onMounted(load)
   <SpaceDialog v-model="dialog" :space="selected" @saved="load" />
 </template>
 <style scoped>
+.space-panel {
+  padding: 12px;
+}
 .space-filters {
   display: flex;
   flex-wrap: wrap;
   align-items: end;
-  gap: 12px;
-  margin-bottom: 22px;
+  gap: 10px;
+  margin-bottom: 12px;
 }
 .space-filters label {
   display: flex;
   flex: 1 1 150px;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   color: var(--muted);
   font-size: 12px;
 }
@@ -200,72 +309,74 @@ onMounted(load)
 .space-filters select {
   min-width: 0;
   width: 100%;
-  box-sizing: border-box;
   border: 1px solid var(--line);
   border-radius: 4px;
-  padding: 9px;
+  padding: 7px 9px;
   background: white;
   color: var(--text);
 }
-.pagination {
-  margin-top: 20px;
-  flex-wrap: wrap;
-}
-.list-heading {
-  margin-bottom: 20px;
-}
-.list-heading h2 {
-  margin: 0;
-}
-.space-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 16px;
-}
-.space-card {
-  border: 1px solid var(--line);
-  padding: 22px;
-  border-radius: 6px;
-  min-width: 0;
+.space-table {
+  width: 100%;
 }
 .space-title {
-  display: block;
-  font-size: 19px;
   font-weight: 600;
-  color: var(--text);
-  margin: 20px 0 8px;
-  overflow-wrap: anywhere;
 }
-.space-title:hover {
-  color: var(--primary);
+.row-sub {
+  font-size: 11px;
+  margin-top: 2px;
 }
-.domain {
-  min-height: 44px;
-  overflow-wrap: anywhere;
-}
-.space-counts {
+.row-actions {
   display: flex;
-  gap: 22px;
-  font-size: 12px;
-  color: var(--muted);
-  margin: 22px 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
 }
-.space-counts b {
-  font-size: 21px;
+.row-more {
+  position: relative;
+  display: inline-block;
+}
+.row-more summary {
+  cursor: pointer;
+  color: var(--primary);
+  font-size: 13px;
+  padding: 4px 6px;
+}
+.more-panel {
+  position: absolute;
+  right: 0;
+  top: 26px;
+  z-index: 5;
+  min-width: 120px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgb(15 23 42 / 12%);
+  padding: 4px;
+}
+.more-panel button {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 6px 8px;
+  font-size: 12px;
   color: var(--text);
-  margin-right: 3px;
+  cursor: pointer;
 }
-.card-foot {
-  border-top: 1px solid var(--line);
-  padding-top: 16px;
-  font-size: 12px;
+.more-panel button:hover {
+  background: #f1f5ff;
 }
-@media (max-width: 600px) {
-  .space-grid {
-    grid-template-columns: 1fr;
-  }
-  .space-card {
-    padding: 16px;
-  }
+.more-panel button.danger {
+  color: var(--danger);
+}.retry-inline {
+  margin-left: 4px;
+}
+.error-text-inline {
+  color: var(--danger);
+}
+.pagination {
+  margin-top: 12px;
+  flex-wrap: wrap;
 }
 </style>

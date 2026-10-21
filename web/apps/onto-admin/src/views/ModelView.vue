@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 建模主工作区：对象树与属性面板按职责分离；异步重载保留有效选择，失败不制造本地成功状态。 */
-import { computed, defineAsyncComponent, onMounted, reactive, ref, inject, watch } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, reactive, ref, inject, watch } from 'vue'
 import { routeLocationKey } from 'vue-router'
 import type { Conflicts, Constraint, OntClass, Relation, Rule, Space } from '@onto/api-client'
 import type Node from 'element-plus/es/components/tree/src/model/node'
@@ -22,6 +22,10 @@ const workspace = useWorkspace(),
   rules = useResource<Rule[]>([]),
   mutation = useMutation()
 const route = inject(routeLocationKey, undefined)
+const canvasHeight = ref(560)
+function fitCanvas() {
+  canvasHeight.value = Math.max(520, window.innerHeight - 300)
+}
 const focusId = computed(() =>
   typeof route?.query.classId === 'string'
     ? route.query.classId
@@ -227,13 +231,19 @@ async function dropped(drag: Node, target: Node) {
 function select(node: ClassNode) {
   selectedId.value = node.id
 }
-onMounted(load)
+onMounted(() => {
+  fitCanvas()
+  window.addEventListener('resize', fitCanvas)
+  void load()
+})
+
+onBeforeUnmount(() => window.removeEventListener('resize', fitCanvas))
 </script>
 <template>
   <div class="page-heading">
     <div>
-      <h1>对象与属性</h1>
-      <p class="muted">图谱查看对象与关系；选中对象后在右侧维护属性定义。</p>
+      <h1>建模工作台</h1>
+      <p class="muted">画布编辑对象与关系；规则、冲突、策略、操作通过上方页签表格式维护。</p>
     </div>
     <div class="row">
       <el-button
@@ -339,7 +349,7 @@ onMounted(load)
             :selected-id="selectedId"
             :editable="workspace.canWrite"
             :link-mode="linkMode"
-            :height="560"
+            :height="canvasHeight"
             @select="selectGraph"
             @edit="editGraph"
             @create-edge="openRelation"
@@ -459,7 +469,9 @@ onMounted(load)
   outline-color: #2563eb;
 }
 .detail-panel {
-  min-height: 480px;
+  min-height: 0;
+  max-height: calc(100vh - 220px);
+  overflow: auto;
   padding: 8px 14px;
 }
 .detail-panel :deep(.panel) {
@@ -471,15 +483,22 @@ onMounted(load)
 .model-grid {
   display: grid;
   grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
-  gap: 16px;
-  align-items: start;
+  gap: 12px;
+  align-items: stretch;
 }
 .model-grid.graph-mode {
   grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
 }
 .graph-panel {
-  padding: 16px;
-  min-height: 560px;
+  padding: 10px 12px;
+  min-height: 0;
+}
+.graph-panel h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.graph-tools {
+  margin: 4px 0 8px;
 }
 .tree-panel {
   padding: 20px 14px;

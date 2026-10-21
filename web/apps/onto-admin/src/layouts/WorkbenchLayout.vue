@@ -140,7 +140,7 @@ async function logout() {
             r{{ workspace.space.draftRev }} · {{ roleLabels[workspace.space.role] }}
           </span>
           <RequirementTags v-if="route.path.startsWith('/spaces/')" />
-          <span class="space-switch">切换</span>
+          <span v-if="workspace.space" class="space-switch">切换</span>
         </router-link>
         <GlobalSearch v-if="spaceId" />
         <el-dropdown trigger="click" @command="accountCommand">

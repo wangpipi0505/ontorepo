@@ -110,7 +110,7 @@ describe('空间查询与真实概览', () => {
     expect(wrapper.findAll('.space-card')).toHaveLength(1)
     await wrapper.get('[aria-label="空间编码"]').setValue('不存在')
     await flushPromises()
-    expect(wrapper.text()).toContain('没有符合筛选条件的空间')
+    expect(wrapper.text()).toContain('没有符合筛选条件的本体空间')
     expect(vi.mocked(useSession().api.get).mock.calls.length).toBe(count)
   })
   it('卡片展示关系、规则、正式版本状态与冲突，不把弃用当可消费', async () => {
@@ -120,7 +120,7 @@ describe('空间查询与真实概览', () => {
     expect(wrapper.text()).toContain('v3')
     expect(wrapper.text()).toContain('已弃用')
     expect(wrapper.text()).toContain('1 项错误')
-    expect(wrapper.get('.space-title').attributes('href')).toBe('/spaces/a')
+    expect(wrapper.get('.space-title').attributes('href')).toBe('/spaces/a/model')
   })
   it('版本读取失败明确保留版本项及重试，其他指标仍可用', async () => {
     vi.mocked(useSession().api.get).mockImplementation(async <T>(path: string) => {
@@ -135,7 +135,7 @@ describe('空间查询与真实概览', () => {
   })
   it('映射校验问题独立显示，不把模型无冲突当整体通过', async () => {
     const wrapper = await page()
-    expect(wrapper.text()).toContain('映射校验')
+    expect(wrapper.text()).toContain('校验 / 映射')
     expect(wrapper.text()).toContain('1 项问题')
   })
   it('概览展示八类设计入口与可定位的真实问题', async () => {
@@ -162,7 +162,7 @@ describe('空间查询与真实概览', () => {
     expect(wrapper.text()).toContain('类型不匹配')
     expect(wrapper.text()).toContain('必填属性缺少映射')
   })
-  it('每页只读六个空间、最多两张卡片并发，分页之外不预取', async () => {
+  it('每页只读十个空间、最多两张卡片并发，分页之外不预取', async () => {
     let release!: () => void
     const gate = new Promise<void>((resolve) => {
       release = resolve
@@ -182,11 +182,11 @@ describe('空间查询与真实概览', () => {
     ).toHaveLength(2)
     release()
     await flushPromises()
-    expect(wrapper.findAll('.space-card')).toHaveLength(6)
+    expect(wrapper.findAll('.space-card')).toHaveLength(10)
     expect(
       vi
         .mocked(useSession().api.get)
-        .mock.calls.some(([path]) => /^\/spaces\/s(6|7|8|9|1\d)$/.test(path)),
+        .mock.calls.some(([path]) => /^\/spaces\/s1[0-3]$/.test(path)),
     ).toBe(false)
   })
   it('读取期间草稿变化时概览失败，不展示混合修订的统计', async () => {
