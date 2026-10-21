@@ -80,6 +80,18 @@ export const router = createRouter({
           component: () => import('./views/SettingsView.vue'),
         },
         {
+          path: 'spaces/:spaceId/data',
+          component: () => import('./views/KnowledgeDataView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/delivery',
+          component: () => import('./views/DeliveryView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/trace',
+          component: () => import('./views/TraceAuditView.vue'),
+        },
+        {
           path: 'spaces/:spaceId/knowledge',
           component: () => import('./features/p2/KnowledgeView.vue'),
         },

@@ -17,6 +17,9 @@ const areas: Record<string, string> = {
   releases: '发布与服务',
   audit: '溯源审计',
   settings: '空间设置',
+  data: '知识与数据',
+  delivery: '测试与服务封装',
+  trace: '数据溯源审计',
 }
 const pages: Record<string, string> = {
   model: '建模工作台',
@@ -31,6 +34,9 @@ const pages: Record<string, string> = {
   imports: 'TTL / OWL 导入导出',
   releases: '发布与版本',
   audit: '审计记录',
+  data: '知识与数据',
+  delivery: '测试与服务封装',
+  trace: '数据溯源审计',
   settings: '空间设置',
 }
 const tabs: Record<string, Record<string, string>> = {

@@ -5,7 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useSession } from '../stores/session'
 import { useWorkspace } from '../stores/workspace'
 import { errorMessage } from '../composables/useResource'
-import { pagePermission, spacePagePermissions } from '../composables/pagePermissions'
+import { pagePermission } from '../composables/pagePermissions'
 import { roleLabels } from '../composables/labels'
 import RequirementTags from '../components/RequirementTags.vue'
 import Breadcrumbs from '../components/Breadcrumbs.vue'
@@ -51,75 +51,6 @@ async function loadSpace() {
   }
 }
 watch(spaceId, loadSpace, { immediate: true })
-const tabs = [
-  { path: 'model', label: '建模工作台' },
-  { path: 'operations', label: '模型操作' },
-  { path: 'knowledge', label: '知识管理' },
-  { path: 'settings', label: '空间设置', ownerOnly: true },
-  { path: 'datasources', label: '数据源管理' },
-  { path: 'mappings', label: '三层映射' },
-  { path: 'suggestions', label: '三来源建模抽取' },
-  { path: 'data-catalog', label: '数据目录' },
-  { path: 'imports', label: 'TTL / OWL 导入导出' },
-  { path: 'testing', label: '验证与候选' },
-  { path: 'executions', label: '执行记录' },
-  { path: 'releases', label: '发布与版本' },
-  { path: 'audit', label: '审计记录' },
-]
-const groups = [
-  {
-    label: '概念建模',
-    paths: ['model'],
-  },
-  {
-    label: '知识与数据',
-    paths: [
-      'knowledge',
-      'datasources',
-      'mappings',
-      'suggestions',
-      'data-catalog',
-      'imports',
-    ],
-  },
-  { label: '操作与测试', paths: ['operations', 'testing', 'executions'] },
-  { label: '发布与服务', paths: ['releases'] },
-  { label: '溯源审计', paths: ['audit'] },
-  { label: '空间设置', paths: ['settings'] },
-]
-const visibleGroups = computed(() =>
-  groups
-    .map((group) => ({
-      label: group.label,
-      tabs: tabs.filter(
-        (tab) =>
-          group.paths.includes(tab.path) &&
-          session.has(spacePagePermissions[tab.path].read) &&
-          (!tab.ownerOnly || workspace.space?.role === 'OWNER'),
-      ),
-    }))
-    .filter((group) => group.tabs.length > 0),
-)
-const openGroups = ref<string[]>([])
-function activeGroup() {
-  return groups.find((group) => group.paths.some((path) => route.path.endsWith(`/${path}`)))
-    ?.label
-}
-watch(
-  () => route.path,
-  () => {
-    const label = activeGroup()
-    if (label && !openGroups.value.includes(label))
-      openGroups.value = [...openGroups.value, label]
-  },
-  { immediate: true },
-)
-function toggleGroup(label: string, event: Event) {
-  const open = (event.target as HTMLDetailsElement).open
-  openGroups.value = open
-    ? [...new Set([...openGroups.value, label])]
-    : openGroups.value.filter((item) => item !== label)
-}
 async function logout() {
   if (signingOut.value) return
   signingOut.value = true
@@ -143,10 +74,60 @@ async function logout() {
           <small>建模工作台</small>
         </span>
       </router-link>
-      <div class="nav-label">工作空间</div>
-      <router-link v-if="session.has('space.read')" to="/spaces" class="nav-item">
-        空间管理
+      <div class="nav-label">本体建模</div>
+      <router-link v-if="session.has('space.read')" to="/spaces" class="nav-item" active-class="" exact-active-class="active">
+        本体空间
       </router-link>
+      <template v-if="spaceId">
+        <router-link
+          :to="`/spaces/${spaceId}`"
+          class="nav-item" active-class=""
+          :class="{ active: route.path === `/spaces/${spaceId}` }"
+        >
+          空间概览
+        </router-link>
+        <router-link
+          :to="`/spaces/${spaceId}/model`"
+          class="nav-item" active-class=""
+          :class="{ active: route.path.startsWith(`/spaces/${spaceId}/model`) }"
+        >
+          建模工作台
+        </router-link>
+      </template>
+      <div class="nav-label">功能模块</div>
+      <template v-if="spaceId">
+        <router-link
+          :to="`/spaces/${spaceId}/data`"
+          class="nav-item" active-class=""
+          :class="{ active: route.path.startsWith(`/spaces/${spaceId}/data`) }"
+        >
+          知识与数据
+        </router-link>
+        <router-link
+          :to="`/spaces/${spaceId}/delivery`"
+          class="nav-item" active-class=""
+          :class="{ active: route.path.startsWith(`/spaces/${spaceId}/delivery`) }"
+        >
+          测试与服务封装
+        </router-link>
+        <router-link
+          :to="`/spaces/${spaceId}/trace`"
+          class="nav-item" active-class=""
+          :class="{ active: route.path.startsWith(`/spaces/${spaceId}/trace`) }"
+        >
+          数据溯源审计
+        </router-link>
+        <router-link
+          v-if="workspace.space?.role === 'OWNER'"
+          :to="`/spaces/${spaceId}/settings`"
+          class="nav-item" active-class=""
+          :class="{ active: route.path.startsWith(`/spaces/${spaceId}/settings`) }"
+        >
+          空间设置
+        </router-link>
+      </template>
+      <p v-else class="nav-hint">先从“本体空间”列表选择一套本体，再进入建模与数据模块。</p>
+      <div class="nav-label">系统</div>
       <router-link to="/account" class="nav-item">当前账号</router-link>
       <router-link
         v-for="tab in systemTabs.filter((item) => session.has(item.permission))"
@@ -156,33 +137,6 @@ async function logout() {
       >
         {{ tab.label }}
       </router-link>
-      <template v-if="spaceId">
-        <div class="nav-label">{{ workspace.space?.name || '当前空间' }}</div>
-        <router-link
-          :to="`/spaces/${spaceId}`"
-          class="nav-item overview-nav"
-          :class="{ 'overview-current': route.path === `/spaces/${spaceId}` }"
-        >
-          空间概览
-        </router-link>
-        <details
-          v-for="group in visibleGroups"
-          :key="group.label"
-          class="nav-group"
-          :open="openGroups.includes(group.label)"
-          @toggle="toggleGroup(group.label, $event)"
-        >
-          <summary>{{ group.label }}</summary>
-          <router-link
-            v-for="tab in group.tabs"
-            :key="tab.path"
-            :to="`/spaces/${spaceId}/${tab.path}`"
-            class="nav-item"
-          >
-            {{ tab.label }}
-          </router-link>
-        </details>
-      </template>
       <div class="nav-foot">
         本体全流程工作台
         <br />
@@ -278,7 +232,8 @@ async function logout() {
 .nav-item:hover {
   background: #203c60;
 }
-.nav-item.router-link-active {
+.nav-item.router-link-active,
+.nav-item.active {
   background: #284f80;
   color: #fff;
   box-shadow: inset 3px 0 #7ca7ff;
@@ -287,6 +242,12 @@ async function logout() {
   background: transparent;
   color: #c4d2e4;
   box-shadow: none;
+}
+.nav-hint {
+  padding: 4px 14px 16px;
+  color: #8ea8c6;
+  font-size: 12px;
+  line-height: 1.6;
 }
 .nav-foot {
   margin-top: auto;
@@ -328,9 +289,8 @@ async function logout() {
   margin-left: 8px;
 }
 .main-content {
-  padding: 30px 32px;
-  max-width: 1600px;
-  margin: auto;
+  width: 100%;
+  padding: 24px 28px 40px;
 }
 @media (max-width: 900px) {
   .workbench {
@@ -366,6 +326,9 @@ async function logout() {
   }
   .brand small,
   .nav-label,
+  .nav-hint {
+    display: none;
+  }
   .nav-foot {
     display: none;
   }
