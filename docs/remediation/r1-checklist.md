@@ -56,21 +56,21 @@
 
 ## OM-R-A4
 
-- [ ] **目标**：审计按对象/动作/时间检索；执行记录筛选分页。
-- [ ] 迁移 V16：`audit_log` 补 `subject_type`、`version_refs`、`input_digest`、`output_digest`、`result`；索引 `(space_id,subject_type,subject_id,id)`、`(space_id,action,id)`、`(space_id,created_at,id)`。
-- [ ] 后端
-  - [ ] `SpaceService.audit` 新增 `AuditDetail` 重载；数据接入/同步/映射/规则执行/发布/弃用/恢复补对象、版本、摘要、结果。
-  - [ ] `TraceAuditService`：`/audit` 支持 `action/subjectType/subjectId/from/to/limit/beforeId`；join 用户返回 `actorName`。
-  - [ ] `ExecutionFacts.recent`：支持 `caller/status/opCode/from/to/limit/beforeId`；Controller 暴露参数。
-- [ ] 前端
-  - [ ] `AuditView.vue`：筛选条（动作/对象类型/对象 ID/时间）；动作中文字典；操作者姓名。
-  - [ ] `ExecutionsView.vue`：入口/结果/操作/时间筛选 + "加载更多"。
-- [ ] 测试（`P4AuditQueryTest`、`ExecutionQueryTest`）
-  - [ ] T1 三类审计含对象/版本；按对象 ID 查得。
-  - [ ] T2 action+时间过滤；分页不重不漏。
-  - [ ] T3 执行记录 caller/status 过滤 + 分页。
-  - [ ] T4 旧行兼容，显示"历史未记录"。
-  - [ ] T5 权限：VIEWER 可读；无 trace.read 拒绝。
+- [x] **目标**：审计按对象/动作/时间检索；执行记录筛选分页。
+- [x] 迁移 V16：`audit_log` 补 `subject_type`、`version_refs`、`input_digest`、`output_digest`、`result`；索引 `(space_id,subject_type,subject_id,id)`、`(space_id,action,id)`、`(space_id,created_at,id)`。
+- [x] 后端
+  - [x] `SpaceService.audit` 新增 `AuditDetail` 重载；数据接入/同步/映射/规则执行/发布/弃用/恢复补对象、版本、摘要、结果。
+  - [x] `TraceAuditService`：`/audit` 支持 `action/subjectType/subjectId/from/to/limit/beforeId`；join 用户返回 `actorName`。
+  - [x] `ExecutionFacts.recent`：支持 `caller/status/opCode/from/to/limit/beforeId`；Controller 暴露参数。
+- [x] 前端
+  - [x] `AuditView.vue`：筛选条（动作/对象类型/对象 ID/时间）；动作中文字典；操作者姓名。
+  - [x] `ExecutionsView.vue`：入口/结果/操作/时间筛选 + "加载更多"。
+- [x] 测试（`P4AuditQueryTest`、`ExecutionQueryTest`）
+  - [x] T1 三类审计含对象/版本；按对象 ID 查得。
+  - [x] T2 action+时间过滤；分页不重不漏。
+  - [x] T3 执行记录 caller/status 过滤 + 分页。
+  - [x] T4 旧行兼容，显示"历史未记录"。
+  - [x] T5 权限：VIEWER 可读；无 trace.read 拒绝。
 
 ## OM-R-D1
 

@@ -289,7 +289,22 @@ public class ReleaseController {
             HttpServletRequest r,
             @RequestParam UUID spaceId,
             @RequestParam(defaultValue = "50") int limit,
-            @RequestParam(required = false) Long beforeId) {
-        return Envelope.ok(trace.audit(t.user(r), spaceId, limit, beforeId));
+            @RequestParam(required = false) Long beforeId,
+            @RequestParam(required = false) String action,
+            @RequestParam(required = false) String subjectType,
+            @RequestParam(required = false) UUID subjectId,
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to) {
+        return Envelope.ok(
+                trace.audit(
+                        t.user(r),
+                        spaceId,
+                        limit,
+                        beforeId,
+                        action,
+                        subjectType,
+                        subjectId,
+                        from,
+                        to));
     }
 }

@@ -1,5 +1,6 @@
 package cn.ontorepo.trace.application;
 
+import cn.ontorepo.common.domain.AuditDetail;
 import cn.ontorepo.common.domain.Input;
 import cn.ontorepo.common.domain.Problem;
 import cn.ontorepo.common.infra.Db;
@@ -663,6 +664,8 @@ public class CandidateService {
         outputFact.put("errorCode", error);
         outputFact.put("result", result);
         String outputDigest = AuthService.digest(codec.encode(outputFact));
+        String finalStatus = status;
+        String auditSha = Objects.toString(c.get("sha256"), "");
         // 固定本次已完成的执行结果，再在同一连接的短事务中写入整组事实；不把源查询包进事务。
         Object[] factValues = {
             execution,
@@ -711,7 +714,14 @@ public class CandidateService {
                             user,
                             space,
                             formal ? "RELEASE_EXECUTE" : "CANDIDATE_TRIAL",
-                            ((Number) locked.get("draftRev")).longValue());
+                            ((Number) locked.get("draftRev")).longValue(),
+                            new AuditDetail(
+                                    formal ? "RELEASE" : "CANDIDATE",
+                                    id.toString(),
+                                    Map.of("sha256", auditSha),
+                                    inputDigest,
+                                    outputDigest,
+                                    finalStatus));
                 });
         // 外部事务声明noRollbackFor，拒绝事实提交后HTTP边界才能抛出原始结构化错误。
         if (rejection != null && !"LOCAL_TEST".equals(caller)) throw rejection;
@@ -860,7 +870,19 @@ public class CandidateService {
 
     /** 执行历史按空间授权读取，首批仅保留最近50条返回，不暴露内部身份事实字段。 */
     public List<Map<String, Object>> executions(UUID user, UUID space) {
+        return executions(user, space, null, null, null, 50, 0);
+    }
+
+    /** 按入口/结果/操作筛选并分页；仍先校验空间可见性。 */
+    public List<Map<String, Object>> executions(
+            UUID user,
+            UUID space,
+            String caller,
+            String status,
+            String opCode,
+            Integer limit,
+            Integer offset) {
         spaces.role(user, space);
-        return facts.recent(space);
+        return facts.recent(space, caller, status, opCode, limit, offset);
     }
 }

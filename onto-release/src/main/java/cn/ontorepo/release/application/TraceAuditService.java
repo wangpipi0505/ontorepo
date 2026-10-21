@@ -124,24 +124,59 @@ public class TraceAuditService {
 
     /** id倒序游标采用多读一条判断下一页，后续新增审计不会使已读页面重复或覆盖。 */
     public Map<String, Object> audit(UUID user, UUID space, int limit, Long beforeId) {
+        return audit(user, space, limit, beforeId, null, null, null, null, null);
+    }
+
+    /** 支持动作/对象/时间范围过滤；对象检索按 subject_type + subject_id 命中。 */
+    public Map<String, Object> audit(
+            UUID user,
+            UUID space,
+            int limit,
+            Long beforeId,
+            String action,
+            String subjectType,
+            UUID subjectId,
+            String from,
+            String to) {
         spaces.role(user, space);
         if (limit < 1) throw Problem.bad("limit必须为正整数");
         if (beforeId != null && beforeId < 1) throw Problem.bad("beforeId必须为正整数");
         int size = Math.min(limit, 200);
-        var rows =
-                beforeId == null
-                        ? db.list(
-                                "SELECT id,space_id,actor_id,action,subject_id,detail,created_at"
-                                    + " FROM audit_log WHERE space_id=? ORDER BY id DESC LIMIT ?",
-                                space,
-                                size + 1)
-                        : db.list(
-                                "SELECT id,space_id,actor_id,action,subject_id,detail,created_at"
-                                    + " FROM audit_log WHERE space_id=? AND id<? ORDER BY id DESC"
-                                    + " LIMIT ?",
-                                space,
-                                beforeId,
-                                size + 1);
+        var sql =
+                new StringBuilder(
+                        "SELECT a.id,a.space_id,a.actor_id,a.action,a.subject_id,a.detail,"
+                                + "a.subject_type,a.version_refs,a.input_digest,a.output_digest,a.result,"
+                                + "a.created_at,u.display_name actor_name FROM audit_log a LEFT JOIN"
+                                + " local_user u ON u.id=a.actor_id WHERE a.space_id=?");
+        var params = new ArrayList<Object>();
+        params.add(space);
+        if (action != null && !action.isBlank()) {
+            sql.append(" AND a.action=?");
+            params.add(action);
+        }
+        if (subjectType != null && !subjectType.isBlank()) {
+            sql.append(" AND a.subject_type=?");
+            params.add(subjectType);
+        }
+        if (subjectId != null) {
+            sql.append(" AND a.subject_id=?");
+            params.add(subjectId.toString());
+        }
+        if (from != null && !from.isBlank()) {
+            sql.append(" AND a.created_at>=?");
+            params.add(java.sql.Timestamp.from(instant(from)));
+        }
+        if (to != null && !to.isBlank()) {
+            sql.append(" AND a.created_at<=?");
+            params.add(java.sql.Timestamp.from(instant(to)));
+        }
+        if (beforeId != null) {
+            sql.append(" AND a.id<?");
+            params.add(beforeId);
+        }
+        sql.append(" ORDER BY a.id DESC LIMIT ?");
+        params.add(size + 1);
+        var rows = db.list(sql.toString(), params.toArray());
         boolean more = rows.size() > size;
         var items = new ArrayList<>(rows.subList(0, Math.min(size, rows.size())));
         items.forEach(row -> row.put("detail", HistorySafety.auditDetail(row.get("detail"))));
@@ -149,6 +184,14 @@ public class TraceAuditService {
         page.put("items", items);
         page.put("nextBeforeId", more ? items.getLast().get("id") : null);
         return page;
+    }
+
+    private java.time.Instant instant(String value) {
+        try {
+            return java.time.Instant.parse(value);
+        } catch (RuntimeException e) {
+            throw Problem.bad("时间必须为 ISO-8601，例如 2026-10-21T00:00:00Z");
+        }
     }
 
     private Object publicReference(String kind, Map<?, ?> ref) {

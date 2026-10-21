@@ -157,14 +157,22 @@ public class ReleaseLifecycleService {
 
     private void audit(UUID user, Map<String, Object> r, String action, Object detail) {
         UUID space = Input.uuid(r.get("spaceId"));
+        String result = action.equals("RELEASE_DEPRECATE") ? "DEPRECATED" : "CORRUPTED";
         db.update(
-                "INSERT INTO audit_log(space_id,actor_id,action,draft_rev,subject_id,detail)"
-                        + " VALUES(?,?,?,?,?,?::jsonb)",
+                "INSERT INTO"
+                    + " audit_log(space_id,actor_id,action,draft_rev,subject_type,subject_id,version_refs,result,detail)"
+                    + " VALUES(?,?,?,?,'RELEASE',?,?::jsonb,?,?::jsonb)",
                 space,
                 user,
                 action,
                 db.one("SELECT draft_rev FROM ontology_space WHERE id=?", space).get("draftRev"),
                 r.get("id"),
+                codec.json(
+                        Map.of(
+                                "releaseId", r.get("id"),
+                                "versionNo", r.get("versionNo"),
+                                "bundleSha256", Objects.toString(r.get("bundleSha256"), ""))),
+                result,
                 codec.json(detail));
     }
 }

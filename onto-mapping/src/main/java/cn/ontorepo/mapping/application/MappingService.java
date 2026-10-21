@@ -122,11 +122,19 @@ public class MappingService {
     /** 空间行锁内完整验证映射DSL及所有跨层引用，再写修订与审计。 */
     public Map<String, Object> save(UUID u, UUID id, String category, Map<String, Object> b) {
         UUID s = Input.uuid(b.get("spaceId"));
+        UUID key = id == null ? UUID.randomUUID() : id;
         return spaces.write(
                 u,
                 s,
                 Input.number(b, "expectedDraftRev"),
                 "MAPPING_" + kind(category) + "_SAVE",
+                new cn.ontorepo.common.domain.AuditDetail(
+                        "MAPPING",
+                        key.toString(),
+                        Map.of("kind", kind(category)),
+                        null,
+                        null,
+                        id == null ? "CREATED" : "UPDATED"),
                 () -> {
                     if (id != null) owned(s, id, category);
                     var d = new LinkedHashMap<>(b);
@@ -134,7 +142,6 @@ public class MappingService {
                     d.remove("expectedDraftRev");
                     d.remove("id");
                     validate(s, category, d, id);
-                    UUID key = id == null ? UUID.randomUUID() : id;
                     db.update(
                             "INSERT INTO data_mapping(id,space_id,kind,definition)"
                                     + " VALUES(?,?,?,?::jsonb) ON CONFLICT(id) DO UPDATE SET"
@@ -258,6 +265,13 @@ public class MappingService {
                 s,
                 rev,
                 "MAPPING_DELETE",
+                new cn.ontorepo.common.domain.AuditDetail(
+                        "MAPPING",
+                        id.toString(),
+                        Map.of("kind", kind(category)),
+                        null,
+                        null,
+                        "DELETED"),
                 () -> {
                     owned(s, id, category);
                     var dependent =
@@ -296,6 +310,8 @@ public class MappingService {
                 s,
                 Input.number(b, "expectedDraftRev"),
                 "DATA_QUERY_SAVE",
+                new cn.ontorepo.common.domain.AuditDetail(
+                        "OPERATION", op.toString(), null, null, null, "UPDATED"),
                 () -> {
                     model(s, "ont_operation", op);
                     Object value = b.get("dataQuery");

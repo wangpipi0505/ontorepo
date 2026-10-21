@@ -23,13 +23,40 @@ public class ExecutionFacts {
 
     /** 最近50条固定三次查询；时间相同时按UUID稳定排序，子记录只查询本批执行标识。 */
     public List<Map<String, Object>> recent(UUID space) {
-        return attach(
-                db.list(
-                        "SELECT "
-                                + FIELDS
-                                + " FROM op_execution WHERE space_id=? ORDER BY created_at DESC,id"
-                                + " DESC LIMIT 50",
-                        space));
+        return recent(space, null, null, null, 50, 0);
+    }
+
+    /** 列表筛选与分页；过滤条件在SQL内完成，子记录仍按本批执行标识批量读取。 */
+    public List<Map<String, Object>> recent(
+            UUID space,
+            String caller,
+            String status,
+            String opCode,
+            Integer limit,
+            Integer offset) {
+        var sql =
+                new StringBuilder(
+                        "SELECT " + FIELDS + " FROM op_execution WHERE space_id=?");
+        var params = new ArrayList<Object>();
+        params.add(space);
+        if (caller != null && !caller.isBlank()) {
+            sql.append(" AND caller=?");
+            params.add(caller);
+        }
+        if (status != null && !status.isBlank()) {
+            sql.append(" AND status=?");
+            params.add(status);
+        }
+        if (opCode != null && !opCode.isBlank()) {
+            sql.append(" AND op_code=?");
+            params.add(opCode);
+        }
+        int size = limit == null ? 50 : Math.min(Math.max(limit, 1), 200);
+        int skip = offset == null ? 0 : Math.max(offset, 0);
+        sql.append(" ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?");
+        params.add(size);
+        params.add(skip);
+        return attach(db.list(sql.toString(), params.toArray()));
     }
 
     /** 由实际写入者读取本次执行，保持与列表相同的结果/步骤/证据响应结构。 */

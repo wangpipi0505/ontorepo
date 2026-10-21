@@ -355,8 +355,8 @@ describe('P4 发布与消费关键交互', () => {
     await button(wrapper, '加载更早记录').trigger('click')
     await flushPromises()
     expect(get).toHaveBeenLastCalledWith('/audit?spaceId=s&limit=50&beforeId=20')
-    expect(wrapper.text()).toContain('RELEASE_COMMIT')
-    expect(wrapper.text()).toContain('CANDIDATE_REVIEW')
+    expect(wrapper.text()).toContain('发布提交')
+    expect(wrapper.text()).toContain('人工复核')
   })
   it('正式调用只提交业务参数，拒绝候选preview元数据作为发布证据', async () => {
     const call = vi.spyOn(useSession().api, 'requestEnvelope').mockResolvedValue({

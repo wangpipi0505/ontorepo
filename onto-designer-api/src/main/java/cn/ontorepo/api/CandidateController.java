@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -80,11 +81,21 @@ public class CandidateController {
                         Execution.class));
     }
 
-    /** 查询空间最近50次执行及步骤。 */
-    @io.swagger.v3.oas.annotations.Operation(summary = "查询空间最近50次执行及步骤")
+    /** 查询空间执行记录，可按入口/结果/操作筛选并分页。 */
+    @io.swagger.v3.oas.annotations.Operation(summary = "查询空间执行记录")
     @RequiresPermission("trace.read")
     @GetMapping("/spaces/{id}/executions")
-    public Envelope<List<Execution>> executions(HttpServletRequest r, @PathVariable UUID id) {
-        return Envelope.ok(t.list(candidates.executions(t.user(r), id), Execution.class));
+    public Envelope<List<Execution>> executions(
+            HttpServletRequest r,
+            @PathVariable UUID id,
+            @RequestParam(required = false) String caller,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String opCode,
+            @RequestParam(defaultValue = "50") Integer limit,
+            @RequestParam(defaultValue = "0") Integer offset) {
+        return Envelope.ok(
+                t.list(
+                        candidates.executions(t.user(r), id, caller, status, opCode, limit, offset),
+                        Execution.class));
     }
 }

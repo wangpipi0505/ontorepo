@@ -200,7 +200,14 @@ public class PublicationService {
                             user,
                             Input.uuid(c.get("spaceId")),
                             "CANDIDATE_VALIDATE",
-                            ((Number) c.get("draftRev")).longValue());
+                            ((Number) c.get("draftRev")).longValue(),
+                            new AuditDetail(
+                                    "CANDIDATE",
+                                    id.toString(),
+                                    Map.of("sha256", c.get("sha256")),
+                                    null,
+                                    null,
+                                    ok ? "SUCCEEDED" : "FAILED"));
                 });
         return publication(user, id);
     }
@@ -368,7 +375,14 @@ public class PublicationService {
                             user,
                             Input.uuid(c.get("spaceId")),
                             "CANDIDATE_REVIEW",
-                            ((Number) c.get("draftRev")).longValue());
+                            ((Number) c.get("draftRev")).longValue(),
+                            new AuditDetail(
+                                    "CANDIDATE",
+                                    id.toString(),
+                                    Map.of("sha256", c.get("sha256")),
+                                    null,
+                                    null,
+                                    "SUCCEEDED"));
                 });
         return publication(user, id);
     }
@@ -583,7 +597,17 @@ public class PublicationService {
                             user,
                             space,
                             "RELEASE_COMMIT",
-                            ((Number) c.get("draftRev")).longValue());
+                            ((Number) c.get("draftRev")).longValue(),
+                            new AuditDetail(
+                                    "RELEASE",
+                                    release.toString(),
+                                    Map.of(
+                                            "candidateId", id.toString(),
+                                            "versionNo", c.get("preVersionNo"),
+                                            "bundleSha256", c.get("sha256")),
+                                    null,
+                                    c.get("sha256").toString(),
+                                    "SUCCEEDED"));
                     return releaseSummary(bundles.release(release, false));
                 });
     }
@@ -603,7 +627,14 @@ public class PublicationService {
                             user,
                             Input.uuid(c.get("spaceId")),
                             "CANDIDATE_CANCEL",
-                            ((Number) c.get("draftRev")).longValue());
+                            ((Number) c.get("draftRev")).longValue(),
+                            new AuditDetail(
+                                    "CANDIDATE",
+                                    id.toString(),
+                                    Map.of("sha256", c.get("sha256")),
+                                    null,
+                                    null,
+                                    "CANCELLED"));
                 });
         return publication(user, id);
     }

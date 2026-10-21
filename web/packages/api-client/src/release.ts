@@ -171,8 +171,14 @@ export interface AuditPage {
     id: number
     spaceId: string
     actorId: string
+    actorName?: string | null
     action: string
     subjectId: string | null
+    subjectType?: string | null
+    versionRefs?: unknown
+    inputDigest?: string | null
+    outputDigest?: string | null
+    result?: string | null
     detail: unknown
     createdAt: string
   }[]

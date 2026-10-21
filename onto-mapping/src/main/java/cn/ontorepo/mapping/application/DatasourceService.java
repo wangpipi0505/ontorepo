@@ -109,14 +109,21 @@ public class DatasourceService {
     /** OWNER在空间锁内新增或替换加密配置，connection=null保留原密文。 */
     public Map<String, Object> save(UUID u, UUID id, Map<String, Object> b) {
         UUID s = Input.uuid(b.get("spaceId"));
+        UUID target = id == null ? UUID.randomUUID() : id;
         return spaces.write(
                 u,
                 s,
                 Input.number(b, "expectedDraftRev"),
                 id == null ? "DATASOURCE_CREATE" : "DATASOURCE_UPDATE",
+                new cn.ontorepo.common.domain.AuditDetail(
+                        "DATASOURCE",
+                        target.toString(),
+                        null,
+                        null,
+                        null,
+                        id == null ? "CREATED" : "UPDATED"),
                 () -> {
                     files.owner(u, s);
-                    UUID target = id == null ? UUID.randomUUID() : id;
                     Map<String, Object> old = id == null ? null : owned(s, id);
                     String kind = Input.text(b, "kind", 30);
                     Set<String> access = scope(b.get("accessScope"));
@@ -203,6 +210,8 @@ public class DatasourceService {
                 s,
                 rev,
                 "DATASOURCE_DELETE",
+                new cn.ontorepo.common.domain.AuditDetail(
+                        "DATASOURCE", id.toString(), null, null, null, "DELETED"),
                 () -> {
                     files.owner(u, s);
                     owned(s, id);
@@ -259,7 +268,20 @@ public class DatasourceService {
                         : "FAILED",
                 tested,
                 id);
-        spaces.audit(u, s, "DATASOURCE_PROBE", ((Number) locked.get("draftRev")).longValue());
+        boolean probePassed =
+                probe.stages().stream().allMatch(x -> x.status() == ProbeResult.Status.PASSED);
+        spaces.audit(
+                u,
+                s,
+                "DATASOURCE_PROBE",
+                ((Number) locked.get("draftRev")).longValue(),
+                new cn.ontorepo.common.domain.AuditDetail(
+                        "DATASOURCE",
+                        id.toString(),
+                        null,
+                        null,
+                        null,
+                        probePassed ? "SUCCEEDED" : "FAILED"));
         return Map.of("stages", stages, "testedAt", tested);
     }
 
@@ -297,12 +319,21 @@ public class DatasourceService {
     /** 空间锁内抓取真实元数据、追加快照并与上次内容生成差异。 */
     public Map<String, Object> sync(UUID u, UUID id, UUID s, long rev) {
         Map<String, Object> result = new LinkedHashMap<>();
+        Map<String, Object> auditRefs = new LinkedHashMap<>();
         var space =
                 spaces.write(
                         u,
                         s,
                         rev,
                         "DATASOURCE_SYNC",
+                        () ->
+                                new cn.ontorepo.common.domain.AuditDetail(
+                                        "DATASOURCE",
+                                        id.toString(),
+                                        auditRefs.isEmpty() ? null : Map.copyOf(auditRefs),
+                                        null,
+                                        null,
+                                        "SUCCEEDED"),
                         () -> {
                             files.owner(u, s);
                             var src = source(owned(s, id));
@@ -331,6 +362,8 @@ public class DatasourceService {
                                     sha,
                                     raw);
                             var saved = snapshot(s, id, snap);
+                            auditRefs.put("snapshotId", snap.toString());
+                            auditRefs.put("sha256", sha);
                             result.put("snapshot", saved);
                             result.put(
                                     "diff",

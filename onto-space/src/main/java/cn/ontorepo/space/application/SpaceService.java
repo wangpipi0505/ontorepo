@@ -1,5 +1,6 @@
 package cn.ontorepo.space.application;
 
+import cn.ontorepo.common.domain.AuditDetail;
 import cn.ontorepo.common.domain.Input;
 import cn.ontorepo.common.domain.Problem;
 import cn.ontorepo.common.infra.Db;
@@ -86,10 +87,34 @@ public class SpaceService {
     @Transactional
     public Map<String, Object> write(
             UUID user, UUID space, long expected, String action, Runnable work) {
+        return write(user, space, expected, action, (AuditDetail) null, work);
+    }
+
+    /** 带对象/版本/摘要的处理审计版本；work 与审计同事务。 */
+    @Transactional
+    public Map<String, Object> write(
+            UUID user,
+            UUID space,
+            long expected,
+            String action,
+            AuditDetail detail,
+            Runnable work) {
+        return write(user, space, expected, action, () -> detail, work);
+    }
+
+    /** 审计要素在 work 完成后才能确定的场景（如新快照 id/摘要）。 */
+    @Transactional
+    public Map<String, Object> write(
+            UUID user,
+            UUID space,
+            long expected,
+            String action,
+            java.util.function.Supplier<AuditDetail> detail,
+            Runnable work) {
         lock(user, space, expected, true);
         work.run();
         db.update("UPDATE ontology_space SET draft_rev=draft_rev+1 WHERE id=?", space);
-        audit(user, space, action, expected + 1);
+        audit(user, space, action, expected + 1, detail.get());
         return get(user, space);
     }
 
@@ -112,6 +137,26 @@ public class SpaceService {
                 user,
                 action,
                 rev);
+    }
+
+    /** 带对象/版本/摘要/结果的处理审计；缺省字段保持 null，不伪造历史事实。 */
+    public void audit(UUID user, UUID space, String action, long rev, AuditDetail detail) {
+        db.update(
+                "INSERT INTO"
+                    + " audit_log(space_id,actor_id,action,draft_rev,subject_type,subject_id,version_refs,input_digest,output_digest,result)"
+                    + " VALUES(?,?,?,?,?,?,?::jsonb,?,?,?)",
+                space,
+                user,
+                action,
+                rev,
+                detail == null ? null : detail.subjectType(),
+                detail == null ? null : detail.subjectId(),
+                detail == null || detail.versionRefs() == null
+                        ? null
+                        : db.json(detail.versionRefs()),
+                detail == null ? null : detail.inputDigest(),
+                detail == null ? null : detail.outputDigest(),
+                detail == null ? null : detail.result());
     }
 
     /** 外部入口必须显式开启事务：同类调用 write 不经过 Spring 代理，不能单靠 write 注解。 */
