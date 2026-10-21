@@ -28,6 +28,7 @@ const emit = defineEmits<{
   select: [id: string]
   edit: [id: string]
   'create-edge': [payload: { source: string; target: string }]
+  'create-node': []
 }>()
 const container = ref<HTMLDivElement>()
 let graph: Graph | null = null
@@ -108,6 +109,9 @@ async function render() {
       const id = (event as unknown as { target?: { id?: string } }).target?.id
       if (id && props.editable) emit('edit', id)
     })
+    graph.on('canvas:dblclick', () => {
+      if (props.editable) emit('create-node')
+    })
     await graph.render()
   } else {
     graph.setData(data())
@@ -145,7 +149,7 @@ onBeforeUnmount(() => {
   <div class="onto-graph" :style="{ height: `${height}px` }">
     <div ref="container" class="graph-canvas" />
     <p v-if="editable" class="graph-hint">
-      拖拽节点调整布局；依次点击两个对象可新建关系；双击节点编辑。
+      拖拽节点调整布局；依次点击两个对象可新建关系；双击节点编辑，双击空白新建对象。
     </p>
   </div>
 </template>

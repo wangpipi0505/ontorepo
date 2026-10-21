@@ -2,13 +2,13 @@
 /** 建模主工作区：对象树与属性面板按职责分离；异步重载保留有效选择，失败不制造本地成功状态。 */
 import { computed, defineAsyncComponent, onMounted, reactive, ref, inject, watch } from 'vue'
 import { routeLocationKey } from 'vue-router'
-import type { OntClass, Relation, Space } from '@onto/api-client'
+import type { Conflicts, OntClass, Relation, Space } from '@onto/api-client'
 import type Node from 'element-plus/es/components/tree/src/model/node'
 import AsyncState from '@onto/shared-ui/AsyncState.vue'
 import { useWorkspace } from '../stores/workspace'
 import { useSession } from '../stores/session'
 import { readDraftSnapshot } from '../composables/readDraftSnapshot'
-import { useResource } from '../composables/useResource'
+import { useResource, errorMessage } from '../composables/useResource'
 import { useMutation, confirmAction } from '../composables/useMutation'
 import { buildTree, canReparent, type ClassNode } from '../composables/classTree'
 import ClassDialog from '../components/ClassDialog.vue'
@@ -46,6 +46,8 @@ const tree = computed(() => buildTree(classes.data.value)),
 const viewMode = ref<'graph' | 'tree'>('graph'),
   graphKey = ref(0),
   relationOpen = ref(false),
+  conflictIds = ref<string[]>([]),
+  conflictError = ref(''),
   relationForm = reactive({
     name: '',
     fromClassId: '',
@@ -57,7 +59,11 @@ const viewMode = ref<'graph' | 'tree'>('graph'),
     description: '',
   })
 const graphNodes = computed(() =>
-  classes.data.value.map((item) => ({ id: item.id, label: item.name })),
+  classes.data.value.map((item) => ({
+    id: item.id,
+    label: item.name,
+    conflict: conflictIds.value.includes(item.id),
+  })),
 )
 const graphEdges = computed(() =>
   relations.data.value.map((item) => ({
@@ -129,6 +135,18 @@ async function load() {
     workspace.refreshed(latestSpace)
   }
   await relations.load(() => api.get<Relation[]>(`/relations?spaceId=${id}`))
+  conflictError.value = ''
+  try {
+    const conflicts = await api.get<Conflicts>(`/spaces/${id}/conflicts`)
+    conflictIds.value = [
+      ...new Set(
+        [...conflicts.errors, ...conflicts.warnings].flatMap((item) => item.entityIds),
+      ),
+    ]
+  } catch (cause) {
+    conflictIds.value = []
+    conflictError.value = errorMessage(cause)
+  }
   if (!classes.data.value.some((item) => item.id === selectedId.value)) selectedId.value = ''
 }
 function edit(item: OntClass | null) {
@@ -206,6 +224,10 @@ onMounted(load)
     关系读取失败：{{ relations.error.value }}
     <el-button text @click="load">重试</el-button>
   </p>
+  <p v-if="conflictError" class="error-text" role="alert">
+    冲突检查读取失败：{{ conflictError }}
+    <el-button text @click="load">重试</el-button>
+  </p>
   <p v-if="focusMessage" class="notice" role="status">{{ focusMessage }}</p>
   <AsyncState :loading="classes.loading.value" :error="classes.error.value" @retry="load">
     <div class="model-grid" :class="{ 'graph-mode': viewMode === 'graph' }">
@@ -256,6 +278,10 @@ onMounted(load)
             {{ classes.data.value.length }} 对象 · {{ relations.data.value.length }} 关系
           </span>
         </div>
+        <p v-if="conflictIds.length" class="notice" role="status">
+          发现 {{ conflictIds.length }} 个对象涉及冲突，已在画布标红。
+          <RouterLink :to="`/spaces/${workspace.space?.id}/conflicts`">查看冲突检查</RouterLink>
+        </p>
         <OntoGraph
           :key="graphKey"
           :nodes="graphNodes"
@@ -266,6 +292,7 @@ onMounted(load)
           @select="selectGraph"
           @edit="editGraph"
           @create-edge="openRelation"
+          @create-node="edit(null)"
         />
       </section>
       <PropertyPanel
