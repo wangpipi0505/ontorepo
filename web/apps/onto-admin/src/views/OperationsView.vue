@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** 草稿操作列表与语句预览；编辑提交使用空间修订，删除前确认，候选中的旧操作不随草稿删除。 */
 import { onMounted, ref } from 'vue'
-import type { Operation, Space } from '@onto/api-client'
+import type { Operation, Rule, Space } from '@onto/api-client'
 import AsyncState from '@onto/shared-ui/AsyncState.vue'
 import { useWorkspace } from '../stores/workspace'
 import { useSession } from '../stores/session'
@@ -11,15 +11,21 @@ import { useMutation, confirmAction } from '../composables/useMutation'
 import { useEntityFocus } from '../composables/useEntityFocus'
 import OperationDialog from '../components/OperationDialog.vue'
 import OperationDataQueryPanel from '../features/p3/OperationDataQueryPanel.vue'
+import FrozenCandidatePicker from '../features/p1/FrozenCandidatePicker.vue'
+import FrozenOperationTrialPanel from '../features/p1/FrozenOperationTrialPanel.vue'
 const workspace = useWorkspace(),
-  api = useSession().api,
+  session = useSession(),
+  api = session.api,
   operations = useResource<Operation[]>([]),
+  rules = useResource<Rule[]>([]),
   mutation = useMutation()
 const focus = useEntityFocus(operations.data, operations.loading)
 const dialog = ref(false),
   selected = ref<Operation | null>(null),
   preview = ref<Operation | null>(null),
-  queryOperation = ref<Operation | null>(null)
+  queryOperation = ref<Operation | null>(null),
+  trialOperation = ref<Operation | null>(null),
+  trialBusy = ref(false)
 const kindLabels = {
   OBJECT_QUERY: '对象查询',
   RELATION_QUERY: '关系查询',
@@ -39,6 +45,10 @@ async function load() {
     return snapshot.items
   })
   if (result && latestSpace) workspace.refreshed(latestSpace)
+  await rules.load(() => api.get<Rule[]>(`/rules?spaceId=${id}`))
+}
+function ruleName(id: string) {
+  return rules.data.value.find((item) => item.id === id)?.name || id
 }
 function edit(item: Operation | null) {
   if (!workspace.canWrite) return
@@ -106,6 +116,14 @@ onMounted(load)
               >
                 数据查询
               </el-button>
+              <el-button
+                v-if="session.has('candidate.execute')"
+                link
+                type="primary"
+                @click="trialOperation = row"
+              >
+                冻结试执行
+              </el-button>
               <router-link
                 :to="`/spaces/${workspace.space?.id}/assistant?operationId=${row.id}`"
                 class="assistant-link"
@@ -139,8 +157,8 @@ onMounted(load)
     <dl class="details-grid">
       <dt>策略标识</dt>
       <dd class="mono">{{ preview?.strategyRef || '未绑定' }}</dd>
-      <dt>规则标识</dt>
-      <dd class="mono">{{ preview?.ruleIds?.join('，') || '未绑定' }}</dd>
+      <dt>规则引用</dt>
+      <dd>{{ preview?.ruleIds?.map(ruleName).join('，') || '未绑定' }}</dd>
     </dl>
   </el-dialog>
   <el-dialog
@@ -150,6 +168,20 @@ onMounted(load)
     @close="queryOperation = null"
   >
     <OperationDataQueryPanel v-if="queryOperation" :operation="queryOperation" />
+  </el-dialog>
+  <el-dialog
+    :model-value="!!trialOperation"
+    title="操作详情 · 冻结试执行"
+    width="920px"
+    @close="trialOperation = null"
+  >
+    <FrozenCandidatePicker :busy="trialBusy" v-slot="{ candidate }">
+      <FrozenOperationTrialPanel
+        :candidate="candidate"
+        :operation-id="trialOperation?.id"
+        @busy="trialBusy = $event"
+      />
+    </FrozenCandidatePicker>
   </el-dialog>
 </template>
 <style scoped>

@@ -12,6 +12,7 @@ import { parseJson } from './inputs'
 const props = defineProps<{
   candidate: Pick<PublicationCandidate, 'id' | 'sha256' | 'draftRev'>
   ruleId?: string
+  operationId?: string
 }>()
 const emit = defineEmits<{ busy: [value: boolean] }>()
 const api = useSession().api,
@@ -25,18 +26,24 @@ let generation = 0
 const choices = computed(() =>
   operations.data.value.filter(
     (operation) =>
-      !props.ruleId ||
-      (['RULE_CHECK', 'SCORING'].includes(operation.kind) &&
-        operation.ruleIds?.includes(props.ruleId)),
+      (!props.operationId || operation.id === props.operationId) &&
+      (!props.ruleId ||
+        (['RULE_CHECK', 'SCORING'].includes(operation.kind) &&
+          operation.ruleIds?.includes(props.ruleId))),
   ),
 )
-function load() {
+async function load() {
   const id = props.candidate.id
-  return operations.load(() => api.get<Operation[]>(`/candidates/${id}/operations`))
+  const result = await operations.load(() =>
+    api.get<Operation[]>(`/candidates/${id}/operations`),
+  )
+  if (props.operationId && result?.some((item) => item.id === props.operationId))
+    operationId.value = props.operationId
+  return result
 }
 watch(
   () =>
-    `${props.candidate.id}:${props.candidate.sha256}:${props.candidate.draftRev}:${props.ruleId || ''}`,
+    `${props.candidate.id}:${props.candidate.sha256}:${props.candidate.draftRev}:${props.ruleId || ''}:${props.operationId || ''}`,
   () => {
     generation++
     operationId.value = ''

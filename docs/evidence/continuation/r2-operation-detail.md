@@ -24,7 +24,13 @@ pnpm test        # 31 files / 259 tests passed
 pnpm build       # exit 0
 ```
 
+## 冻结试执行与规则引用
+
+- 操作行新增"冻结试执行"：共享 `FrozenCandidatePicker` + `FrozenOperationTrialPanel`，试执行器新增 `operationId` 约束，只允许当前操作。
+- 操作"查看定义"展示规则引用名称（加载 `/rules?spaceId=` 映射 id→name），不再只显示 UUID。
+- 浏览器实测：试执行对话框出现"选择冻结候选"，操作详情可看规则名称。
+
 ## 未完成
 
-- S3 还要求"试执行/引用"同页；当前操作详情只合并了 data-query，冻结试执行仍在候选页、规则引用仍在规则页。
+- data-query、冻结试执行、规则引用已合并到操作列对话框；尚无独立"操作详情"整页。
 - `/data-query` 的 redirect 只做了路由级验证（typecheck/build），未单独写路由单测。
