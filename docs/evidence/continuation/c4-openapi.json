@@ -5586,6 +5586,9 @@
             "type" : "integer",
             "format" : "int64"
           },
+          "kind" : {
+            "type" : "string"
+          },
           "term" : {
             "type" : "string"
           },
@@ -5603,6 +5606,15 @@
             "format" : "uuid"
           },
           "sourceRef" : {
+            "type" : "string"
+          },
+          "subjectRef" : {
+            "type" : "string"
+          },
+          "predicate" : {
+            "type" : "string"
+          },
+          "objectRef" : {
             "type" : "string"
           }
         }
@@ -7244,6 +7256,9 @@
             "type" : "string",
             "format" : "uuid"
           },
+          "kind" : {
+            "type" : "string"
+          },
           "term" : {
             "type" : "string"
           },
@@ -7261,6 +7276,15 @@
             "format" : "uuid"
           },
           "sourceRef" : {
+            "type" : "string"
+          },
+          "subjectRef" : {
+            "type" : "string"
+          },
+          "predicate" : {
+            "type" : "string"
+          },
+          "objectRef" : {
             "type" : "string"
           }
         }
@@ -7412,6 +7436,9 @@
           "entryId" : {
             "type" : "string",
             "format" : "uuid"
+          },
+          "kind" : {
+            "type" : "string"
           },
           "term" : {
             "type" : "string"
