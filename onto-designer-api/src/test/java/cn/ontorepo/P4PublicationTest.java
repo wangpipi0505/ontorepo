@@ -190,6 +190,12 @@ class P4PublicationTest extends P4Fixture {
                         candidate.path("sha256").asText());
         var release = data(post("/onto/candidates/" + id + "/commit"), commit);
         assertEquals("READY", release.path("status").asText());
+        var endpoints =
+                data(
+                        get("/onto/releases/" + release.path("id").asText() + "/endpoints"),
+                        null);
+        assertEquals(1, endpoints.size());
+        assertTrue(endpoints.get(0).has("description"), "端点说明字段应随冻结操作返回");
         assertEquals(
                 release.path("id"),
                 data(post("/onto/candidates/" + id + "/commit"), commit).path("id"));

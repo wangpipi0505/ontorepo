@@ -111,6 +111,7 @@ async function refresh() {
               </option>
             </select>
           </label>
+          <p v-if="endpoint?.description" class="muted">端点说明：{{ endpoint.description }}</p>
           <div v-if="endpoint && release.status === 'READY'" class="row">
             <el-button
               size="small"

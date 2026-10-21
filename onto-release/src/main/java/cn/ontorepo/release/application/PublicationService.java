@@ -567,12 +567,13 @@ public class PublicationService {
                                             + op.get("code");
                             db.update(
                                     "INSERT INTO"
-                                        + " service_endpoint(id,release_id,op_code,route,exec_attrs)"
-                                        + " VALUES(?,?,?,?,?::jsonb)",
+                                        + " service_endpoint(id,release_id,op_code,route,description,exec_attrs)"
+                                        + " VALUES(?,?,?,?,?,?::jsonb)",
                                     UUID.randomUUID(),
                                     release,
                                     op.get("code"),
                                     route,
+                                    Objects.toString(op.get("description"), ""),
                                     codec.json(tool.get("exec")));
                         }
                     enqueue(

@@ -54,7 +54,7 @@ public class ReleaseGatewayService {
         var r = db.one("SELECT space_id,status FROM ontology_release WHERE id=?", release);
         spaces.role(user, Input.uuid(r.get("spaceId")));
         return db.list(
-                "SELECT id,release_id,op_code,route,CASE WHEN ?='READY' THEN status ELSE 'DISABLED'"
+                "SELECT id,release_id,op_code,route,description,CASE WHEN ?='READY' THEN status ELSE 'DISABLED'"
                         + " END status,exec_attrs FROM service_endpoint WHERE release_id=? ORDER BY"
                         + " op_code",
                 r.get("status"),
@@ -179,7 +179,7 @@ public class ReleaseGatewayService {
                         "releaseId", e.get("releaseId").toString(),
                         "opCode", e.get("opCode").toString()));
         return db.one(
-                "SELECT id,release_id,op_code,route,status,exec_attrs,updated_at FROM"
+                "SELECT id,release_id,op_code,route,description,status,exec_attrs,updated_at FROM"
                         + " service_endpoint WHERE id=?",
                 endpoint);
     }

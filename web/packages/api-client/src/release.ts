@@ -69,6 +69,7 @@ export interface Endpoint {
   releaseId: string
   opCode: string
   route: string
+  description?: string
   status: 'ACTIVE' | 'DISABLED'
   execAttrs: JsonObject
 }
