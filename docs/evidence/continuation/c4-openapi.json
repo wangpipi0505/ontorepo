@@ -1141,6 +1141,51 @@
         }
       }
     },
+    "/onto/endpoints/{id}/role-grants/{roleCode}" : {
+      "put" : {
+        "tags" : [ "release-controller" ],
+        "operationId" : "roleGrant",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        }, {
+          "name" : "roleCode",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "type" : "object",
+                "additionalProperties" : { }
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/EnvelopeObject"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/onto/endpoints/{id}/grants/{userId}" : {
       "put" : {
         "tags" : [ "release-controller" ],
@@ -4285,6 +4330,33 @@
         "parameters" : [ {
           "name" : "spaceId",
           "in" : "query",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/EnvelopeObject"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/onto/endpoints/{id}/role-grants" : {
+      "get" : {
+        "tags" : [ "release-controller" ],
+        "operationId" : "roleGrants",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
           "required" : true,
           "schema" : {
             "type" : "string",

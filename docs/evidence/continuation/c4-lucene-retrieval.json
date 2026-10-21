@@ -1,4 +1,5 @@
 {
+  "hits" : 10,
   "observations" : [ {
     "actualTop1" : "设备",
     "hit" : true,
@@ -51,6 +52,5 @@
     "question" : "请查询供应商信息"
   } ],
   "denominator" : 10,
-  "minimumHits" : 8,
-  "hits" : 10
+  "minimumHits" : 8
 }
