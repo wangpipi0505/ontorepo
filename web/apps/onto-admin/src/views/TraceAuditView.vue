@@ -4,7 +4,7 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ExecutionsView from './ExecutionsView.vue'
 import AuditView from '../features/p4/AuditView.vue'
-import ModuleSpacePicker from '../components/ModuleSpacePicker.vue'
+import GlobalTraceView from './GlobalTraceView.vue'
 const route = useRoute(),
   router = useRouter()
 const spaceId = computed(() =>
@@ -17,12 +17,7 @@ function select(name: string | number) {
 }
 </script>
 <template>
-  <ModuleSpacePicker
-    v-if="!spaceId"
-    title="数据溯源审计"
-    note="独立模块：选择本体空间查看执行追溯与审计；后续支持按本体名称/类型跨空间检索与可视化。"
-    base="/trace"
-  />
+  <GlobalTraceView v-if="!spaceId" />
   <section v-else class="module-page">
     <header class="module-heading">
       <div>

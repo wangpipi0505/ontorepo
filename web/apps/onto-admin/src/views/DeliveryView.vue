@@ -4,7 +4,7 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import TestingView from './TestingView.vue'
 import ReleaseHubView from './ReleaseHubView.vue'
-import ModuleSpacePicker from '../components/ModuleSpacePicker.vue'
+import GlobalDeliveryView from './GlobalDeliveryView.vue'
 const route = useRoute(),
   router = useRouter()
 const spaceId = computed(() =>
@@ -17,12 +17,7 @@ function select(name: string | number) {
 }
 </script>
 <template>
-  <ModuleSpacePicker
-    v-if="!spaceId"
-    title="测试与服务封装"
-    note="独立模块：选择本体空间查看用例、候选、发布与服务；后续支持跨空间测试与发布视图。"
-    base="/delivery"
-  />
+  <GlobalDeliveryView v-if="!spaceId" />
   <section v-else class="module-page">
     <header class="module-heading">
       <div>
