@@ -234,6 +234,21 @@ code {
   .details-grid {
     grid-template-columns: 90px 1fr;
   }
+  .module-heading {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .module-heading .row,
+  .global-filter .row {
+    flex-wrap: wrap;
+  }
+  .global-filter .el-select {
+    width: 100%;
+  }
+  .pager {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 :root .el-table .entity-focused-row {
   --el-table-tr-bg-color: #eef5ff;

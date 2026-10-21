@@ -340,6 +340,14 @@ onMounted(load)
   color: var(--primary);
   font-size: 13px;
   padding: 4px 6px;
+  list-style: none;
+}
+.row-more summary::-webkit-details-marker {
+  display: none;
+}
+.row-more summary::after {
+  content: "\25BE";
+  margin-left: 4px;
 }
 .more-panel {
   position: absolute;
