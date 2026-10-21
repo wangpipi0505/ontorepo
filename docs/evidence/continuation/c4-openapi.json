@@ -1103,6 +1103,44 @@
         }
       }
     },
+    "/onto/endpoints/{id}/status" : {
+      "put" : {
+        "tags" : [ "release-controller" ],
+        "operationId" : "endpointStatus",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "type" : "object",
+                "additionalProperties" : { }
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/EnvelopeObject"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/onto/endpoints/{id}/grants/{userId}" : {
       "put" : {
         "tags" : [ "release-controller" ],
@@ -3723,7 +3761,7 @@
     "/onto/spaces/{id}/executions" : {
       "get" : {
         "tags" : [ "candidate-controller" ],
-        "summary" : "查询空间最近50次执行及步骤",
+        "summary" : "查询空间执行记录",
         "operationId" : "executions",
         "parameters" : [ {
           "name" : "id",
@@ -3732,6 +3770,45 @@
           "schema" : {
             "type" : "string",
             "format" : "uuid"
+          }
+        }, {
+          "name" : "caller",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "status",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "opCode",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "limit",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32",
+            "default" : 50
+          }
+        }, {
+          "name" : "offset",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32",
+            "default" : 0
           }
         } ],
         "responses" : {
@@ -4607,6 +4684,42 @@
           "schema" : {
             "type" : "integer",
             "format" : "int64"
+          }
+        }, {
+          "name" : "action",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "subjectType",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "subjectId",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        }, {
+          "name" : "from",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "to",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
           }
         } ],
         "responses" : {
@@ -5966,6 +6079,9 @@
           },
           "passed" : {
             "type" : "boolean"
+          },
+          "reason" : {
+            "type" : "string"
           },
           "results" : {
             "type" : "array",
