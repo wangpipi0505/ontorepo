@@ -74,7 +74,7 @@ export const router = createRouter({
         },
         {
           path: 'spaces/:spaceId/data-query',
-          component: () => import('./features/p3/DataQueryView.vue'),
+          redirect: (to) => `/spaces/${String(to.params.spaceId)}/operations`,
         },
         {
           path: 'spaces/:spaceId/suggestions',

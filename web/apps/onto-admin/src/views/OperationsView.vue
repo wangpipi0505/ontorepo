@@ -10,6 +10,7 @@ import { useResource } from '../composables/useResource'
 import { useMutation, confirmAction } from '../composables/useMutation'
 import { useEntityFocus } from '../composables/useEntityFocus'
 import OperationDialog from '../components/OperationDialog.vue'
+import OperationDataQueryPanel from '../features/p3/OperationDataQueryPanel.vue'
 const workspace = useWorkspace(),
   api = useSession().api,
   operations = useResource<Operation[]>([]),
@@ -17,7 +18,8 @@ const workspace = useWorkspace(),
 const focus = useEntityFocus(operations.data, operations.loading)
 const dialog = ref(false),
   selected = ref<Operation | null>(null),
-  preview = ref<Operation | null>(null)
+  preview = ref<Operation | null>(null),
+  queryOperation = ref<Operation | null>(null)
 const kindLabels = {
   OBJECT_QUERY: '对象查询',
   RELATION_QUERY: '关系查询',
@@ -96,6 +98,14 @@ onMounted(load)
           <el-table-column label="操作" min-width="260">
             <template #default="{ row }">
               <el-button link type="primary" @click="preview = row">查看定义</el-button>
+              <el-button
+                v-if="['OBJECT_QUERY', 'RELATION_QUERY'].includes(row.kind)"
+                link
+                type="primary"
+                @click="queryOperation = row"
+              >
+                数据查询
+              </el-button>
               <router-link
                 :to="`/spaces/${workspace.space?.id}/assistant?operationId=${row.id}`"
                 class="assistant-link"
@@ -132,6 +142,14 @@ onMounted(load)
       <dt>规则标识</dt>
       <dd class="mono">{{ preview?.ruleIds?.join('，') || '未绑定' }}</dd>
     </dl>
+  </el-dialog>
+  <el-dialog
+    :model-value="!!queryOperation"
+    title="操作详情 · 数据查询"
+    width="900px"
+    @close="queryOperation = null"
+  >
+    <OperationDataQueryPanel v-if="queryOperation" :operation="queryOperation" />
   </el-dialog>
 </template>
 <style scoped>
