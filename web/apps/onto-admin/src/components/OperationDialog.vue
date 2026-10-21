@@ -19,6 +19,8 @@ const references = useReferences(['rules', 'strategies'])
 const form = reactive({
   code: '',
   name: '',
+  description: '',
+  precondition: '',
   kind: 'OBJECT_QUERY' as OperationKind,
   queryTemplate: '',
   maxRows: 100,
@@ -33,6 +35,8 @@ watch(open, (value) => {
     Object.assign(form, {
       code: props.item?.code || '',
       name: props.item?.name || '',
+      description: props.item?.description || '',
+      precondition: props.item?.precondition || '',
       queryTemplate: props.item?.queryTemplate || queryTemplates[0]!.query,
       maxRows: props.item?.maxRows ?? 100,
       timeoutMs: props.item?.timeoutMs ?? 3000,
@@ -116,6 +120,24 @@ async function save() {
           <el-input v-model="form.name" maxlength="200" />
         </el-form-item>
       </div>
+      <el-form-item label="业务说明（选填）">
+        <el-input
+          v-model="form.description"
+          type="textarea"
+          :rows="2"
+          maxlength="4000"
+          placeholder="说明该操作解决的业务问题与返回口径"
+        />
+      </el-form-item>
+      <el-form-item label="执行条件（选填）">
+        <el-input
+          v-model="form.precondition"
+          type="textarea"
+          :rows="2"
+          maxlength="4000"
+          placeholder="说明调用前必须满足的条件、所需授权或数据范围"
+        />
+      </el-form-item>
       <el-form-item label="操作类型" required>
         <el-select v-model="form.kind">
           <el-option value="OBJECT_QUERY" label="对象查询" />

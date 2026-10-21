@@ -25,11 +25,14 @@ export interface PropertyFacets {
 }
 export type OntProperty = Omit<Schema<'OntProperty'>, 'rangeType'> & {
   rangeType: RangeType
+  displayName?: string
   facets?: PropertyFacets
 }
 export type OperationKind = 'OBJECT_QUERY' | 'RELATION_QUERY' | 'RULE_CHECK' | 'SCORING'
 export type Operation = Omit<Schema<'Operation'>, 'kind'> & {
   kind: OperationKind
+  description?: string
+  precondition?: string
   strategyRef?: string | null
   ruleIds?: string[]
 }

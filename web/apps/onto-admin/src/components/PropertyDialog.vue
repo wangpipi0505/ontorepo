@@ -39,6 +39,7 @@ async function loadReferences() {
 }
 const form = reactive({
   name: '',
+  displayName: '',
   rangeType: 'STRING' as RangeType,
   required: false,
   description: '',
@@ -56,6 +57,7 @@ watch(open, (value) => {
     draft.start(props.revision ?? workspace.space?.draftRev ?? 0)
     Object.assign(form, {
       name: props.item?.name || '',
+      displayName: props.item?.displayName || '',
       rangeType: props.item?.rangeType || 'STRING',
       required: props.item?.required ?? false,
       description: props.item?.description || '',
@@ -106,6 +108,9 @@ async function save() {
     <el-form label-position="top" @submit.prevent="save">
       <el-form-item label="属性名称" required>
         <el-input v-model="form.name" maxlength="200" />
+      </el-form-item>
+      <el-form-item label="显示名称（选填）">
+        <el-input v-model="form.displayName" maxlength="200" placeholder="面向业务用户的名称" />
       </el-form-item>
       <el-form-item label="基础类型" required>
         <el-select v-model="form.rangeType" style="width: 100%">

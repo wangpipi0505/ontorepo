@@ -155,6 +155,7 @@ public class ModelService {
     public Map<String, Object> saveProperty(UUID user, UUID id, Map<String, Object> b) {
         UUID space = Input.uuid(b.get("spaceId")), cl = Input.uuid(b.get("domainClassId"));
         String name = Input.text(b, "name", 200),
+                displayName = Input.optionalText(b, "displayName", 200),
                 range = Input.text(b, "rangeType", 10),
                 description = Input.description(b);
         if (!Set.of("STRING", "INTEGER", "DECIMAL", "BOOLEAN", "DATE").contains(range))
@@ -185,12 +186,13 @@ public class ModelService {
                     if (id == null)
                         db.update(
                                 "INSERT INTO"
-                                    + " ont_property(id,space_id,domain_class_id,name,range_type,required,description,facets)"
-                                    + " VALUES(?,?,?,?,?,?,?,?::jsonb)",
+                                    + " ont_property(id,space_id,domain_class_id,name,display_name,range_type,required,description,facets)"
+                                    + " VALUES(?,?,?,?,?,?,?,?,?::jsonb)",
                                 UUID.randomUUID(),
                                 space,
                                 cl,
                                 name,
+                                displayName,
                                 range,
                                 required,
                                 description,
@@ -199,10 +201,11 @@ public class ModelService {
                         owned("ont_property", id, space);
                         db.update(
                                 "UPDATE ont_property SET"
-                                    + " domain_class_id=?,name=?,range_type=?,required=?,description=?,facets=?::jsonb"
+                                    + " domain_class_id=?,name=?,display_name=?,range_type=?,required=?,description=?,facets=?::jsonb"
                                     + " WHERE id=?",
                                 cl,
                                 name,
+                                displayName,
                                 range,
                                 required,
                                 description,

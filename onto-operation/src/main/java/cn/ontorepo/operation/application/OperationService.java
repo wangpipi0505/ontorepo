@@ -34,6 +34,8 @@ public class OperationService {
         UUID space = Input.uuid(b.get("spaceId"));
         String code = Input.text(b, "code", 80),
                 name = Input.text(b, "name", 200),
+                description = Input.description(b),
+                precondition = Input.optionalText(b, "precondition", 4000),
                 query = Input.optionalText(b, "queryTemplate", 10000);
         String kind = b.get("kind") == null ? "OBJECT_QUERY" : Input.text(b, "kind", 30);
         if (!java.util.Set.of("OBJECT_QUERY", "RELATION_QUERY", "RULE_CHECK", "SCORING")
@@ -64,12 +66,14 @@ public class OperationService {
                     if (id == null)
                         db.update(
                                 "INSERT INTO"
-                                    + " ont_operation(id,space_id,code,name,query_template,max_rows,timeout_ms,kind,strategy_ref,rule_ids)"
-                                    + " VALUES(?,?,?,?,?,?,?,?,?,?::jsonb)",
+                                    + " ont_operation(id,space_id,code,name,description,precondition,query_template,max_rows,timeout_ms,kind,strategy_ref,rule_ids)"
+                                    + " VALUES(?,?,?,?,?,?,?,?,?,?,?,?::jsonb)",
                                 UUID.randomUUID(),
                                 space,
                                 code,
                                 name,
+                                description,
+                                precondition,
                                 query,
                                 max,
                                 timeout,
@@ -80,10 +84,12 @@ public class OperationService {
                         owned(id, space);
                         db.update(
                                 "UPDATE ont_operation SET"
-                                    + " code=?,name=?,query_template=?,max_rows=?,timeout_ms=?,kind=?,strategy_ref=?,rule_ids=?::jsonb"
+                                    + " code=?,name=?,description=?,precondition=?,query_template=?,max_rows=?,timeout_ms=?,kind=?,strategy_ref=?,rule_ids=?::jsonb"
                                     + " WHERE id=?",
                                 code,
                                 name,
+                                description,
+                                precondition,
                                 query,
                                 max,
                                 timeout,
