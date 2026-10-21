@@ -8,7 +8,7 @@ import MappingsView from '../features/p3/MappingsView.vue'
 import DataCatalogView from '../features/p3/DataCatalogView.vue'
 import SuggestionsView from '../features/p3/SuggestionsView.vue'
 import ImportsView from '../features/p1/ImportsView.vue'
-import ModuleSpacePicker from '../components/ModuleSpacePicker.vue'
+import GlobalDataView from './GlobalDataView.vue'
 const route = useRoute(),
   router = useRouter()
 const spaceId = computed(() =>
@@ -32,12 +32,7 @@ function select(name: string | number) {
 }
 </script>
 <template>
-  <ModuleSpacePicker
-    v-if="!spaceId"
-    title="知识与数据"
-    note="独立物料库：选择本体空间查看其知识、数据源与映射；后续支持全部本体的跨空间聚合。"
-    base="/data"
-  />
+  <GlobalDataView v-if="!spaceId" />
   <section v-else class="module-page">
     <header class="module-heading">
       <div>
