@@ -25,19 +25,19 @@
 
 ## OM-R-A2
 
-- [ ] **目标**：端点级停用/启用，停用后零源访问。
-- [ ] 迁移 `V15__remediation_audit_endpoint.sql`：`service_endpoint` 补 `updated_at`、`status_changed_by`；索引 `(release_id,status)`。
-- [ ] 后端
-  - [ ] `ReleaseGatewayService.updateStatus(...)`：锁内校验空间角色（OWNER/EDITOR）、写审计 `ENDPOINT_STATUS`。
-  - [ ] 执行链加载端点后校验 `status='ACTIVE'`，否则 `ENDPOINT_DISABLED`（403），在访问数据源前拒绝。
-  - [ ] `ReleaseController`：`PUT /onto/endpoints/{id}/status`，权限 `grant.write`。
-- [ ] 前端：`ConsumptionView.vue` 端点旁加状态徽标与停用/启用按钮（确认弹窗）。
-- [ ] 测试（`P4EndpointStatusTest`）
-  - [ ] T1 停用 → 有效凭据调用 403 `ENDPOINT_DISABLED`，源请求 0；审计 1 条。
-  - [ ] T2 启用 → 恢复；历史执行可查。
-  - [ ] T3 VIEWER/非成员调用状态接口 403；不存在 404。
-  - [ ] T4 release 非 READY 优先拒绝。
-  - [ ] T5 并发停用/启用串行一致。
+- [x] **目标**：端点级停用/启用，停用后零源访问。
+- [x] 迁移 `V15__endpoint_status.sql`：`service_endpoint` 补 `updated_at`、`status_changed_by`；索引 `(release_id,status)`。
+- [x] 后端
+  - [x] `ReleaseGatewayService.updateStatus(...)`：锁内校验空间角色（OWNER/EDITOR）、写审计 `ENDPOINT_STATUS`。
+  - [x] 执行链加载端点后校验 `status='ACTIVE'`，否则 `ENDPOINT_DISABLED`（403），在访问数据源前拒绝。
+  - [x] `ReleaseController`：`PUT /onto/endpoints/{id}/status`，权限 `grant.write`。
+- [x] 前端：`ConsumptionView.vue` 端点旁加状态徽标与停用/启用按钮（确认弹窗）。
+- [x] 测试（`P4EndpointStatusTest`）
+  - [x] T1 停用 → 有效凭据调用 403 `ENDPOINT_DISABLED`，源请求 0；审计 1 条。
+  - [x] T2 启用 → 恢复；历史执行可查。
+  - [x] T3 VIEWER/非成员调用状态接口 403；不存在 404。
+  - [x] T4 release 非 READY 优先拒绝。
+  - [x] T5 并发停用/启用串行一致。
 
 ## OM-R-A3
 
@@ -57,7 +57,7 @@
 ## OM-R-A4
 
 - [ ] **目标**：审计按对象/动作/时间检索；执行记录筛选分页。
-- [ ] 迁移 V15：`audit_log` 补 `subject_type`、`version_refs`、`input_digest`、`output_digest`、`result`；索引 `(space_id,subject_type,subject_id,id)`、`(space_id,action,id)`、`(space_id,created_at,id)`。
+- [ ] 迁移 V16：`audit_log` 补 `subject_type`、`version_refs`、`input_digest`、`output_digest`、`result`；索引 `(space_id,subject_type,subject_id,id)`、`(space_id,action,id)`、`(space_id,created_at,id)`。
 - [ ] 后端
   - [ ] `SpaceService.audit` 新增 `AuditDetail` 重载；数据接入/同步/映射/规则执行/发布/弃用/恢复补对象、版本、摘要、结果。
   - [ ] `TraceAuditService`：`/audit` 支持 `action/subjectType/subjectId/from/to/limit/beforeId`；join 用户返回 `actorName`。
@@ -74,8 +74,8 @@
 
 ## OM-R-D1
 
-- [ ] `.gitignore` 增加 `output/`；删除根目录 `hs_err_pid*.log`、`replay_pid*.log`。
-- [ ] 首次提交 + tag `v0.9-audit-baseline`；配置远端 `origin` 并推送。
+- [x] `.gitignore` 增加 `output/`；删除根目录 `hs_err_pid*.log`、`replay_pid*.log`。
+- [x] 首次提交 + tag `v0.9-audit-baseline`；配置远端 `origin` 并推送。
 
 ## OM-R-D4
 

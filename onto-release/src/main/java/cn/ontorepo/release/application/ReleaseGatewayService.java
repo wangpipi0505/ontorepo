@@ -106,6 +106,37 @@ public class ReleaseGatewayService {
                 .orElseThrow(Problem::missing);
     }
 
+    /** 端点级启停：停用后执行链在访问源前拒绝；启用可逆，状态变更入审计。 */
+    @Transactional
+    public Map<String, Object> updateStatus(
+            UUID user, UUID endpoint, Map<String, Object> body) {
+        String status = Input.text(body, "status", 10);
+        if (!Set.of("ACTIVE", "DISABLED").contains(status))
+            throw Problem.bad("端点状态必须为ACTIVE或DISABLED");
+        var e = endpoint(endpoint);
+        UUID space = Input.uuid(e.get("spaceId"));
+        lockOwner(user, space);
+        db.update(
+                "UPDATE service_endpoint SET status=?,updated_at=now(),status_changed_by=? WHERE"
+                        + " id=?",
+                status,
+                user,
+                endpoint);
+        audit(
+                user,
+                space,
+                "ENDPOINT_STATUS",
+                endpoint.toString(),
+                Map.of(
+                        "status", status,
+                        "releaseId", e.get("releaseId").toString(),
+                        "opCode", e.get("opCode").toString()));
+        return db.one(
+                "SELECT id,release_id,op_code,route,status,exec_attrs,updated_at FROM"
+                        + " service_endpoint WHERE id=?",
+                endpoint);
+    }
+
     /** 凭据目录仅展示安全元数据，任何读取接口都不再返回明文或哈希。 */
     public List<Map<String, Object>> credentials(UUID user, UUID space) {
         owner(user, space);

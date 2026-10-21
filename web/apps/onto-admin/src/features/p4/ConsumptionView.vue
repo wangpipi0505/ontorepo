@@ -5,6 +5,7 @@ import type { Release, Endpoint } from '../../../../../packages/api-client/src/r
 import { useWorkspace } from '../../stores/workspace'
 import { useSession } from '../../stores/session'
 import { useResource } from '../../composables/useResource'
+import { useMutation, confirmAction } from '../../composables/useMutation'
 import AsyncState from '@onto/shared-ui/AsyncState.vue'
 import EndpointGrantsPanel from './EndpointGrantsPanel.vue'
 import CredentialsPanel from './CredentialsPanel.vue'
@@ -16,7 +17,8 @@ const workspace = useWorkspace(),
 const releases = useResource<Release[]>([]),
   endpoints = useResource<Endpoint[]>([]),
   selected = ref(''),
-  endpointId = ref('')
+  endpointId = ref(''),
+  mutation = useMutation()
 const release = computed(() => releases.data.value.find((item) => item.id === selected.value))
 const endpoint = computed(() => endpoints.data.value.find((item) => item.id === endpointId.value))
 function load() {
@@ -30,6 +32,22 @@ async function loadEndpoints() {
     api.get<Endpoint[]>(`/releases/${selected.value}/endpoints`),
   )
   if (result) endpointId.value = result[0]?.id ?? ''
+}
+/** 端点级启停只改变本端点可用性；停用后服务端在访问源前拒绝。 */
+async function toggleEndpoint() {
+  const item = endpoint.value
+  if (!item || mutation.pending.value || !session.has('grant.write')) return
+  const next = item.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE'
+  if (
+    !(await confirmAction(
+      next === 'DISABLED'
+        ? '停用后该端点的所有调用都会被拒绝，确认继续？'
+        : '启用该端点并恢复调用？',
+    ))
+  )
+    return
+  if (await mutation.run(() => api.put(`/endpoints/${item.id}/status`, { status: next })))
+    await loadEndpoints()
 }
 watch(selected, () => {
   endpointId.value = ''
@@ -93,6 +111,26 @@ async function refresh() {
               </option>
             </select>
           </label>
+          <div v-if="endpoint && release.status === 'READY'" class="row">
+            <el-button
+              size="small"
+              :loading="mutation.pending.value"
+              :disabled="!session.has('grant.write')"
+              @click="toggleEndpoint"
+            >
+              {{ endpoint.status === 'ACTIVE' ? '停用此端点' : '启用此端点' }}
+            </el-button>
+            <span class="muted">
+              {{
+                endpoint.status === 'ACTIVE'
+                  ? '停用后所有调用立即被拒绝，可随时恢复'
+                  : '停用中：调用在访问数据源前被拒绝'
+              }}
+            </span>
+          </div>
+          <p v-if="mutation.error.value" class="error-text" role="alert">
+            {{ mutation.error.value }}
+          </p>
         </template>
       </AsyncState>
     </section>

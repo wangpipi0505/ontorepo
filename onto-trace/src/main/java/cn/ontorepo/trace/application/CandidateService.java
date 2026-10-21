@@ -431,11 +431,21 @@ public class CandidateService {
             if (formal) {
                 if (!"READY".equals(c.get("status")))
                     throw new Problem(409, "RELEASE_NOT_READY", "该版本不可消费");
+                var endpoints =
+                        db.list(
+                                "SELECT id,status FROM service_endpoint WHERE release_id=? AND"
+                                        + " op_code=?",
+                                id,
+                                requestedCode);
+                if (endpoints.isEmpty())
+                    throw new Problem(403, "ENDPOINT_FORBIDDEN", "没有该端点的有效授予记录");
+                if (!"ACTIVE".equals(endpoints.getFirst().get("status")))
+                    throw new Problem(409, "ENDPOINT_DISABLED", "服务端点已停用");
                 var grants =
                         db.list(
                                 "SELECT g.data_scope FROM service_endpoint e JOIN endpoint_grant g"
                                     + " ON g.endpoint_id=e.id WHERE e.release_id=? AND e.op_code=?"
-                                    + " AND e.status='ACTIVE' AND g.user_id=? AND g.status='ACTIVE'"
+                                    + " AND g.user_id=? AND g.status='ACTIVE'"
                                     + " AND (g.expires_at IS NULL OR g.expires_at>now())",
                                 id,
                                 requestedCode,

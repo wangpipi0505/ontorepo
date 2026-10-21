@@ -178,6 +178,13 @@ public class ReleaseController {
         return Envelope.ok(gateway.saveGrant(t.user(r), id, userId, b));
     }
 
+    @RequiresPermission("grant.write")
+    @PutMapping("/endpoints/{id}/status")
+    public Envelope<?> endpointStatus(
+            HttpServletRequest r, @PathVariable UUID id, @RequestBody Map<String, Object> b) {
+        return Envelope.ok(gateway.updateStatus(t.user(r), id, b));
+    }
+
     @RequiresPermission("grant.read")
     @GetMapping("/api-credentials")
     public Envelope<?> credentials(HttpServletRequest r, @RequestParam UUID spaceId) {
