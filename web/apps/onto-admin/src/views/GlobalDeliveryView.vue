@@ -44,6 +44,7 @@ interface ServiceRow {
   route: string
   description?: string
   status: string
+  grantsCount?: number
 }
 interface GlobalDelivery {
   candidates: CandidateRow[]
@@ -218,6 +219,9 @@ onMounted(async () => {
                   <template #default="{ row }">
                     {{ row.status === 'ACTIVE' ? '启用' : '禁用' }}
                   </template>
+                </el-table-column>
+                <el-table-column label="授权" width="80">
+                  <template #default="{ row }">{{ row.grantsCount ?? '—' }}</template>
                 </el-table-column>
                 <el-table-column label="所属本体" min-width="180">
                   <template #default="{ row }">

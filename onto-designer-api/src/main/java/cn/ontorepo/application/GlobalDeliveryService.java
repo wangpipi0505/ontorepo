@@ -64,6 +64,7 @@ public class GlobalDeliveryService {
         for (Map<String, Object> space : spaces.list(user)) {
             UUID spaceId = UUID.fromString(space.get("id").toString());
             String spaceName = String.valueOf(space.get("name"));
+            boolean owner = "OWNER".equals(space.get("role"));
             for (Map<String, Object> release : releases.list(user, spaceId)) {
                 UUID releaseId = UUID.fromString(release.get("id").toString());
                 for (Map<String, Object> endpoint : gateway.endpoints(user, releaseId)) {
@@ -71,6 +72,14 @@ public class GlobalDeliveryService {
                     endpoint.put("spaceName", spaceName);
                     endpoint.put("releaseId", releaseId.toString());
                     endpoint.put("versionNo", release.get("versionNo"));
+                    if (owner)
+                        endpoint.put(
+                                "grantsCount",
+                                gateway.grants(
+                                                user,
+                                                UUID.fromString(
+                                                        endpoint.get("id").toString()))
+                                        .size());
                     rows.add(endpoint);
                 }
             }
