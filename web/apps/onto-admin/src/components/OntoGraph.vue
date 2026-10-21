@@ -20,9 +20,10 @@ const props = withDefaults(
     edges: GraphEdge[]
     selectedId?: string
     editable?: boolean
+    linkMode?: boolean
     height?: number
   }>(),
-  { selectedId: '', editable: false, height: 520 },
+  { selectedId: '', editable: false, linkMode: false, height: 520 },
 )
 const emit = defineEmits<{
   select: [id: string]
@@ -86,12 +87,12 @@ async function render() {
       behaviors: [
         'drag-canvas',
         'zoom-canvas',
-        'drag-element',
+        ...(props.linkMode ? [] : ['drag-element']),
         ...(props.editable
           ? [
               {
                 type: 'create-edge',
-                trigger: 'click',
+                trigger: props.linkMode ? 'drag' : 'click',
                 onFinish: (edge: { source: string; target: string }) => {
                   if (edge.source && edge.target && edge.source !== edge.target)
                     emit('create-edge', { source: edge.source, target: edge.target })
@@ -139,6 +140,14 @@ onMounted(async () => {
 })
 watch(() => [props.nodes, props.edges], render, { deep: true })
 watch(() => props.selectedId, updateSelection)
+watch(
+  () => props.linkMode,
+  async () => {
+    graph?.destroy()
+    graph = null
+    await render()
+  },
+)
 onBeforeUnmount(() => {
   observer?.disconnect()
   graph?.destroy()
@@ -149,7 +158,11 @@ onBeforeUnmount(() => {
   <div class="onto-graph" :style="{ height: `${height}px` }">
     <div ref="container" class="graph-canvas" />
     <p v-if="editable" class="graph-hint">
-      拖拽节点调整布局；依次点击两个对象可新建关系；双击节点编辑，双击空白新建对象。
+      {{
+        linkMode
+          ? '连线模式：从节点拖到另一节点创建关系；关闭后可拖动布局。'
+          : '拖拽节点调整布局；依次点击两个对象可新建关系；双击节点编辑，双击空白新建对象。'
+      }}
     </p>
   </div>
 </template>

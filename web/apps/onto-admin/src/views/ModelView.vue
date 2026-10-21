@@ -44,6 +44,7 @@ const selectedId = ref(''),
 const tree = computed(() => buildTree(classes.data.value)),
   selected = computed(() => classes.data.value.find((item) => item.id === selectedId.value))
 const viewMode = ref<'graph' | 'tree'>('graph'),
+  linkMode = ref(false),
   graphKey = ref(0),
   relationOpen = ref(false),
   conflictIds = ref<string[]>([]),
@@ -211,6 +212,14 @@ onMounted(load)
       <p class="muted">图谱查看对象与关系；选中对象后在右侧维护属性定义。</p>
     </div>
     <div class="row">
+      <el-button
+        v-if="viewMode === 'graph' && workspace.canWrite"
+        :type="linkMode ? 'primary' : 'default'"
+        size="small"
+        @click="linkMode = !linkMode"
+      >
+        {{ linkMode ? '退出连线' : '连线模式' }}
+      </el-button>
       <el-radio-group v-model="viewMode" size="small">
         <el-radio-button value="graph">图谱</el-radio-button>
         <el-radio-button value="tree">层级</el-radio-button>
@@ -288,6 +297,7 @@ onMounted(load)
           :edges="graphEdges"
           :selected-id="selectedId"
           :editable="workspace.canWrite"
+          :link-mode="linkMode"
           :height="560"
           @select="selectGraph"
           @edit="editGraph"
