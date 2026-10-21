@@ -50,12 +50,7 @@ async function loadSpace() {
 }
 watch(spaceId, loadSpace, { immediate: true })
 const tabs = [
-  { path: 'model', label: '对象与属性' },
-  { path: 'codebooks', label: '码表管理' },
-  { path: 'relations', label: '关系与逆关系' },
-  { path: 'constraints', label: '约束管理' },
-  { path: 'rules', label: '规则与评分' },
-  { path: 'conflicts', label: '冲突检查' },
+  { path: 'model', label: '建模工作台' },
   { path: 'strategies', label: '执行策略' },
   { path: 'operations', label: '模型操作' },
   { path: 'assistant', label: '助手声明' },
@@ -76,17 +71,7 @@ const tabs = [
 const groups = [
   {
     label: '概念建模',
-    paths: [
-      'model',
-      'codebooks',
-      'relations',
-      'constraints',
-      'rules',
-      'conflicts',
-      'strategies',
-      'operations',
-      'assistant',
-    ],
+    paths: ['model'],
   },
   {
     label: '知识与数据',
@@ -99,7 +84,7 @@ const groups = [
       'imports',
     ],
   },
-  { label: '操作与测试', paths: ['testing', 'executions'] },
+  { label: '操作与测试', paths: ['operations', 'assistant', 'strategies', 'testing', 'executions'] },
   { label: '发布与服务', paths: ['publication', 'releases', 'consumption'] },
   { label: '溯源审计', paths: ['audit'] },
   { label: '空间设置', paths: ['settings'] },

@@ -19,24 +19,30 @@ export const router = createRouter({
           path: 'spaces/:spaceId',
           component: () => import('./features/overview/OverviewView.vue'),
         },
-        { path: 'spaces/:spaceId/model', component: () => import('./views/ModelView.vue') },
+        {
+          path: 'spaces/:spaceId/model',
+          component: () => import('./views/ModelHubView.vue'),
+        },
         {
           path: 'spaces/:spaceId/codebooks',
-          component: () => import('./features/p1/CodebooksView.vue'),
+          redirect: (to) => `/spaces/${String(to.params.spaceId)}/model?tab=codebooks`,
         },
         {
           path: 'spaces/:spaceId/relations',
-          component: () => import('./features/p1/RelationsView.vue'),
+          redirect: (to) => `/spaces/${String(to.params.spaceId)}/model?tab=relations`,
         },
         {
           path: 'spaces/:spaceId/constraints',
-          component: () => import('./features/p1/ConstraintsView.vue'),
+          redirect: (to) => `/spaces/${String(to.params.spaceId)}/model?tab=constraints`,
         },
         {
           path: 'spaces/:spaceId/conflicts',
-          component: () => import('./features/p1/ConflictsView.vue'),
+          redirect: (to) => `/spaces/${String(to.params.spaceId)}/model?tab=conflicts`,
         },
-        { path: 'spaces/:spaceId/rules', component: () => import('./features/p1/RulesView.vue') },
+        {
+          path: 'spaces/:spaceId/rules',
+          redirect: (to) => `/spaces/${String(to.params.spaceId)}/model?tab=rules`,
+        },
         {
           path: 'spaces/:spaceId/strategies',
           component: () => import('./features/p1/StrategiesView.vue'),
