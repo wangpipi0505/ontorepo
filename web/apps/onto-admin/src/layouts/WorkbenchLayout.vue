@@ -62,7 +62,6 @@ const tabs = [
   { path: 'testing', label: '验证与候选' },
   { path: 'executions', label: '执行记录' },
   { path: 'releases', label: '发布与版本' },
-  { path: 'consumption', label: '服务消费' },
   { path: 'audit', label: '审计记录' },
 ]
 const groups = [
@@ -82,7 +81,7 @@ const groups = [
     ],
   },
   { label: '操作与测试', paths: ['operations', 'testing', 'executions'] },
-  { label: '发布与服务', paths: ['releases', 'consumption'] },
+  { label: '发布与服务', paths: ['releases'] },
   { label: '溯源审计', paths: ['audit'] },
   { label: '空间设置', paths: ['settings'] },
 ]

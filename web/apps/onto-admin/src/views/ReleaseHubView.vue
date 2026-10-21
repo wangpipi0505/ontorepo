@@ -5,11 +5,13 @@ import { useRoute, useRouter } from 'vue-router'
 import ReleasesView from '../features/p4/ReleasesView.vue'
 import EventsView from '../features/p4/EventsView.vue'
 import PublicationView from '../features/p4/PublicationView.vue'
+import ConsumptionView from '../features/p4/ConsumptionView.vue'
 const route = useRoute(),
   router = useRouter()
-const tab = computed<'publication' | 'versions' | 'events'>(() => {
+const tab = computed<'publication' | 'versions' | 'events' | 'consumption'>(() => {
   if (route.query.tab === 'events') return 'events'
   if (route.query.tab === 'publication') return 'publication'
+  if (route.query.tab === 'consumption') return 'consumption'
   return 'versions'
 })
 function select(name: string | number) {
@@ -26,6 +28,9 @@ function select(name: string | number) {
     </el-tab-pane>
     <el-tab-pane label="事件与收件箱" name="events">
       <EventsView v-if="tab === 'events'" />
+    </el-tab-pane>
+    <el-tab-pane label="服务消费" name="consumption">
+      <ConsumptionView v-if="tab === 'consumption'" />
     </el-tab-pane>
   </el-tabs>
 </template>

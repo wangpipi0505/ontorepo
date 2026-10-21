@@ -125,7 +125,10 @@ export const router = createRouter({
         },
         {
           path: 'spaces/:spaceId/consumption',
-          component: () => import('./features/p4/ConsumptionView.vue'),
+          redirect: (to) => ({
+            path: `/spaces/${String(to.params.spaceId)}/releases`,
+            query: { ...to.query, tab: 'consumption' },
+          }),
         },
         {
           path: 'spaces/:spaceId/events',
