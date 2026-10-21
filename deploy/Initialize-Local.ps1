@@ -69,7 +69,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 $env:PGPASSWORD = $config.ONTO_DB_PASSWORD
 try {
-    foreach ($database in @('onto_dev', 'onto_test')) {
+    foreach ($database in @('onto_dev', 'onto_test', 'onto_test_p4')) {
         $exists = & (Join-Path $PostgresBin 'psql.exe') -h 127.0.0.1 -p $DatabasePort -U onto -d postgres -Atc "SELECT 1 FROM pg_database WHERE datname = '$database'"
         if ($LASTEXITCODE -ne 0) { throw '读取本工程数据库列表失败。' }
         if ($exists -ne '1') {
@@ -81,5 +81,5 @@ try {
 } finally {
     Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
 }
-Write-Output "独立 PostgreSQL 已就绪：127.0.0.1:$DatabasePort（onto_dev / onto_test）。"
+Write-Output "独立 PostgreSQL 已就绪：127.0.0.1:$DatabasePort（onto_dev / onto_test / onto_test_p4）。"
 Write-Output '开发账号与随机口令保存在 .runtime/local-env.json；该文件已被 Git 忽略，请勿提交或分享。'

@@ -7,6 +7,8 @@ Push-Location $root
 try {
     if (-not $FrontendOnly) {
         $config = Import-OntoEnvironment
+        # P4 outbox 测试固定要求专属库；脚本内统一切换，保证 README 命令可复现。
+        $env:ONTO_TEST_DB_URL = ($env:ONTO_TEST_DB_URL -replace '/onto_test(?:\?.*)?$', '/onto_test_p4')
         Set-OntoJava $JavaHome
         # HTTP/MinIO 驱动会使用 JDK NIO selector；与运行服务一致使用短 ASCII 临时目录，
         # 防止 Windows 默认用户临时路径编码造成 loopback 初始化失败。

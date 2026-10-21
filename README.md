@@ -89,7 +89,7 @@ node .\deploy\Check-Supply-Edges.mjs
 node .\deploy\Check-Design-Samples.mjs
 ```
 
-测试库与运行库分别为 `onto_test` 和 `onto_dev`。测试缺少配置或数据库不可达时必须失败，不能用跳过测试代替通过。真实命令结果见 `docs/evidence/`，无需将 Maven 日志或凭据粘贴到需求台账。
+测试库与运行库分别为 `onto_test`、`onto_test_p4`（P4 outbox 专属）和 `onto_dev`；`Test-Local.ps1` 会自动切换到 `onto_test_p4`，无需手工改配置。测试缺少配置或数据库不可达时必须失败，不能用跳过测试代替通过。真实命令结果见 `docs/evidence/`，无需将 Maven 日志或凭据粘贴到需求台账。
 
 同一个测试库不能并行运行会清理夹具的集成套件。并行开发时使用本工程独立测试库及进程内 `ONTO_TEST_DB_URL` 覆盖；Maven 共享模块的 `target` 仍需串行构建。执行脚本默认约束 Maven/Test JVM 为 512 MiB、Node 为 1024 MiB。
 
