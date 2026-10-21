@@ -169,7 +169,7 @@ async function restored() {
                 去服务消费 →
               </RouterLink>
               <RouterLink
-                :to="`/spaces/${workspace.space?.id}/events?releaseId=${detail.data.value.release.id}`"
+                :to="`/spaces/${workspace.space?.id}/releases?tab=events&releaseId=${detail.data.value.release.id}`"
               >
                 查看事件 →
               </RouterLink>
