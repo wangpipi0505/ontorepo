@@ -103,6 +103,20 @@ public class RuleService {
                 });
     }
 
+    /** 规则被哪些操作以 rule_ids 引用；只读视图，不改变删除/改类的阻断规则。 */
+    public List<Map<String, Object>> references(UUID u, UUID id) {
+        var rule = db.one("SELECT space_id FROM ont_rule WHERE id=?", id);
+        if (rule == null) throw Problem.missing();
+        UUID space = Input.uuid(rule.get("spaceId"));
+        spaces.role(u, space);
+        return db.list(
+                "SELECT o.id,o.code,o.name,o.kind FROM ont_operation o WHERE o.space_id=?"
+                        + " AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(o.rule_ids) ref"
+                        + " WHERE lower(ref.value)=?) ORDER BY o.code",
+                space,
+                id.toString());
+    }
+
     public Map<String, Object> delete(UUID u, UUID id, UUID s, long r) {
         return spaces.write(
                 u,

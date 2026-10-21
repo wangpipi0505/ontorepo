@@ -17,7 +17,7 @@ public final class ScoringPolicy {
 
     private record Metric(String propertyId, BigDecimal weight, List<Band> bands) {}
 
-    private record Policy(List<Metric> metrics, boolean zero) {}
+    private record Policy(List<Metric> metrics, boolean zero, String tieBreak) {}
 
     /** 指标必须引用适用对象的数值属性，禁算字段不得参与评分。 */
     public static void validate(Map<String, Object> policy, Map<String, String> propertyTypes) {
@@ -75,9 +75,11 @@ public final class ScoringPolicy {
 
     private static Policy parse(Map<String, Object> policy) {
         if (policy == null) throw invalid("评分策略不能为空");
+        String tieBreak = Objects.toString(policy.get("tieBreak"), "STABLE_ID");
         if (!("REJECT".equals(policy.get("missingValue"))
                         || "ZERO".equals(policy.get("missingValue")))
-                || !"STABLE_ID".equals(policy.get("tieBreak"))) throw invalid("评分缺值与同分策略无效");
+                || !Set.of("STABLE_ID", "INPUT_ORDER").contains(tieBreak))
+            throw invalid("评分缺值与同分策略无效");
         if (!(policy.get("explain") instanceof Boolean)) throw invalid("评分解释标志必须为布尔值");
         List<?> forbiddenRaw = list(policy.get("forbiddenProperties"));
         Set<String> forbidden = new HashSet<>();
@@ -115,7 +117,7 @@ public final class ScoringPolicy {
             metrics.add(new Metric(propertyId, weight, List.copyOf(bands)));
         }
         if (total.compareTo(BigDecimal.ONE) != 0) throw invalid("评分权重总和必须为1");
-        return new Policy(List.copyOf(metrics), "ZERO".equals(policy.get("missingValue")));
+        return new Policy(List.copyOf(metrics), "ZERO".equals(policy.get("missingValue")), tieBreak);
     }
 
     private static String id(Object raw) {

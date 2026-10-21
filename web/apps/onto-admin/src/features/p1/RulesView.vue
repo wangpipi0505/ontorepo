@@ -5,12 +5,39 @@ import type { Rule } from '@onto/api-client'
 import AsyncState from '@onto/shared-ui/AsyncState.vue'
 import { useDraftCollection } from './useDraftCollection'
 import { useReferences } from './useReferences'
+import { useSession } from '../../stores/session'
 import EditorActions from './EditorActions.vue'
 import EntityDetails from './EntityDetails.vue'
 import ScoringFields from './ScoringFields.vue'
 import DraftConflictsPanel from './DraftConflictsPanel.vue'
 import FrozenCandidatePicker from './FrozenCandidatePicker.vue'
 import FrozenOperationTrialPanel from './FrozenOperationTrialPanel.vue'
+interface RuleReference {
+  id: string
+  code: string
+  name: string
+  kind: string
+}
+const api = useSession().api,
+  refsOpen = ref(false),
+  refsLoading = ref(false),
+  refsError = ref(''),
+  refsRule = ref<Rule | null>(null),
+  refs = ref<RuleReference[]>([])
+async function showReferences(rule: Rule) {
+  refsRule.value = rule
+  refs.value = []
+  refsError.value = ''
+  refsOpen.value = true
+  refsLoading.value = true
+  try {
+    refs.value = await api.get<RuleReference[]>(`/rules/${rule.id}/references`)
+  } catch (cause) {
+    refsError.value = cause instanceof Error ? cause.message : '规则引用读取失败。'
+  } finally {
+    refsLoading.value = false
+  }
+}
 const trialRule = ref<Rule | null>(null),
   trialBusy = ref(false)
 const page = useDraftCollection<Rule>('/rules'),
@@ -112,6 +139,7 @@ onMounted(load)
             <el-button v-if="page.workspace.canWrite" link type="primary" @click="edit(row)">
               编辑
             </el-button>
+            <el-button link type="primary" @click="showReferences(row)">引用操作</el-button>
             <el-button
               v-if="page.workspace.canWriteFor('candidate.execute')"
               link
@@ -134,6 +162,16 @@ onMounted(load)
       </el-table>
     </section>
   </AsyncState>
+  <el-dialog v-model="refsOpen" :title="`引用操作 · ${refsRule?.name ?? ''}`" width="560px">
+    <p v-if="refsLoading" class="muted">正在读取引用…</p>
+    <p v-else-if="refsError" class="error-text" role="alert">{{ refsError }}</p>
+    <p v-else-if="!refs.length" class="muted">当前没有操作引用此规则。</p>
+    <el-table v-else :data="refs" size="small">
+      <el-table-column prop="code" label="操作编码" min-width="150" />
+      <el-table-column prop="name" label="操作名称" min-width="150" />
+      <el-table-column prop="kind" label="类型" width="120" />
+    </el-table>
+  </el-dialog>
   <el-dialog
     destroy-on-close
     v-model="page.open.value"

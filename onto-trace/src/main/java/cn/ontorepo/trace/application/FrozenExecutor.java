@@ -120,6 +120,7 @@ public class FrozenExecutor {
                             ? List.of("ruleId", "score", "explanation")
                             : List.of("ruleId", "passed", "message"));
             List<?> ids = (List<?>) op.getOrDefault("ruleIds", List.of());
+            boolean[] inputOrder = {false};
             for (Object id : ids) {
                 var rule =
                         RdfCodec.rows(p, "rules").stream()
@@ -139,6 +140,7 @@ public class FrozenExecutor {
                     row.put("ruleId", ruleId);
                     if (kind.equals("SCORING")) {
                         Map<String, Object> scoring = (Map<String, Object>) rule.get("scoring");
+                        if ("INPUT_ORDER".equals(scoring.get("tieBreak"))) inputOrder[0] = true;
                         String score =
                                 ScoringPolicy.score(scoring, canonicalInput)
                                         .stripTrailingZeros()
@@ -161,12 +163,16 @@ public class FrozenExecutor {
                 if (TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started) > timeout)
                     throw new QueryCancelledException();
             }
-            if (kind.equals("SCORING"))
-                rows.sort(
-                        Comparator.<Map<String, Object>, java.math.BigDecimal>comparing(
-                                        r -> new java.math.BigDecimal(r.get("score").toString()))
-                                .reversed()
-                                .thenComparing(r -> r.get("ruleId").toString()));
+            if (kind.equals("SCORING")) {
+                Comparator<Map<String, Object>> order =
+                        Comparator.comparing(
+                                        (Map<String, Object> r) ->
+                                                new java.math.BigDecimal(
+                                                        r.get("score").toString()))
+                                .reversed();
+                if (!inputOrder[0]) order = order.thenComparing(r -> r.get("ruleId").toString());
+                rows.sort(order);
+            }
             if (rows.size() > max) rows = new ArrayList<>(rows.subList(0, max));
             steps.add(step("RULE_EXECUTION", "冻结规则计算完成，返回 " + rows.size() + " 行"));
         }

@@ -179,5 +179,13 @@ class RuleExpressionTest {
         Map<String, Object> zero = new java.util.HashMap<>(p);
         zero.put("missingValue", "ZERO");
         assertEquals(0, ScoringPolicy.score(zero, Map.of()).signum());
+        Map<String, Object> inputOrder = new java.util.HashMap<>(p);
+        inputOrder.put("tieBreak", "INPUT_ORDER");
+        ScoringPolicy.validate(inputOrder, Map.of(ID, "DECIMAL"));
+        Map<String, Object> badTieBreak = new java.util.HashMap<>(p);
+        badTieBreak.put("tieBreak", "LIFO");
+        assertThrows(
+                RuntimeException.class,
+                () -> ScoringPolicy.validate(badTieBreak, Map.of(ID, "DECIMAL")));
     }
 }

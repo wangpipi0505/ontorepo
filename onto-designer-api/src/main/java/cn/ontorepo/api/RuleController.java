@@ -31,6 +31,14 @@ public class RuleController {
         return Envelope.ok(t.list(service.list(t.user(r), spaceId), Rule.class));
     }
 
+    /** 只读查看该规则被哪些操作引用。 */
+    @RequiresPermission("rule.read")
+    @GetMapping("/{id}/references")
+    public Envelope<List<Map<String, Object>>> references(
+            HttpServletRequest r, @PathVariable UUID id) {
+        return Envelope.ok(service.references(t.user(r), id));
+    }
+
     /** 创建内容与修订、审计同事务提交。 */
     @io.swagger.v3.oas.annotations.Operation(summary = "创建Rule")
     @RequiresPermission("rule.write")
