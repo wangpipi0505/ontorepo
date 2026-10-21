@@ -4858,6 +4858,9 @@
           "domain" : {
             "type" : "string"
           },
+          "description" : {
+            "type" : "string"
+          },
           "status" : {
             "type" : "string"
           },
@@ -4881,6 +4884,9 @@
             "format" : "int64"
           },
           "createdAt" : {
+            "type" : "string"
+          },
+          "updatedAt" : {
             "type" : "string"
           }
         }
@@ -5071,6 +5077,9 @@
             "type" : "string"
           },
           "domain" : {
+            "type" : "string"
+          },
+          "description" : {
             "type" : "string"
           },
           "expectedDraftRev" : {
@@ -5417,6 +5426,16 @@
             "items" : {
               "type" : "string"
             }
+          },
+          "description" : {
+            "type" : "string"
+          },
+          "tenant" : {
+            "type" : "string"
+          },
+          "ownerId" : {
+            "type" : "string",
+            "format" : "uuid"
           }
         }
       },
@@ -5641,6 +5660,9 @@
             "type" : "string"
           },
           "domain" : {
+            "type" : "string"
+          },
+          "description" : {
             "type" : "string"
           }
         }
