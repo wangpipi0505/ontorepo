@@ -79,6 +79,7 @@ final class HistoryDatabase implements AutoCloseable {
             db.jdbc.execute(
                     """
                       CREATE TABLE ontology_space(id uuid PRIMARY KEY,status text,draft_rev bigint);
+                      CREATE TABLE local_user(id uuid PRIMARY KEY,username text,display_name text);
                       CREATE TABLE space_grant(space_id uuid,user_id uuid,role text);
                       CREATE TABLE op_execution(id uuid PRIMARY KEY,space_id uuid,trace_id uuid,subject_type text,
                         subject_id uuid,op_code text,status text,error_code text,elapsed_ms bigint,
@@ -88,7 +89,8 @@ final class HistoryDatabase implements AutoCloseable {
                         kind text,status text,detail text,created_at timestamptz);
                       CREATE TABLE evidence_ref(id bigserial PRIMARY KEY,execution_id uuid,kind text,ref jsonb,created_at timestamptz);
                       CREATE TABLE audit_log(id bigserial PRIMARY KEY,space_id uuid,actor_id uuid,action text,
-                        subject_id text,detail jsonb DEFAULT '{}',draft_rev bigint,created_at timestamptz DEFAULT now());
+                        subject_id text,detail jsonb DEFAULT '{}',draft_rev bigint,created_at timestamptz DEFAULT now(),
+                        subject_type text,version_refs jsonb,input_digest text,output_digest text,result text);
                     """);
             db.update("INSERT INTO ontology_space VALUES(?,'ACTIVE',0)", space);
             db.update("INSERT INTO space_grant VALUES(?,?,'OWNER')", space, user);
