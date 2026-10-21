@@ -47,7 +47,11 @@ export const router = createRouter({
         },
         {
           path: 'spaces/:spaceId/test-cases',
-          component: () => import('./features/p1/TestCasesView.vue'),
+          redirect: (to) => `/spaces/${String(to.params.spaceId)}/testing?tab=cases`,
+        },
+        {
+          path: 'spaces/:spaceId/testing',
+          component: () => import('./views/TestingView.vue'),
         },
         {
           path: 'spaces/:spaceId/operations',
@@ -86,7 +90,7 @@ export const router = createRouter({
         },
         {
           path: 'spaces/:spaceId/candidates',
-          component: () => import('./views/CandidatesView.vue'),
+          redirect: (to) => `/spaces/${String(to.params.spaceId)}/testing?tab=candidates`,
         },
         {
           path: 'spaces/:spaceId/executions',

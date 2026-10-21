@@ -19,6 +19,7 @@ export const spacePagePermissions: Record<string, { read: string; write: string 
   'data-catalog': { read: 'mapping.read', write: '' },
   imports: { read: 'model.read', write: 'model.write' },
   'test-cases': { read: 'test.read', write: 'test.write' },
+  testing: { read: 'test.read', write: 'test.write' },
   candidates: { read: 'candidate.read', write: 'candidate.write' },
   supply: { read: 'candidate.read', write: 'service.execute' },
   executions: { read: 'trace.read', write: '' },

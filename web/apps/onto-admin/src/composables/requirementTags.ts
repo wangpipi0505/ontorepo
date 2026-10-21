@@ -1,4 +1,4 @@
-﻿/** 页面到技术要求编号的只读角标映射；仅用于验收定位，不改变权限或业务行为。 */
+/** 页面到技术要求编号的只读角标映射；仅用于验收定位，不改变权限或业务行为。 */
 const tags: Record<string, string[]> = {
   model: ['2.1①', '2.1②', '2.1③', '2.1④'],
   codebooks: ['2.1③'],
@@ -19,6 +19,7 @@ const tags: Record<string, string[]> = {
   'data-catalog': ['2.2④'],
   imports: ['2.1①'],
   'test-cases': ['2.4①'],
+  testing: ['2.4①', '2.2③'],
   candidates: ['2.2③'],
   supply: ['2.2③'],
   executions: ['2.5①', '2.5③'],
