@@ -444,20 +444,36 @@ public class CandidateService {
                 if (!"ACTIVE".equals(endpoints.getFirst().get("status")))
                     throw new Problem(409, "ENDPOINT_DISABLED", "服务端点已停用");
                 var grants =
+                        new ArrayList<>(
+                                db.list(
+                                        "SELECT g.data_scope FROM service_endpoint e JOIN endpoint_grant g"
+                                            + " ON g.endpoint_id=e.id WHERE e.release_id=? AND e.op_code=?"
+                                            + " AND g.user_id=? AND g.status='ACTIVE'"
+                                            + " AND (g.expires_at IS NULL OR g.expires_at>now())",
+                                        id,
+                                        requestedCode,
+                                        user));
+                grants.addAll(
                         db.list(
-                                "SELECT g.data_scope FROM service_endpoint e JOIN endpoint_grant g"
-                                    + " ON g.endpoint_id=e.id WHERE e.release_id=? AND e.op_code=?"
-                                    + " AND g.user_id=? AND g.status='ACTIVE'"
+                                "SELECT g.data_scope FROM service_endpoint e JOIN endpoint_role_grant g"
+                                    + " ON g.endpoint_id=e.id JOIN local_role r ON r.code=g.role_code"
+                                    + " JOIN user_role ur ON ur.role_id=r.id WHERE e.release_id=?"
+                                    + " AND e.op_code=? AND ur.user_id=? AND g.status='ACTIVE'"
                                     + " AND (g.expires_at IS NULL OR g.expires_at>now())",
                                 id,
                                 requestedCode,
-                                user);
+                                user));
                 if (grants.isEmpty()) throw new Problem(403, "ENDPOINT_FORBIDDEN", "没有该端点的有效授予记录");
-                endpointDataScope = grants.getFirst().get("dataScope");
-                endpointScope =
-                        cn.ontorepo.data.domain.LabelScope.parse(
-                                new com.fasterxml.jackson.databind.ObjectMapper()
-                                        .valueToTree(endpointDataScope));
+                // 多条授予（用户+多个角色）逐项求交，任一范围都不能被另一条扩大。
+                endpointScope = cn.ontorepo.data.domain.LabelScope.unrestricted();
+                for (var grant : grants)
+                    endpointScope =
+                            cn.ontorepo.data.domain.LabelScope.intersect(
+                                    endpointScope,
+                                    cn.ontorepo.data.domain.LabelScope.parse(
+                                            new com.fasterxml.jackson.databind.ObjectMapper()
+                                                    .valueToTree(grant.get("dataScope"))));
+                endpointDataScope = endpointScope.parameters();
             }
             authorization.add(
                     auth(

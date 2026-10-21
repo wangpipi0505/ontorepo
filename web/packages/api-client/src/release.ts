@@ -113,6 +113,13 @@ export interface EndpointGrant {
   expiresAt: string | null
   status: 'ACTIVE' | 'REVOKED'
 }
+export interface EndpointRoleGrant {
+  roleCode: string
+  roleName: string
+  dataScope: JsonObject | null
+  expiresAt: string | null
+  status: 'ACTIVE' | 'REVOKED'
+}
 export interface ApiCredential {
   id: string
   spaceId: string

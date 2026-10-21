@@ -178,6 +178,22 @@ public class ReleaseController {
         return Envelope.ok(gateway.saveGrant(t.user(r), id, userId, b));
     }
 
+    @RequiresPermission("grant.read")
+    @GetMapping("/endpoints/{id}/role-grants")
+    public Envelope<?> roleGrants(HttpServletRequest r, @PathVariable UUID id) {
+        return Envelope.ok(gateway.roleGrants(t.user(r), id));
+    }
+
+    @RequiresPermission("grant.write")
+    @PutMapping("/endpoints/{id}/role-grants/{roleCode}")
+    public Envelope<?> roleGrant(
+            HttpServletRequest r,
+            @PathVariable UUID id,
+            @PathVariable String roleCode,
+            @RequestBody Map<String, Object> b) {
+        return Envelope.ok(gateway.saveRoleGrant(t.user(r), id, roleCode, b));
+    }
+
     @RequiresPermission("grant.write")
     @PutMapping("/endpoints/{id}/status")
     public Envelope<?> endpointStatus(

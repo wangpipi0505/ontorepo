@@ -106,6 +106,53 @@ public class ReleaseGatewayService {
                 .orElseThrow(Problem::missing);
     }
 
+    /** OWNER查看角色级端点授予；角色授予与用户授予分别存储、分别撤销。 */
+    public List<Map<String, Object>> roleGrants(UUID user, UUID endpoint) {
+        var e = endpoint(endpoint);
+        owner(user, Input.uuid(e.get("spaceId")));
+        return db.list(
+                "SELECT g.role_code,r.name role_name,g.data_scope,g.expires_at,g.status FROM"
+                        + " endpoint_role_grant g JOIN local_role r ON r.code=g.role_code WHERE"
+                        + " g.endpoint_id=? ORDER BY g.role_code",
+                endpoint);
+    }
+
+    @Transactional
+    /** 角色授予同样在空间锁内更新并审计；执行时与空间角色并集、与用户授予范围求交。 */
+    public Map<String, Object> saveRoleGrant(
+            UUID user, UUID endpoint, String roleCode, Map<String, Object> body) {
+        var e = endpoint(endpoint);
+        UUID space = Input.uuid(e.get("spaceId"));
+        lockOwner(user, space);
+        String role = Input.text(Map.of("role", roleCode), "role", 80);
+        if (db.one("SELECT code FROM local_role WHERE code=?", role) == null)
+            throw Problem.bad("角色不存在");
+        String status = Input.text(body, "status", 10);
+        if (!Set.of("ACTIVE", "REVOKED").contains(status)) throw Problem.bad("端点授予状态无效");
+        LabelScope.parse(
+                new com.fasterxml.jackson.databind.ObjectMapper()
+                        .valueToTree(body.get("dataScope")));
+        db.update(
+                "INSERT INTO endpoint_role_grant(endpoint_id,role_code,data_scope,expires_at,status)"
+                    + " VALUES(?,?,?::jsonb,?,?) ON CONFLICT(endpoint_id,role_code) DO UPDATE SET"
+                    + " data_scope=excluded.data_scope,expires_at=excluded.expires_at,status=excluded.status",
+                endpoint,
+                role,
+                body.get("dataScope") == null ? null : db.json(body.get("dataScope")),
+                expiry(body.get("expiresAt")),
+                status);
+        audit(
+                user,
+                space,
+                "ENDPOINT_ROLE_GRANT",
+                endpoint.toString(),
+                Map.of("roleCode", role, "status", status));
+        return roleGrants(user, endpoint).stream()
+                .filter(g -> role.equals(g.get("roleCode")))
+                .findFirst()
+                .orElseThrow(Problem::missing);
+    }
+
     /** 端点级启停：停用后执行链在访问源前拒绝；启用可逆，状态变更入审计。 */
     @Transactional
     public Map<String, Object> updateStatus(

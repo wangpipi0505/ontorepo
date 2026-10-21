@@ -2,7 +2,11 @@
 /** 端点授权和空间授权是独立事实；不存在记录必须显示拒绝，不等价于 NULL 范围。 */
 import { computed, ref, watch } from 'vue'
 import type { GrantUser, SpaceGrant } from '@onto/api-client'
-import type { Endpoint, EndpointGrant } from '../../../../../packages/api-client/src/release'
+import type {
+  Endpoint,
+  EndpointGrant,
+  EndpointRoleGrant,
+} from '../../../../../packages/api-client/src/release'
 import { useWorkspace } from '../../stores/workspace'
 import { useSession } from '../../stores/session'
 import { useResource } from '../../composables/useResource'
@@ -17,10 +21,14 @@ const workspace = useWorkspace(),
   mutation = useMutation()
 const state = useResource<{
   grants: EndpointGrant[]
+  roleGrants: EndpointRoleGrant[]
   users: GrantUser[]
   spaceGrants: SpaceGrant[]
 } | null>(null)
 const userId = ref(''),
+  roleCode = ref(''),
+  roleStatus = ref<EndpointRoleGrant['status']>('ACTIVE'),
+  roleExpiresAt = ref(''),
   scope = ref<'unlimited' | 'limited'>('limited'),
   rows = ref<ParameterRow[]>([]),
   status = ref<EndpointGrant['status']>('ACTIVE'),
@@ -39,12 +47,13 @@ async function load() {
     endpointId = props.endpoint.id
   if (!id || !owner.value || mutation.pending.value) return
   await state.load(async () => {
-    const [grants, users, spaceGrants] = await Promise.all([
+    const [grants, roleGrants, users, spaceGrants] = await Promise.all([
       api.get<EndpointGrant[]>(`/endpoints/${endpointId}/grants`),
+      api.get<EndpointRoleGrant[]>(`/endpoints/${endpointId}/role-grants`),
       api.get<GrantUser[]>(`/spaces/${id}/grant-users`),
       api.get<SpaceGrant[]>(`/spaces/${id}/grants`),
     ])
-    return { grants, users, spaceGrants }
+    return { grants, roleGrants, users, spaceGrants }
   })
 }
 function select() {
@@ -105,6 +114,30 @@ async function save() {
     }
   })
 }
+async function saveRole() {
+  const code = roleCode.value.trim()
+  if (!writable.value || !code) return
+  const endpointId = props.endpoint.id,
+    ticket = generation
+  await mutation.run(async ({ isCurrent }) => {
+    const value = await api.put<EndpointRoleGrant>(
+      `/endpoints/${endpointId}/role-grants/${encodeURIComponent(code)}`,
+      {
+        dataScope: null,
+        expiresAt: roleExpiresAt.value ? new Date(roleExpiresAt.value).toISOString() : null,
+        status: roleStatus.value,
+      },
+    )
+    if (!isCurrent() || !writable.value || ticket !== generation || !state.data.value) return
+    state.data.value = {
+      ...state.data.value,
+      roleGrants: [
+        ...state.data.value.roleGrants.filter((item) => item.roleCode !== value.roleCode),
+        value,
+      ],
+    }
+  })
+}
 </script>
 <template>
   <section class="p4-page panel stack">
@@ -139,6 +172,49 @@ async function save() {
             · 到期 {{ grant.expiresAt ?? '未设置' }}
           </p>
         </article>
+        <section class="stack">
+          <h3>角色级授予</h3>
+          <p class="muted">
+            角色授予按用户的 ACTIVE 角色并集生效，并与用户授予的数据范围求交；角色编码来自角色与权限目录。
+          </p>
+          <article v-for="grant in state.data.value.roleGrants" :key="grant.roleCode" class="record">
+            <b>{{ grant.roleName }}（{{ grant.roleCode }}） · {{ grant.status }}</b>
+            <p class="muted">
+              端点范围：{{
+                grant.dataScope === null ? '已存在授权不限范围' : JSON.stringify(grant.dataScope)
+              }}
+              · 到期 {{ grant.expiresAt ?? '未设置' }}
+            </p>
+          </article>
+          <p v-if="writable" class="muted">新增或更新角色授予：</p>
+          <div v-if="writable" class="form-columns">
+            <label>
+              角色编码
+              <input v-model="roleCode" placeholder="例如 MEMBER" :disabled="mutation.pending.value" />
+            </label>
+            <label>
+              授权状态
+              <select v-model="roleStatus" :disabled="mutation.pending.value">
+                <option value="ACTIVE">ACTIVE</option>
+                <option value="REVOKED">REVOKED</option>
+              </select>
+            </label>
+            <label>
+              到期时间（可选）
+              <input
+                v-model="roleExpiresAt"
+                type="datetime-local"
+                :disabled="mutation.pending.value"
+              />
+            </label>
+            <el-button
+              :disabled="mutation.pending.value || !roleCode.trim()"
+              @click="saveRole"
+            >
+              保存角色授予
+            </el-button>
+          </div>
+        </section>
         <label v-if="writable">
           本地用户
           <select v-model="userId" data-testid="endpoint-user" :disabled="mutation.pending.value">
