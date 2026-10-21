@@ -7,6 +7,7 @@ import { useWorkspace } from '../stores/workspace'
 import { errorMessage } from '../composables/useResource'
 import { pagePermission, spacePagePermissions } from '../composables/pagePermissions'
 import { roleLabels } from '../composables/labels'
+import RequirementTags from '../components/RequirementTags.vue'
 import AsyncState from '@onto/shared-ui/AsyncState.vue'
 const route = useRoute(),
   router = useRouter(),
@@ -218,6 +219,7 @@ async function logout() {
             <span class="mono">r{{ workspace.space.draftRev }}</span>
             <span class="pill">{{ roleLabels[workspace.space.role] }}</span>
           </template>
+          <RequirementTags v-if="route.path.startsWith('/spaces/')" />
         </span>
         <div class="row">
           <span class="muted">{{ session.user?.displayName }}</span>
