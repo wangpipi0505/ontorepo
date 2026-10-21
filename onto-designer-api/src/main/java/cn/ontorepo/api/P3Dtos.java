@@ -23,7 +23,10 @@ public final class P3Dtos {
             String name,
             String kind,
             Map<String, Object> connection,
-            List<String> accessScope)
+            List<String> accessScope,
+            String description,
+            String tenant,
+            UUID ownerId)
             implements StrictWrite {}
 
     public record SpaceRequest(UUID spaceId) implements StrictWrite {}

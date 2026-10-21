@@ -22,6 +22,9 @@ export interface Datasource {
   accessScope: string[]
   status: string
   lastTestAt: string | null
+  description?: string
+  tenant?: string | null
+  ownerId?: string | null
 }
 export interface SourceWrite {
   code: string
@@ -29,6 +32,9 @@ export interface SourceWrite {
   kind: SourceKind
   connection: JsonObject | null
   accessScope: string[]
+  description?: string
+  tenant?: string
+  ownerId?: string | null
 }
 export interface SourceCapability {
   kind: SourceKind

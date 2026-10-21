@@ -8,7 +8,7 @@ import { useMutation, notifySaved } from '../composables/useMutation'
 const props = defineProps<{ space: Space | null }>()
 const open = defineModel<boolean>({ required: true }),
   emit = defineEmits<{ saved: [] }>()
-const form = reactive({ code: '', name: '', namespaceUri: '', domain: '' })
+const form = reactive({ code: '', name: '', namespaceUri: '', domain: '', description: '' })
 const session = useSession(),
   api = session.api
 const { pending, error, run } = useMutation()
@@ -20,6 +20,7 @@ watch(open, (value) => {
       name: props.space?.name || '',
       namespaceUri: props.space?.namespaceUri || '',
       domain: props.space?.domain || '',
+      description: props.space?.description || '',
     })
     draft.start(props.space?.draftRev || 0)
     error.value = ''
@@ -44,6 +45,7 @@ async function save() {
         await api.put(`/spaces/${props.space.id}`, {
           name: form.name,
           domain: form.domain,
+          description: form.description,
           expectedDraftRev,
         })
       else await api.post('/spaces', form)
@@ -86,8 +88,12 @@ async function save() {
         />
         <span class="muted">创建后不可修改，用于生成稳定资源标识。</span>
       </el-form-item>
-      <el-form-item label="领域说明（选填，最多 200 字符）">
-        <el-input v-model="form.domain" type="textarea" :rows="3" maxlength="200" />
+      <el-form-item label="所属领域（选填，最多 200 字符）">
+        <el-input v-model="form.domain" maxlength="200" />
+      </el-form-item>
+      <el-form-item label="空间说明（选填，最多 4000 字符）">
+        <el-input v-model="form.description" type="textarea" :rows="3" maxlength="4000" />
+        <span class="muted">用于向协作者说明空间范围、数据口径与验收边界。</span>
       </el-form-item>
       <p v-if="draft.stale.value" class="error-text" role="alert">
         表单已过期。可复制当前输入，关闭后刷新本页，再重新打开以载入最新内容。

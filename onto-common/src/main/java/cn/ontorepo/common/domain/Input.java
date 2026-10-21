@@ -24,7 +24,8 @@ public final class Input {
     }
 
     public static String description(Map<String, Object> b) {
-        Object v = b.getOrDefault("description", "");
+        Object v = b.get("description");
+        if (v == null) return "";
         if (!(v instanceof String s) || s.length() > 4000) throw Problem.bad("说明不能超过4000字符");
         return s;
     }

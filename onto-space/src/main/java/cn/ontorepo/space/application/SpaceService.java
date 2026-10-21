@@ -72,12 +72,14 @@ public class SpaceService {
         }
         UUID id = UUID.randomUUID();
         db.update(
-                "INSERT INTO ontology_space(id,code,name,namespace_uri,domain) VALUES(?,?,?,?,?)",
+                "INSERT INTO ontology_space(id,code,name,namespace_uri,domain,description)"
+                        + " VALUES(?,?,?,?,?,?)",
                 id,
                 code,
                 Input.text(b, "name", 200),
                 uri,
-                Input.optionalText(b, "domain", 200));
+                Input.optionalText(b, "domain", 200),
+                Input.description(b));
         db.update("INSERT INTO space_grant(space_id,user_id,role) VALUES(?,?, 'OWNER')", id, user);
         audit(user, id, "SPACE_CREATE", 0);
         return get(user, id);
@@ -113,7 +115,9 @@ public class SpaceService {
             Runnable work) {
         lock(user, space, expected, true);
         work.run();
-        db.update("UPDATE ontology_space SET draft_rev=draft_rev+1 WHERE id=?", space);
+        db.update(
+                "UPDATE ontology_space SET draft_rev=draft_rev+1,updated_at=now() WHERE id=?",
+                space);
         audit(user, space, action, expected + 1, detail.get());
         return get(user, space);
     }
@@ -163,6 +167,7 @@ public class SpaceService {
     @Transactional
     public Map<String, Object> update(UUID user, UUID id, Map<String, Object> b) {
         String name = Input.text(b, "name", 200), domain = Input.optionalText(b, "domain", 200);
+        String description = b.containsKey("description") ? Input.description(b) : null;
         return write(
                 user,
                 id,
@@ -170,9 +175,12 @@ public class SpaceService {
                 "SPACE_UPDATE",
                 () ->
                         db.update(
-                                "UPDATE ontology_space SET name=?,domain=? WHERE id=?",
+                                "UPDATE ontology_space SET"
+                                    + " name=?,domain=?,description=COALESCE(?,description),updated_at=now()"
+                                    + " WHERE id=?",
                                 name,
                                 domain,
+                                description,
                                 id));
     }
 

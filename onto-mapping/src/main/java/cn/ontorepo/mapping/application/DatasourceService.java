@@ -35,7 +35,7 @@ public class DatasourceService {
     private final CredentialCipher cipher;
     private final AdapterRegistry registry = new AdapterRegistry();
     private static final String SAFE =
-            "id,space_id,code,name,kind,dialect,access_scope,status,last_test_at";
+            "id,space_id,code,name,kind,dialect,access_scope,status,last_test_at,description,owner_id,tenant";
 
     public DatasourceService(
             Db db,
@@ -161,11 +161,19 @@ public class DatasourceService {
                     String code = Input.text(b, "code", 80);
                     if (!code.matches("[A-Za-z][A-Za-z0-9_-]*")) throw Problem.bad("源编码格式无效");
                     String name = Input.text(b, "name", 200);
+                    String description = Input.description(b);
+                    String tenant = Input.optionalText(b, "tenant", 200);
+                    UUID owner =
+                            b.get("ownerId") == null || b.get("ownerId").toString().isBlank()
+                                    ? null
+                                    : Input.uuid(b.get("ownerId"));
+                    if (owner != null && db.one("SELECT id FROM local_user WHERE id=?", owner) == null)
+                        throw Problem.bad("维护主体不存在");
                     if (old == null)
                         db.update(
                                 "INSERT INTO"
-                                    + " datasource(id,space_id,code,name,kind,dialect,conn_cfg,access_scope)"
-                                    + " VALUES(?,?,?,?,?,?,?,?::jsonb)",
+                                    + " datasource(id,space_id,code,name,kind,dialect,conn_cfg,access_scope,description,owner_id,tenant)"
+                                    + " VALUES(?,?,?,?,?,?,?,?::jsonb,?,?,?)",
                                 target,
                                 s,
                                 code,
@@ -173,11 +181,14 @@ public class DatasourceService {
                                 kind,
                                 dialect,
                                 encrypted,
-                                db.json(access));
+                                db.json(access),
+                                description,
+                                owner,
+                                tenant);
                     else
                         db.update(
                                 "UPDATE datasource SET"
-                                    + " code=?,name=?,kind=?,dialect=?,conn_cfg=?,access_scope=?::jsonb,status='UNTESTED',last_test_at=null"
+                                    + " code=?,name=?,kind=?,dialect=?,conn_cfg=?,access_scope=?::jsonb,description=?,owner_id=?,tenant=?,status='UNTESTED',last_test_at=null"
                                     + " WHERE id=?",
                                 code,
                                 name,
@@ -185,6 +196,9 @@ public class DatasourceService {
                                 dialect,
                                 encrypted,
                                 db.json(access),
+                                description,
+                                owner,
+                                tenant,
                                 target);
                 });
     }

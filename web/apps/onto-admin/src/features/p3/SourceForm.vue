@@ -16,6 +16,8 @@ const fields = reactive({
   code: '',
   name: '',
   kind: 'RELATIONAL' as SourceKind,
+  description: '',
+  tenant: '',
   scope: '',
   dialect: 'postgresql',
   endpoints: '',
@@ -35,6 +37,8 @@ watch(
       code: value?.code ?? '',
       name: value?.name ?? '',
       kind: value?.kind ?? 'RELATIONAL',
+      description: value?.description ?? '',
+      tenant: value?.tenant ?? '',
       scope: value?.accessScope.join('\n') ?? '',
       dialect: value?.dialect || 'postgresql',
       endpoints: '',
@@ -130,6 +134,8 @@ function save() {
       kind: fields.kind,
       connection: config,
       accessScope: lines(fields.scope),
+      description: fields.description.trim(),
+      tenant: fields.tenant.trim(),
     })
   } catch (cause) {
     localError.value = cause instanceof Error ? cause.message : '请检查源配置。'
@@ -151,6 +157,14 @@ function save() {
         <el-option v-for="(label, kind) in sourceLabels" :key="kind" :label="label" :value="kind" />
       </el-select>
     </el-form-item>
+    <div class="form-columns">
+      <el-form-item label="租户/业务归属（可选）">
+        <el-input v-model="fields.tenant" :disabled="disabled" placeholder="例如 生产/租户A" />
+      </el-form-item>
+      <el-form-item label="数据源说明（可选）">
+        <el-input v-model="fields.description" :disabled="disabled" maxlength="4000" />
+      </el-form-item>
+    </div>
     <el-form-item label="访问范围（资源名，每行一个）">
       <el-input v-model="fields.scope" type="textarea" :disabled="disabled" :rows="3" />
     </el-form-item>

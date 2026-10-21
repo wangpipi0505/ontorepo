@@ -22,7 +22,8 @@ import SourceForm from './SourceForm.vue'
 import ManagedUpload from './ManagedUpload.vue'
 import MetadataPanel from './MetadataPanel.vue'
 import { sourceLabels } from './sourceFields'
-const api = useSession().api
+const session = useSession(),
+  api = session.api
 const editor = useDraftDocument(async (id) => {
   const [sources, files, capabilities] = await Promise.all([
     api.get<Datasource[]>(`/datasources?spaceId=${id}`),
@@ -96,8 +97,18 @@ async function save(value: SourceWrite) {
   if (
     await editor.save((expectedDraftRev) =>
       id
-        ? editor.api.put<Space>(`/datasources/${id}`, { ...value, spaceId, expectedDraftRev })
-        : editor.api.post<Space>('/datasources', { ...value, spaceId, expectedDraftRev }),
+        ? editor.api.put<Space>(`/datasources/${id}`, {
+            ...value,
+            ownerId: editing.value?.ownerId ?? session.user?.id,
+            spaceId,
+            expectedDraftRev,
+          })
+        : editor.api.post<Space>('/datasources', {
+            ...value,
+            ownerId: session.user?.id,
+            spaceId,
+            expectedDraftRev,
+          }),
     )
   ) {
     open.value = false
@@ -216,6 +227,12 @@ onMounted(load)
               </template>
             </el-table-column>
             <el-table-column prop="dialect" label="协议" />
+            <el-table-column label="说明" min-width="160">
+              <template #default="{ row }">{{ row.description || '—' }}</template>
+            </el-table-column>
+            <el-table-column label="租户" width="110">
+              <template #default="{ row }">{{ row.tenant || '—' }}</template>
+            </el-table-column>
             <el-table-column prop="status" label="状态" />
             <el-table-column prop="lastTestAt" label="上次探测" />
             <el-table-column label="操作" min-width="200">

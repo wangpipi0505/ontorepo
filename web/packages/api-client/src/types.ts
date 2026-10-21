@@ -7,6 +7,8 @@ export type LoginResult = Omit<Schema<'Login'>, 'user'> & { user: User }
 export type Space = Omit<Schema<'Space'>, 'status' | 'role'> & {
   status: 'ACTIVE' | 'ARCHIVED'
   role: 'OWNER' | 'EDITOR' | 'VIEWER'
+  description?: string
+  updatedAt?: string
 }
 export type OntClass = Omit<Schema<'OntClass'>, 'parentId'> & { parentId: string | null }
 export type RangeType = 'STRING' | 'INTEGER' | 'DECIMAL' | 'BOOLEAN' | 'DATE'

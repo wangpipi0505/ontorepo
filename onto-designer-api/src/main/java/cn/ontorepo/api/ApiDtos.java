@@ -30,19 +30,23 @@ public final class ApiDtos {
             String name,
             String namespaceUri,
             String domain,
+            String description,
             String status,
             long draftRev,
             String role,
             long classCount,
             long propertyCount,
             long operationCount,
-            String createdAt) {}
+            String createdAt,
+            String updatedAt) {}
 
-    /** 空间创建参数；命名空间创建后不可修改，domain允许空字符串。 */
-    public record SpaceCreate(String code, String name, String namespaceUri, String domain) {}
+    /** 空间创建参数；命名空间创建后不可修改，domain/description允许空字符串。 */
+    public record SpaceCreate(
+            String code, String name, String namespaceUri, String domain, String description) {}
 
     /** 空间可修改信息；expectedDraftRev必须等于锁定后的当前修订。 */
-    public record SpaceUpdate(String name, String domain, Long expectedDraftRev) {}
+    public record SpaceUpdate(
+            String name, String domain, String description, Long expectedDraftRev) {}
 
     /** 仅携带预期修订的归档或候选冻结请求。 */
     public record Revision(Long expectedDraftRev) {}

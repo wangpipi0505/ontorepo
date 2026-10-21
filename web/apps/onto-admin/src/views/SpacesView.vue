@@ -118,7 +118,10 @@ onMounted(load)
           <router-link :to="`/spaces/${space.id}`" class="space-title">
             {{ space.name }}
           </router-link>
-          <p class="muted domain">{{ space.domain || '暂无领域说明' }}</p>
+          <p class="muted domain">{{ space.description || space.domain || '暂无说明' }}</p>
+          <p v-if="space.updatedAt" class="muted card-updated">
+            最近修改 {{ new Date(space.updatedAt).toLocaleString('zh-CN') }}
+          </p>
           <div class="space-counts">
             <span>
               <b>{{ space.classCount }}</b>
