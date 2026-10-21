@@ -47,11 +47,13 @@ const selectedId = ref(''),
   dialog = ref(false),
   editing = ref<OntClass | null>(null),
   loadedRev = ref<number>()
-interface UndoAction {
+interface UndoCommand {
   label: string
-  undo: () => Promise<Space>
+  undo: (rev: number) => Promise<Space>
+  redo: (rev: number) => Promise<Space>
 }
-const undoStack = ref<UndoAction[]>([])
+const undoStack = ref<UndoCommand[]>([]),
+  redoStack = ref<UndoCommand[]>([])
 let classSnapshot: OntClass[] = []
 let classEditing: OntClass | null = null
 let relationSnapshot: Relation[] = []
@@ -155,12 +157,37 @@ async function saveRelation() {
     const beforeIds = new Set(relationSnapshot.map((item) => item.id))
     const created = relations.data.value.find((item) => !beforeIds.has(item.id))
     relationSnapshot = []
-    if (spaceId && created)
-      pushUndo(`新建关系“${created.name}”`, () =>
-        api.delete<Space>(
-          `/relations/${created.id}?spaceId=${spaceId}&expectedDraftRev=${workspace.space?.draftRev}`,
-        ),
+    if (spaceId && created) {
+      const payload = {
+        name: created.name,
+        fromClassId: created.fromClassId,
+        toClassId: created.toClassId,
+        cardinality: created.cardinality,
+        inverseName: relationForm.inverseName.trim() || undefined,
+      }
+      let createdId = created.id
+      const findCreated = async () => {
+        const rows = await api.get<Relation[]>(`/relations?spaceId=${spaceId}`)
+        return rows.find((item) => !beforeIds.has(item.id) && item.name === payload.name)?.id
+      }
+      pushCommand(
+        `新建关系“${created.name}”`,
+        (rev) =>
+          api.delete<Space>(
+            `/relations/${createdId}?spaceId=${spaceId}&expectedDraftRev=${rev}`,
+          ),
+        async (rev) => {
+          const next = await api.post<Space>('/relations', {
+            ...payload,
+            spaceId,
+            expectedDraftRev: rev,
+          })
+          const id = await findCreated()
+          if (id) createdId = id
+          return next
+        },
       )
+    }
   }
 }
 async function load() {
@@ -204,21 +231,30 @@ function edit(item: OntClass | null) {
   editing.value = item
   dialog.value = true
 }
-function pushUndo(label: string, undo: () => Promise<Space>) {
-  undoStack.value = [...undoStack.value.slice(-19), { label, undo }]
+function pushCommand(
+  label: string,
+  undo: (rev: number) => Promise<Space>,
+  redo: (rev: number) => Promise<Space>,
+) {
+  undoStack.value = [...undoStack.value.slice(-19), { label, undo, redo }]
+  redoStack.value = []
 }
-/** 撤销仅覆盖建模画布内的新建/修改/关系操作；删除与属性编辑仍需走草稿恢复。 */
-async function undoLast() {
-  const action = undoStack.value.at(-1)
-  if (!action || mutation.pending.value || !workspace.canWrite) return
-  undoStack.value = undoStack.value.slice(0, -1)
+/** 撤销/重做共用一条命令栈；删除与属性编辑不纳入。 */
+async function runCommand(direction: 'undo' | 'redo') {
+  const source = direction === 'undo' ? undoStack : redoStack,
+    target = direction === 'undo' ? redoStack : undoStack,
+    command = source.value.at(-1),
+    rev = workspace.space?.draftRev
+  if (!command || rev === undefined || mutation.pending.value || !workspace.canWrite) return
+  source.value = source.value.slice(0, -1)
   await mutation.run(async ({ isCurrent }) => {
-    const next = await action.undo()
+    const next = await (direction === 'undo' ? command.undo(rev) : command.redo(rev))
     if (!isCurrent()) return
     workspace.accept(next)
     await load()
   })
-  if (mutation.error.value) undoStack.value = [...undoStack.value, action]
+  if (mutation.error.value) source.value = [...source.value, command]
+  else target.value = [...target.value.slice(-19), command]
 }
 async function classSaved() {
   await load()
@@ -227,28 +263,57 @@ async function classSaved() {
   const spaceId = workspace.space?.id
   if (!spaceId) return
   if (classEditing) {
-    const old = before.find((item) => item.id === classEditing?.id)
-    if (old)
-      pushUndo(`修改对象“${old.name}”`, () =>
-        api.put<Space>(`/classes/${old.id}`, {
-          ...old,
+    const old = before.find((item) => item.id === classEditing?.id),
+      after = classes.data.value.find((item) => item.id === classEditing?.id)
+    if (old && after) {
+      const put = (entry: OntClass, rev: number) =>
+        api.put<Space>(`/classes/${entry.id}`, {
+          ...entry,
           spaceId,
-          expectedDraftRev: workspace.space?.draftRev,
-        }),
+          expectedDraftRev: rev,
+        })
+      pushCommand(
+        `修改对象“${old.name}”`,
+        (rev) => put(old, rev),
+        (rev) => put(after, rev),
       )
+    }
   } else {
     const beforeIds = new Set(before.map((item) => item.id))
     const created = classes.data.value.find((item) => !beforeIds.has(item.id))
-    if (created)
-      pushUndo(`新建对象“${created.name}”`, () =>
-        api.delete<Space>(
-          `/classes/${created.id}?spaceId=${spaceId}&expectedDraftRev=${workspace.space?.draftRev}`,
-        ),
+    if (created) {
+      const payload = {
+        name: created.name,
+        parentId: created.parentId,
+        description: created.description,
+        deprecated: created.deprecated,
+      }
+      let createdId = created.id
+      const findCreated = async () => {
+        const rows = await api.get<OntClass[]>(`/classes?spaceId=${spaceId}`)
+        return rows.find((item) => !beforeIds.has(item.id) && item.name === payload.name)?.id
+      }
+      pushCommand(
+        `新建对象“${created.name}”`,
+        (rev) =>
+          api.delete<Space>(
+            `/classes/${createdId}?spaceId=${spaceId}&expectedDraftRev=${rev}`,
+          ),
+        async (rev) => {
+          const next = await api.post<Space>('/classes', {
+            ...payload,
+            spaceId,
+            expectedDraftRev: rev,
+          })
+          const id = await findCreated()
+          if (id) createdId = id
+          return next
+        },
       )
+    }
   }
   classEditing = null
-}
-async function remove() {
+}async function remove() {
   const item = selected.value,
     space = workspace.space
   if (!item || !space || !workspace.canWrite || loadedRev.value === undefined) return
@@ -325,10 +390,17 @@ onBeforeUnmount(() => window.removeEventListener('resize', fitCanvas))
       </el-radio-group>
       <el-button
         :disabled="!undoStack.length || mutation.pending.value"
-        title="撤销建模画布中的新建对象/关系操作；删除与属性编辑不可撤销"
-        @click="undoLast"
+        title="撤销建模画布中的新建/修改对象与新建关系；删除与属性编辑不可撤销"
+        @click="runCommand('undo')"
       >
         撤销{{ undoStack.length ? ` ${undoStack.length}` : '' }}
+      </el-button>
+      <el-button
+        :disabled="!redoStack.length || mutation.pending.value"
+        title="重做刚撤销的建模操作"
+        @click="runCommand('redo')"
+      >
+        重做{{ redoStack.length ? ` ${redoStack.length}` : '' }}
       </el-button>
       <el-button @click="load">刷新模型</el-button>
       <el-button v-if="workspace.canWrite" type="primary" @click="edit(null)">新建对象</el-button>
