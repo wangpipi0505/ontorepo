@@ -13,7 +13,7 @@ import { useMutation, confirmAction } from '../composables/useMutation'
 import { buildTree, canReparent, type ClassNode } from '../composables/classTree'
 import ClassDialog from '../components/ClassDialog.vue'
 import PropertyPanel from '../components/PropertyPanel.vue'
-const OntoGraph = defineAsyncComponent(() => import('../components/OntoGraph.vue'))
+const OntoGraph = defineAsyncComponent(() => import('@onto/graph/OntoGraph.vue'))
 const workspace = useWorkspace(),
   api = useSession().api,
   classes = useResource<OntClass[]>([]),

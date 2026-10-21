@@ -2,18 +2,8 @@
 /** 本体图谱：类为节点、关系为有向边；支持拖拽/缩放/拉线建关系与冲突高亮。 */
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Graph } from '@antv/g6'
+import type { GraphEdge, GraphNode } from './types'
 
-export interface GraphNode {
-  id: string
-  label: string
-  conflict?: boolean
-}
-export interface GraphEdge {
-  id: string
-  source: string
-  target: string
-  label: string
-}
 const props = withDefaults(
   defineProps<{
     nodes: GraphNode[]

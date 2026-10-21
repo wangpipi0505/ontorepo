@@ -2,7 +2,7 @@
 /** 图与可读列表共享服务端事实；节点点击查看版本/引用，缺失边端点不补造节点。 */
 import { computed, ref } from 'vue'
 import type { TraceGraphData } from '../../../../../packages/api-client/src/release'
-import OntoGraph, { type GraphEdge, type GraphNode } from '../../components/OntoGraph.vue'
+import { OntoGraph, type GraphEdge, type GraphNode } from '@onto/graph'
 const props = defineProps<{ graph: TraceGraphData }>()
 const emit = defineEmits<{ 'select-node': [id: string] }>()
 const selectedId = ref('')

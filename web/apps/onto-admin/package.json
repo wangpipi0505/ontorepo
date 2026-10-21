@@ -8,8 +8,8 @@
     "build": "vite build"
   },
   "dependencies": {
-    "@antv/g6": "^5.1.1",
     "@onto/api-client": "workspace:*",
+    "@onto/graph": "workspace:*",
     "@onto/shared-ui": "workspace:*",
     "element-plus": "^2.11.5",
     "pinia": "^3.0.3",

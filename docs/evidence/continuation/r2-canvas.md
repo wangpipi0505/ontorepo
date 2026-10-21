@@ -28,6 +28,11 @@ pnpm test        # 31 files / 259 tests passed
 pnpm build       # exit 0；OntoGraph 独立 chunk（gzip ~410 KB）
 ```
 
+## packages/onto-graph 抽取
+
+- 组件迁至 `web/packages/onto-graph`，导出 `OntoGraph`、`GraphNode/GraphEdge`；应用改为 `@onto/graph` 依赖与懒加载 `@onto/graph/OntoGraph.vue`。
+- G6 依赖随包迁移，独立 chunk 保持约 1.4 MB（gzip 410 KB）；typecheck/test/build 与浏览器画布渲染通过。
+
 ## 拖拽建对象
 
 - 画布上方"＋ 拖拽新建对象"卡片：拖到画布区域释放，打开新建对象对话框；拖拽悬停时画布显示虚线高亮。

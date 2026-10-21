@@ -1,0 +1,16 @@
+﻿{
+  "name": "@onto/graph",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./OntoGraph.vue": "./src/OntoGraph.vue"
+  },
+  "dependencies": {
+    "@antv/g6": "^5.1.1"
+  },
+  "peerDependencies": {
+    "vue": "~3.5.22"
+  }
+}

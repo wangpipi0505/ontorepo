@@ -32,12 +32,12 @@ importers:
 
   apps/onto-admin:
     dependencies:
-      '@antv/g6':
-        specifier: ^5.1.1
-        version: 5.1.1
       '@onto/api-client':
         specifier: workspace:*
         version: link:../../packages/api-client
+      '@onto/graph':
+        specifier: workspace:*
+        version: link:../../packages/onto-graph
       '@onto/shared-ui':
         specifier: workspace:*
         version: link:../../packages/shared-ui
@@ -62,6 +62,15 @@ importers:
         version: 7.3.7
 
   packages/api-client: {}
+
+  packages/onto-graph:
+    dependencies:
+      '@antv/g6':
+        specifier: ^5.1.1
+        version: 5.1.1
+      vue:
+        specifier: ~3.5.22
+        version: 3.5.44(typescript@5.9.3)
 
   packages/shared-ui:
     dependencies:
