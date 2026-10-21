@@ -7,7 +7,7 @@ const tags: Record<string, string[]> = {
   rules: ['2.1⑤', '2.1⑦'],
   conflicts: ['2.1⑧'],
   strategies: ['2.1⑧'],
-  operations: ['2.1⑤', '2.4②'],
+  operations: ['2.1⑤', '2.1⑧', '2.4②'],
   assistant: ['2.4②'],
   guards: ['2.5②'],
   settings: ['2.5②'],

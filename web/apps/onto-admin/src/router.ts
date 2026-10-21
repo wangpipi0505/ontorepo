@@ -45,7 +45,7 @@ export const router = createRouter({
         },
         {
           path: 'spaces/:spaceId/strategies',
-          component: () => import('./features/p1/StrategiesView.vue'),
+          redirect: (to) => `/spaces/${String(to.params.spaceId)}/operations?tab=strategies`,
         },
         {
           path: 'spaces/:spaceId/imports',
@@ -61,11 +61,11 @@ export const router = createRouter({
         },
         {
           path: 'spaces/:spaceId/operations',
-          component: () => import('./views/OperationsView.vue'),
+          component: () => import('./views/OperationsHubView.vue'),
         },
         {
           path: 'spaces/:spaceId/assistant',
-          component: () => import('./features/p2/AssistantView.vue'),
+          redirect: (to) => `/spaces/${String(to.params.spaceId)}/operations?tab=assistant`,
         },
         {
           path: 'spaces/:spaceId/guards',
