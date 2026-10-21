@@ -3,6 +3,7 @@
 import { computed, onMounted, ref, shallowRef, watch } from 'vue'
 import type {
   Datasource,
+  GrantUser,
   ManagedFile,
   MetadataDiff,
   MetadataSnapshot,
@@ -25,12 +26,13 @@ import { sourceLabels } from './sourceFields'
 const session = useSession(),
   api = session.api
 const editor = useDraftDocument(async (id) => {
-  const [sources, files, capabilities] = await Promise.all([
+  const [sources, files, capabilities, users] = await Promise.all([
     api.get<Datasource[]>(`/datasources?spaceId=${id}`),
     api.get<ManagedFile[]>(`/data-files?spaceId=${id}`),
     api.get<SourceCapability[]>(`/datasources/capabilities?spaceId=${id}`),
+    api.get<GrantUser[]>(`/spaces/${id}/grant-users`),
   ])
-  return { sources, files, capabilities }
+  return { sources, files, capabilities, users }
 })
 const selected = ref(''),
   snapshotId = ref(''),
@@ -99,13 +101,11 @@ async function save(value: SourceWrite) {
       id
         ? editor.api.put<Space>(`/datasources/${id}`, {
             ...value,
-            ownerId: editing.value?.ownerId ?? session.user?.id,
             spaceId,
             expectedDraftRev,
           })
         : editor.api.post<Space>('/datasources', {
             ...value,
-            ownerId: session.user?.id,
             spaceId,
             expectedDraftRev,
           }),
@@ -261,6 +261,7 @@ onMounted(load)
           <SourceForm
             :value="editing"
             :files="data.files"
+            :users="data.users"
             :can-write="owner"
             :pending="busy"
             :stale="editor.draft.stale.value"

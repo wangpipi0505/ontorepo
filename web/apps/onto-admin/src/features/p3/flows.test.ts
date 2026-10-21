@@ -147,6 +147,8 @@ function response(path: string): unknown {
       },
     ]
   if (path === '/mappings?spaceId=s') return { objects: [], properties: [], relations: [] }
+  if (path === '/spaces/s/grant-users')
+    return [{ userId: 'u', username: 'owner', displayName: '所有者' }]
   if (
     path === '/spaces/s/properties' ||
     path === '/relations?spaceId=s' ||

@@ -1,11 +1,12 @@
 <script setup lang="ts">
 /** OWNER 专用配置表单：读取 DTO 不含凭据；null 明确保留已有连接。 */
 import { computed, reactive, ref, watch } from 'vue'
-import type { Datasource, ManagedFile, SourceKind, SourceWrite } from '@onto/api-client'
+import type { Datasource, GrantUser, ManagedFile, SourceKind, SourceWrite } from '@onto/api-client'
 import { connectionFields, dialects, lines, objectJson, sourceLabels } from './sourceFields'
 const props = defineProps<{
   value: Datasource | null
   files?: ManagedFile[]
+  users?: GrantUser[]
   canWrite: boolean
   pending: boolean
   stale: boolean
@@ -18,6 +19,7 @@ const fields = reactive({
   kind: 'RELATIONAL' as SourceKind,
   description: '',
   tenant: '',
+  ownerId: '',
   scope: '',
   dialect: 'postgresql',
   endpoints: '',
@@ -39,6 +41,7 @@ watch(
       kind: value?.kind ?? 'RELATIONAL',
       description: value?.description ?? '',
       tenant: value?.tenant ?? '',
+      ownerId: value?.ownerId ?? '',
       scope: value?.accessScope.join('\n') ?? '',
       dialect: value?.dialect || 'postgresql',
       endpoints: '',
@@ -136,6 +139,7 @@ function save() {
       accessScope: lines(fields.scope),
       description: fields.description.trim(),
       tenant: fields.tenant.trim(),
+      ownerId: fields.ownerId || null,
     })
   } catch (cause) {
     localError.value = cause instanceof Error ? cause.message : '请检查源配置。'
@@ -160,6 +164,17 @@ function save() {
     <div class="form-columns">
       <el-form-item label="租户/业务归属（可选）">
         <el-input v-model="fields.tenant" :disabled="disabled" placeholder="例如 生产/租户A" />
+      </el-form-item>
+      <el-form-item label="维护主体（可选）">
+        <el-select v-model="fields.ownerId" clearable :disabled="disabled">
+          <el-option value="" label="未指定" />
+          <el-option
+            v-for="user in users"
+            :key="user.userId"
+            :value="user.userId"
+            :label="`${user.displayName}（${user.username}）`"
+          />
+        </el-select>
       </el-form-item>
       <el-form-item label="数据源说明（可选）">
         <el-input v-model="fields.description" :disabled="disabled" maxlength="4000" />
