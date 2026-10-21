@@ -1,0 +1,146 @@
+{
+  "spaceId": "ec18a7ea-1761-4a90-91b7-ce8fc29af4be",
+  "steps": [
+    {
+      "step": 2,
+      "page": "空间列表",
+      "heading": "工作空间",
+      "url": "http://127.0.0.1:15184/spaces",
+      "note": "卡片/筛选/刷新"
+    },
+    {
+      "step": 3,
+      "page": "空间概览",
+      "heading": "正式发布消费验收 · 空间概览",
+      "url": "http://127.0.0.1:15184/spaces/ec18a7ea-1761-4a90-91b7-ce8fc29af4be",
+      "note": "含发布就绪度"
+    },
+    {
+      "step": 4,
+      "page": "建模工作台（对象）",
+      "heading": "对象与属性",
+      "url": "http://127.0.0.1:15184/spaces/ec18a7ea-1761-4a90-91b7-ce8fc29af4be/model",
+      "note": "六页签；画布+侧栏"
+    },
+    {
+      "step": 5,
+      "page": "建模工作台（关系）",
+      "heading": "关系与逆关系",
+      "url": "http://127.0.0.1:15184/spaces/ec18a7ea-1761-4a90-91b7-ce8fc29af4be/model?tab=relations",
+      "note": "关系与逆关系"
+    },
+    {
+      "step": 6,
+      "page": "建模工作台（冲突）",
+      "heading": "冲突检查",
+      "url": "http://127.0.0.1:15184/spaces/ec18a7ea-1761-4a90-91b7-ce8fc29af4be/model?tab=conflicts",
+      "note": "冲突检查"
+    },
+    {
+      "step": 7,
+      "page": "操作容器",
+      "heading": "模型操作",
+      "url": "http://127.0.0.1:15184/spaces/ec18a7ea-1761-4a90-91b7-ce8fc29af4be/operations",
+      "note": "定义/助手/策略页签"
+    },
+    {
+      "step": 8,
+      "page": "助手声明",
+      "heading": "助手声明",
+      "url": "http://127.0.0.1:15184/spaces/ec18a7ea-1761-4a90-91b7-ce8fc29af4be/operations?tab=assistant",
+      "note": "助手声明"
+    },
+    {
+      "step": 9,
+      "page": "验证与候选（用例）",
+      "heading": "用例管理",
+      "url": "http://127.0.0.1:15184/spaces/ec18a7ea-1761-4a90-91b7-ce8fc29af4be/testing",
+      "note": "用例/候选/供给页签"
+    },
+    {
+      "step": 10,
+      "page": "候选与试执行",
+      "heading": "候选与试执行",
+      "url": "http://127.0.0.1:15184/spaces/ec18a7ea-1761-4a90-91b7-ce8fc29af4be/testing?tab=candidates",
+      "note": "候选与试执行"
+    },
+    {
+      "step": 11,
+      "page": "数据源",
+      "heading": "数据源管理",
+      "url": "http://127.0.0.1:15184/spaces/ec18a7ea-1761-4a90-91b7-ce8fc29af4be/datasources",
+      "note": "数据源管理"
+    },
+    {
+      "step": 12,
+      "page": "字段映射",
+      "heading": "三层映射工作台",
+      "url": "http://127.0.0.1:15184/spaces/ec18a7ea-1761-4a90-91b7-ce8fc29af4be/mappings",
+      "note": "三层映射工作台"
+    },
+    {
+      "step": 13,
+      "page": "发布向导",
+      "heading": "候选发布",
+      "url": "http://127.0.0.1:15184/spaces/ec18a7ea-1761-4a90-91b7-ce8fc29af4be/releases?tab=publication",
+      "note": "发布/版本/事件/消费页签"
+    },
+    {
+      "step": 14,
+      "page": "正式版本",
+      "heading": "正式版本",
+      "url": "http://127.0.0.1:15184/spaces/ec18a7ea-1761-4a90-91b7-ce8fc29af4be/releases?tab=versions",
+      "note": "正式版本"
+    },
+    {
+      "step": 15,
+      "page": "服务消费",
+      "heading": "服务消费",
+      "url": "http://127.0.0.1:15184/spaces/ec18a7ea-1761-4a90-91b7-ce8fc29af4be/releases?tab=consumption",
+      "note": "服务消费"
+    },
+    {
+      "step": 16,
+      "page": "执行记录",
+      "heading": "执行记录",
+      "url": "http://127.0.0.1:15184/spaces/ec18a7ea-1761-4a90-91b7-ce8fc29af4be/executions",
+      "note": "执行记录"
+    },
+    {
+      "step": 17,
+      "page": "执行追溯",
+      "heading": "执行追溯",
+      "url": "http://127.0.0.1:15184/spaces/ec18a7ea-1761-4a90-91b7-ce8fc29af4be/executions/07eeeee5-457c-49f7-89ca-6e278fd3ecce/trace",
+      "note": "执行追溯"
+    },
+    {
+      "step": 18,
+      "page": "审计记录",
+      "heading": "审计记录",
+      "url": "http://127.0.0.1:15184/spaces/ec18a7ea-1761-4a90-91b7-ce8fc29af4be/audit",
+      "note": "审计记录"
+    },
+    {
+      "step": 19,
+      "page": "空间设置",
+      "heading": "空间守卫",
+      "url": "http://127.0.0.1:15184/spaces/ec18a7ea-1761-4a90-91b7-ce8fc29af4be/settings",
+      "note": "守卫/成员页签"
+    },
+    {
+      "step": 20,
+      "page": "主体授权",
+      "heading": "主体授权",
+      "url": "http://127.0.0.1:15184/spaces/ec18a7ea-1761-4a90-91b7-ce8fc29af4be/settings?tab=members",
+      "note": "主体授权"
+    },
+    {
+      "step": 21,
+      "page": "系统用户",
+      "heading": "用户管理",
+      "url": "http://127.0.0.1:15184/system/users",
+      "note": "用户管理"
+    }
+  ],
+  "errors": []
+}
