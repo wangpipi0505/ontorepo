@@ -32,6 +32,8 @@ class GlobalDataTest extends WorkflowFixture {
         source(b, "http-b");
         var data = data(get("/onto/global/data"), null);
         assertEquals(2, data.path("sources").size());
+        assertTrue(data.path("snapshots").isArray());
+        assertEquals(2, data.path("inventory").size());
         for (var item : data.path("sources"))
             assertFalse(item.path("spaceName").asText().isBlank());
     }

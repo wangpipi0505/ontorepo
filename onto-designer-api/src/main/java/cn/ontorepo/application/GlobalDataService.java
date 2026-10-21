@@ -1,5 +1,6 @@
 package cn.ontorepo.application;
 
+import cn.ontorepo.common.infra.Db;
 import cn.ontorepo.knowledge.application.KnowledgeService;
 import cn.ontorepo.mapping.application.DatasourceService;
 import cn.ontorepo.mapping.application.MappingService;
@@ -16,22 +17,27 @@ public class GlobalDataService {
     private final DatasourceService datasources;
     private final KnowledgeService knowledge;
     private final MappingService mappings;
+    private final Db db;
 
     public GlobalDataService(
             SpaceService spaces,
             DatasourceService datasources,
             KnowledgeService knowledge,
-            MappingService mappings) {
+            MappingService mappings,
+            Db db) {
         this.spaces = spaces;
         this.datasources = datasources;
         this.knowledge = knowledge;
         this.mappings = mappings;
+        this.db = db;
     }
 
     public Map<String, Object> data(UUID user) {
         List<Map<String, Object>> sources = new ArrayList<>();
         List<Map<String, Object>> entries = new ArrayList<>();
         List<Map<String, Object>> mappingCounts = new ArrayList<>();
+        List<Map<String, Object>> snapshots = new ArrayList<>();
+        List<Map<String, Object>> inventory = new ArrayList<>();
         for (Map<String, Object> space : spaces.list(user)) {
             UUID id = UUID.fromString(space.get("id").toString());
             String name = String.valueOf(space.get("name"));
@@ -51,10 +57,35 @@ public class GlobalDataService {
                             "objects", ((List<?>) mapping.get("objects")).size(),
                             "properties", ((List<?>) mapping.get("properties")).size(),
                             "relations", ((List<?>) mapping.get("relations")).size()));
+            for (Map<String, Object> snapshot :
+                    db.list(
+                            "SELECT id,datasource_id,sha256,captured_at FROM meta_snapshot"
+                                    + " WHERE space_id=? ORDER BY captured_at DESC",
+                            id)) {
+                snapshot.put("spaceId", id.toString());
+                snapshot.put("spaceName", name);
+                snapshots.add(snapshot);
+            }
+            Map<String, Object> counts =
+                    db.one(
+                            "SELECT"
+                                + " (SELECT count(*) FROM modeling_suggestion WHERE space_id=?"
+                                + " AND status='PENDING') pending_suggestions,"
+                                + " (SELECT count(*) FROM ont_import WHERE space_id=?) imports",
+                            id,
+                            id);
+            inventory.add(
+                    Map.of(
+                            "spaceId", id,
+                            "spaceName", name,
+                            "pendingSuggestions", counts.get("pendingSuggestions"),
+                            "imports", counts.get("imports")));
         }
         return Map.of(
                 "sources", sources,
                 "knowledge", entries,
-                "mappings", mappingCounts);
+                "mappings", mappingCounts,
+                "snapshots", snapshots,
+                "inventory", inventory);
     }
 }

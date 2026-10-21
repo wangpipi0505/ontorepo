@@ -32,10 +32,26 @@ interface MappingCountRow {
   properties: number
   relations: number
 }
+interface SnapshotRow {
+  id: string
+  spaceId: string
+  spaceName: string
+  datasourceId: string
+  sha256: string
+  capturedAt?: string
+}
+interface InventoryRow {
+  spaceId: string
+  spaceName: string
+  pendingSuggestions: number
+  imports: number
+}
 interface GlobalData {
   knowledge: KnowledgeRow[]
   sources: SourceRow[]
   mappings: MappingCountRow[]
+  snapshots: SnapshotRow[]
+  inventory: InventoryRow[]
 }
 const router = useRouter(),
   api = useSession().api,
@@ -43,7 +59,7 @@ const router = useRouter(),
   spaces = useResource<Space[]>([])
 const spaceId = ref(''),
   keyword = ref(''),
-  tab = ref<'knowledge' | 'sources' | 'mappings'>('knowledge')
+  tab = ref<'knowledge' | 'sources' | 'mappings' | 'snapshots' | 'inventory'>('knowledge')
 const spaceNames = computed(
   () => new Map(spaces.data.value.map((space) => [space.id, space.name])),
 )
@@ -76,6 +92,18 @@ function knowledgeRows() {
 function mappingRows() {
   const text = keyword.value.trim().toLocaleLowerCase()
   return (data.data.value?.mappings ?? [])
+    .filter((item) => !spaceId.value || item.spaceId === spaceId.value)
+    .filter((item) => !text || item.spaceName.toLocaleLowerCase().includes(text))
+}
+function snapshotRows() {
+  const text = keyword.value.trim().toLocaleLowerCase()
+  return (data.data.value?.snapshots ?? [])
+    .filter((item) => !spaceId.value || item.spaceId === spaceId.value)
+    .filter((item) => !text || item.spaceName.toLocaleLowerCase().includes(text))
+}
+function inventoryRows() {
+  const text = keyword.value.trim().toLocaleLowerCase()
+  return (data.data.value?.inventory ?? [])
     .filter((item) => !spaceId.value || item.spaceId === spaceId.value)
     .filter((item) => !text || item.spaceName.toLocaleLowerCase().includes(text))
 }
@@ -177,6 +205,48 @@ onMounted(load)
                     @click="router.push(`/data?spaceId=${row.spaceId}&tab=mappings`)"
                   >
                     进入映射
+                  </el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-tab-pane>
+          <el-tab-pane :label="`快照 ${snapshotRows().length}`" name="snapshots">
+            <el-table :data="snapshotRows()" row-key="id">
+              <el-table-column label="快照" width="180">
+                <template #default="{ row }">
+                  <span class="mono">{{ row.id.slice(0, 8) }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="spaceName" label="所属本体" min-width="200" />
+              <el-table-column prop="datasourceId" label="数据源" min-width="180" />
+              <el-table-column prop="sha256" label="SHA-256" min-width="240" show-overflow-tooltip />
+              <el-table-column prop="capturedAt" label="采集时间" width="180" />
+              <el-table-column label="操作" width="140">
+                <template #default="{ row }">
+                  <el-button
+                    link
+                    type="primary"
+                    @click="router.push(`/data?spaceId=${row.spaceId}&tab=datasources`)"
+                  >
+                    进入数据源
+                  </el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-tab-pane>
+          <el-tab-pane :label="`抽取/导入 ${inventoryRows().length}`" name="inventory">
+            <el-table :data="inventoryRows()" row-key="spaceId">
+              <el-table-column prop="spaceName" label="所属本体" min-width="240" />
+              <el-table-column prop="pendingSuggestions" label="待确认抽取" width="130" />
+              <el-table-column prop="imports" label="导入记录" width="120" />
+              <el-table-column label="操作" width="160">
+                <template #default="{ row }">
+                  <el-button
+                    link
+                    type="primary"
+                    @click="router.push(`/data?spaceId=${row.spaceId}&tab=suggestions`)"
+                  >
+                    进入抽取
                   </el-button>
                 </template>
               </el-table-column>
