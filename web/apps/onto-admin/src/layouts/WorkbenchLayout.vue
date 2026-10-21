@@ -9,6 +9,7 @@ import { pagePermission, spacePagePermissions } from '../composables/pagePermiss
 import { roleLabels } from '../composables/labels'
 import RequirementTags from '../components/RequirementTags.vue'
 import Breadcrumbs from '../components/Breadcrumbs.vue'
+import GlobalSearch from '../components/GlobalSearch.vue'
 import AsyncState from '@onto/shared-ui/AsyncState.vue'
 const route = useRoute(),
   router = useRouter(),
@@ -199,6 +200,7 @@ async function logout() {
           </template>
           <RequirementTags v-if="route.path.startsWith('/spaces/')" />
         </span>
+        <GlobalSearch v-if="spaceId" />
         <div class="row">
           <span class="muted">{{ session.user?.displayName }}</span>
           <el-button text :loading="signingOut" @click="logout">退出登录</el-button>
