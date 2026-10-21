@@ -24,6 +24,59 @@ watch(
   () => workspace.space?.id,
   () => overview.ensure(),
 )
+const readiness = computed(() => {
+  const value = state.value?.value
+  if (!value) return []
+  const mapping = value.mappings.value
+  const mappingDone =
+    !!mapping && mapping.checks.length >= 4 && mapping.checks.every((check) => check.passed)
+  const space = value.space
+  return [
+    {
+      key: 'classes',
+      label: '对象',
+      detail: `${space.classCount} 个`,
+      done: space.classCount > 0,
+      to: 'model',
+    },
+    {
+      key: 'properties',
+      label: '属性',
+      detail: `${space.propertyCount} 个`,
+      done: space.propertyCount > 0,
+      to: 'model',
+    },
+    {
+      key: 'relations',
+      label: '关系',
+      detail: value.relations.value === null ? '读取失败' : `${value.relations.value} 条`,
+      done: (value.relations.value ?? 0) > 0,
+      to: 'relations',
+    },
+    {
+      key: 'rules',
+      label: '规则',
+      detail: value.rules.value === null ? '读取失败' : `${value.rules.value} 条`,
+      done: (value.rules.value ?? 0) > 0,
+      to: 'rules',
+    },
+    {
+      key: 'mappings',
+      label: '映射四项',
+      detail: mapping ? (mappingDone ? '全部通过' : `${mapping.coverage.pending} 项待补`) : '读取失败',
+      done: mappingDone,
+      to: 'mappings',
+    },
+    {
+      key: 'release',
+      label: '正式版本',
+      detail: value.release.value ? `v${value.release.value.versionNo}` : '尚无发布',
+      done: !!value.release.value,
+      to: 'publication',
+    },
+  ]
+})
+const nextStep = computed(() => readiness.value.find((item) => !item.done))
 </script>
 <template>
   <div v-if="workspace.space" class="stack">
@@ -50,6 +103,33 @@ watch(
         </span>
       </div>
       <OverviewMetrics :state="state" @retry="overview.retry(workspace.space)" />
+    </section>
+    <section class="panel stack">
+      <div class="row spread">
+        <h2>发布就绪度</h2>
+        <span class="muted">基于当前草稿与最新映射检查，不替代候选五项门禁</span>
+      </div>
+      <p v-if="!readiness.length" class="muted">
+        {{ state?.loading ? '正在读取就绪度…' : state?.error || '就绪度暂不可用' }}
+      </p>
+      <ul v-else class="readiness">
+        <li v-for="item in readiness" :key="item.key" :class="{ done: item.done }">
+          <span class="readiness-mark">{{ item.done ? '✓' : '○' }}</span>
+          <b>{{ item.label }}</b>
+          <span class="muted">{{ item.detail }}</span>
+          <RouterLink :to="`/spaces/${workspace.space.id}/${item.to}`">
+            {{ item.done ? '查看' : '去处理' }}
+          </RouterLink>
+        </li>
+      </ul>
+      <p v-if="nextStep" class="notice">
+        下一步：先处理「{{ nextStep.label }}」（{{ nextStep.detail }}）。
+        <RouterLink :to="`/spaces/${workspace.space.id}/${nextStep.to}`">前往处理</RouterLink>
+      </p>
+      <p v-else-if="readiness.length" class="notice">
+        基础就绪度已完成；继续用「候选发布」完成机器门禁、人工复核与提交。
+        <RouterLink :to="`/spaces/${workspace.space.id}/publication`">前往发布</RouterLink>
+      </p>
     </section>
     <nav class="entry-grid" aria-label="空间设计入口">
       <router-link
@@ -113,6 +193,33 @@ watch(
   </div>
 </template>
 <style scoped>
+.readiness {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+.readiness li {
+  display: grid;
+  grid-template-columns: 24px 110px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.readiness li.done {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+.readiness-mark {
+  color: var(--muted);
+  text-align: center;
+}
+.readiness li.done .readiness-mark {
+  color: #15803d;
+}
 .overview-summary {
   display: grid;
   grid-template-columns: minmax(180px, 1fr) 2fr;
