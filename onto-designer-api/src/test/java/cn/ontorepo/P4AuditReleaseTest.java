@@ -58,10 +58,9 @@ class P4AuditReleaseTest extends P4Fixture {
                 data(post("/onto/candidates/" + id + "/tests"), null).path("passed").asBoolean());
         var waiting = data(get("/onto/candidates/" + id + "/publication"), null);
         if (!assistant) {
-            // 本地模型用例通过不等于具备正式契约；已存在的真实失败优先于尚未检查的门禁。
-            assertEquals("FAILED", waiting.path("status").asText());
-            assertEquals(
-                    "MACHINE_GATE_BLOCKED",
+            // MODEL_ONLY 可按 DEC-1=A 纯模型发布；先跑 tests 仍停在 VALIDATING 等待机器检查。
+            assertEquals("VALIDATING", waiting.path("status").asText());
+            assertNull(
                     db.queryForObject(
                             "SELECT failure_code FROM publish_candidate WHERE id=?",
                             String.class,
@@ -72,18 +71,24 @@ class P4AuditReleaseTest extends P4Fixture {
                             .filter(check -> "CONTRACT".equals(check.path("kind").asText()))
                             .findFirst()
                             .orElseThrow();
-            assertEquals("FAILED", contract.path("conclusion").asText());
-            assertEquals("CONTRACT_NOT_AVAILABLE", contract.path("reason").asText());
-            call(
-                    post("/onto/candidates/" + id + "/review"),
-                    ownerToken,
-                    bound(space, candidate),
-                    409);
+            assertEquals("PASSED", contract.path("conclusion").asText());
+            assertEquals("MODEL_ONLY_NO_CONTRACT", contract.path("reason").asText());
             assertEquals(
-                    "FAILED",
+                    "TESTING",
                     data(post("/onto/candidates/" + id + "/validate"), null)
                             .path("status")
                             .asText());
+            assertTrue(
+                    data(post("/onto/candidates/" + id + "/tests"), null)
+                            .path("passed")
+                            .asBoolean());
+            var body = bound(space, candidate);
+            assertEquals(
+                    "REVIEWING",
+                    data(post("/onto/candidates/" + id + "/review"), body).path("status").asText());
+            assertEquals(
+                    "READY_TO_COMMIT",
+                    data(post("/onto/candidates/" + id + "/prepare"), body).path("status").asText());
             return;
         }
         assertEquals("VALIDATING", waiting.path("status").asText(), "尚无冲突/一致性结果时，TEST通过不能跳过机器校验阶段");

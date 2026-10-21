@@ -641,17 +641,24 @@ public class PublicationService {
 
     private Map<String, Object> contract(Map<String, Object> c, Map<String, Object> p) {
         boolean modelOnly = "MODEL_ONLY".equals(c.get("capability"));
+        if (modelOnly)
+            // 纯模型发布不生成供给契约；供给端点仍独立拒绝 MODEL_ONLY。
+            return report(
+                    "CONTRACT",
+                    "PASSED",
+                    "MODEL_ONLY_NO_CONTRACT",
+                    Map.of("manifestCount", 0, "contractMode", "MODEL_ONLY"));
         try {
             var manifests = supply.manifests(p, c.get("id").toString());
             return report(
                     "CONTRACT",
                     "PASSED",
-                    modelOnly ? "MODEL_ONLY_NO_CONTRACT" : "",
+                    "",
                     Map.of(
                             "manifestCount",
                             manifests.size(),
                             "contractMode",
-                            modelOnly ? "MODEL_ONLY" : "CONTRACT"));
+                            "CONTRACT"));
         } catch (ContractProblem e) {
             return report(
                     "CONTRACT",
