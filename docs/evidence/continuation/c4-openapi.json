@@ -4383,6 +4383,49 @@
         }
       }
     },
+    "/onto/datasources/{id}/snapshots/{snapshotId}/verify" : {
+      "get" : {
+        "tags" : [ "datasource-controller" ],
+        "operationId" : "verifySnapshot",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        }, {
+          "name" : "snapshotId",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        }, {
+          "name" : "spaceId",
+          "in" : "query",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/EnvelopeMapStringObject"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/onto/datasources/capabilities" : {
       "get" : {
         "tags" : [ "datasource-controller" ],
