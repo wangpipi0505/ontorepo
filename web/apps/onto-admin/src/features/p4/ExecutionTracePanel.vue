@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 读取持久 trace，不从当前模型推导历史证据；缺失历史事实明确展示为空。 */
-import { watch } from 'vue'
+import { ref, watch } from 'vue'
 import type { ExecutionTrace } from '../../../../../packages/api-client/src/release'
 import { useSession } from '../../stores/session'
 import { useResource } from '../../composables/useResource'
@@ -9,7 +9,8 @@ import TraceGraph from './TraceGraph.vue'
 import './p4.css'
 const props = defineProps<{ executionId: string }>(),
   api = useSession().api
-const state = useResource<ExecutionTrace | null>(null)
+const state = useResource<ExecutionTrace | null>(null),
+  selectedGraphNode = ref('')
 function load() {
   const id = props.executionId
   if (!id) return
@@ -53,7 +54,7 @@ watch(
           <dt>冻结摘要</dt>
           <dd class="mono">{{ state.data.value.execution.candidateSha256 }}</dd>
         </dl>
-        <TraceGraph :graph="state.data.value.graph" />
+        <TraceGraph :graph="state.data.value.graph" @select-node="selectedGraphNode = $event" />
         <section class="stack">
           <h3>授权检查</h3>
           <p v-if="!state.data.value.authorization.length" class="muted">
@@ -73,7 +74,11 @@ watch(
           <h3>事实时间线</h3>
           <p v-if="!state.data.value.timeline.length" class="muted">此记录没有时间线事实。</p>
           <ol class="timeline">
-            <li v-for="item in state.data.value.timeline" :key="item.id">
+            <li
+              v-for="item in state.data.value.timeline"
+              :key="item.id"
+              :class="{ 'timeline-active': item.id === selectedGraphNode }"
+            >
               <time>{{ item.at ?? '时间未记录' }}</time>
               <b>{{ item.title }} · {{ item.kind }}</b>
               <details>
@@ -120,6 +125,10 @@ watch(
   padding: 0 0 18px 12px;
   border-left: 2px solid var(--line);
   overflow-wrap: anywhere;
+}
+.timeline li.timeline-active {
+  background: #eff6ff;
+  border-left-color: #2563eb;
 }
 .timeline time {
   display: block;

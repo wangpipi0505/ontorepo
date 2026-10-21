@@ -10,6 +10,7 @@
 |---|---|
 | `features/p4/TraceGraph.vue` | 改用 `OntoGraph`：节点=`graph.nodes`、边=`graph.edges`；点击节点显示 label/kind/ref/id；保留"可读节点与关系列表"作为无障碍与降级视图 |
 | `features/p4/flows.test.ts` | trace 图单测改为断言可读列表（2 节点 + 2 边），避免 jsdom 无 Canvas；图组件在测试中 stub |
+| `features/p4/ExecutionTracePanel.vue` | 接收 `select-node`，按节点 id 高亮同 id 的时间线条目（执行/步骤/证据），实现图↔时间线联动 |
 
 后端无改动：`GET /executions/{id}/trace` 已返回 `graph`（execution→subject、步骤链、证据节点），本轮只做可视化与节点详情。
 
@@ -31,6 +32,6 @@ pnpm build       # exit 0
 
 ## 未覆盖
 
-- 点击画布节点高亮对应时间线条目（联动）尚未实现；A5 保持"进行中"。
+- 画布节点点击已联动高亮时间线条目；浏览器自动化点击受 G6 布局/缩放坐标影响，本轮以组件事件与类型/单测覆盖为主。
 - 节点按 kind 分色、布局切换、缩放控件待 B1 收口。
 - 后端 graph 已含执行链与证据，但"来源→映射→对象"多级关系仍以 evidence 节点平铺，后续在 B1 增加分层聚合。

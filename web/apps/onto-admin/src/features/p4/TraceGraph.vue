@@ -4,6 +4,7 @@ import { computed, ref } from 'vue'
 import type { TraceGraphData } from '../../../../../packages/api-client/src/release'
 import OntoGraph, { type GraphEdge, type GraphNode } from '../../components/OntoGraph.vue'
 const props = defineProps<{ graph: TraceGraphData }>()
+const emit = defineEmits<{ 'select-node': [id: string] }>()
 const selectedId = ref('')
 const nodes = computed<GraphNode[]>(() =>
   props.graph.nodes.map((node) => ({
@@ -20,6 +21,10 @@ const edges = computed<GraphEdge[]>(() =>
   })),
 )
 const selected = computed(() => props.graph.nodes.find((node) => node.id === selectedId.value))
+function selectNode(id: string) {
+  selectedId.value = id
+  emit('select-node', id)
+}
 </script>
 <template>
   <section class="stack">
@@ -34,7 +39,7 @@ const selected = computed(() => props.graph.nodes.find((node) => node.id === sel
         :edges="edges"
         :selected-id="selectedId"
         :height="480"
-        @select="selectedId = $event"
+        @select="selectNode"
       />
       <div v-if="selected" class="record">
         <b>{{ selected.label }} · {{ selected.kind }}</b>
