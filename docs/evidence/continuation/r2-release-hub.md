@@ -17,15 +17,15 @@
 
 ## 事件并入版本容器
 
-- 新增 `/releases` 容器 `ReleaseHubView`：`tab=versions`（默认）→ `ReleasesView`，`tab=events` → `EventsView`；页签切换 `router.replace` 更新 query。
-- 旧 `/events` redirect 到 `/releases?tab=events`，保留 `releaseId` 等 query；导航移除"事件与收件箱"独立项。
+- 新增 `/releases` 容器 `ReleaseHubView`：`tab=publication` → `PublicationView`，`tab=versions`（默认）→ `ReleasesView`，`tab=events` → `EventsView`；页签切换 `router.replace` 更新 query。
+- 旧 `/events` redirect 到 `/releases?tab=events`，保留 `releaseId` 等 query；旧 `/publication` redirect 到 `/releases?tab=publication`；导航移除"候选发布""事件与收件箱"独立项。
 - 版本详情"查看事件"改为指向 `releases?tab=events&releaseId=…`。
 
 ## 浏览器验证
 
 - 正式版本详情 →"去服务消费"，URL 带 `releaseId`，消费页版本下拉自动选中该版本（值与 URL 一致）。
 - 事件/审计链接同法携带版本/对象上下文。
-- `/releases` 页签"正式版本 / 事件与收件箱"；切事件后 URL `?tab=events`、标题"事件与收件箱"。
+- `/releases` 页签"发布向导 / 正式版本 / 事件与收件箱"；切发布向导 URL `?tab=publication`、标题"候选发布"；切事件 URL `?tab=events`、标题"事件与收件箱"。
 
 ## 自动化
 
@@ -37,5 +37,5 @@ pnpm build       # exit 0
 
 ## 未完成
 
-- 版本与事件已合并为 `/releases` 容器；发布向导、消费、审计仍是独立页（通过版本详情链接携带上下文）。
+- 发布向导、版本、事件已合并为 `/releases` 容器；服务消费、审计仍独立（通过版本详情链接携带上下文）。
 - S6 旧路由 redirect 与 8 区 14 页收口仍未做。

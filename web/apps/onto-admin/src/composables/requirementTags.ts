@@ -25,7 +25,7 @@ const tags: Record<string, string[]> = {
   supply: ['2.2③'],
   executions: ['2.5①', '2.5③'],
   publication: ['2.2③', '2.4②', '2.4③'],
-  releases: ['2.2③', '2.4③'],
+  releases: ['2.2③', '2.4②', '2.4③'],
   consumption: ['2.4③'],
   events: ['2.4③'],
   audit: ['2.5②', '2.5③'],

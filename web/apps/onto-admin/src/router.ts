@@ -117,7 +117,7 @@ export const router = createRouter({
         },
         {
           path: 'spaces/:spaceId/publication',
-          component: () => import('./features/p4/PublicationView.vue'),
+          redirect: (to) => `/spaces/${String(to.params.spaceId)}/releases?tab=publication`,
         },
         {
           path: 'spaces/:spaceId/releases',
