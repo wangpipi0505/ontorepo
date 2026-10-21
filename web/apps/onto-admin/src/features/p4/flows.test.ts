@@ -61,12 +61,16 @@ function button(wrapper: VueWrapper, text: string) {
   expect(found, text).toBeDefined()
   return found!
 }
-async function page(name: string, props: Record<string, unknown> = {}) {
+async function page(
+  name: string,
+  props: Record<string, unknown> = {},
+  stubs: Record<string, boolean> = {},
+) {
   expect(modules[`./${name}.vue`], `${name} 应提供独立业务组件`).toBeDefined()
   const component = (await modules[`./${name}.vue`]()).default
   const wrapper = mount(component, {
     props,
-    global: { plugins: [ElementPlus], stubs: { teleport: true } },
+    global: { plugins: [ElementPlus], stubs: { teleport: true, ...stubs } },
   })
   wrappers.push(wrapper)
   await flushPromises()
@@ -287,20 +291,25 @@ describe('P4 发布与消费关键交互', () => {
     expect(sessionStorage.length).toBe(0)
   })
   it('真实 trace 图只画响应节点与边，未知引用不生成虚构节点', async () => {
-    const wrapper = await page('TraceGraph', {
-      graph: {
-        nodes: [
-          { id: 'a', label: '请求真实 A', kind: 'REQUEST' },
-          { id: 'b', label: '证据真实 B', kind: 'EVIDENCE' },
-        ],
-        edges: [
-          { id: 'e', from: 'a', to: 'b', label: '查询' },
-          { id: 'broken', from: 'a', to: 'missing', label: '历史缺失' },
-        ],
+    const wrapper = await page(
+      'TraceGraph',
+      {
+        graph: {
+          nodes: [
+            { id: 'a', label: '请求真实 A', kind: 'REQUEST' },
+            { id: 'b', label: '证据真实 B', kind: 'EVIDENCE' },
+          ],
+          edges: [
+            { id: 'e', from: 'a', to: 'b', label: '查询' },
+            { id: 'broken', from: 'a', to: 'missing', label: '历史缺失' },
+          ],
+        },
       },
-    })
-    expect(wrapper.findAll('svg [data-node-id]')).toHaveLength(2)
-    expect(wrapper.findAll('svg [data-edge-id]')).toHaveLength(1)
+      { OntoGraph: true },
+    )
+    expect(wrapper.findAll('details li')).toHaveLength(4)
+    expect(wrapper.text()).toContain('请求真实 A')
+    expect(wrapper.text()).toContain('证据真实 B')
     expect(wrapper.text()).toContain('历史缺失')
     expect(wrapper.text()).not.toContain('missing节点')
   })

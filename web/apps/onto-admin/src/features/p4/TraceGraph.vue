@@ -1,62 +1,48 @@
 <script setup lang="ts">
-/** 图与可读列表共享服务端事实；缺失边端点不补造节点，仍在关系列表展示。 */
-import { computed, useId } from 'vue'
+/** 图与可读列表共享服务端事实；节点点击查看版本/引用，缺失边端点不补造节点。 */
+import { computed, ref } from 'vue'
 import type { TraceGraphData } from '../../../../../packages/api-client/src/release'
+import OntoGraph, { type GraphEdge, type GraphNode } from '../../components/OntoGraph.vue'
 const props = defineProps<{ graph: TraceGraphData }>()
-const marker = `arrow-${useId().replaceAll(':', '')}`
-const nodes = computed(() =>
-  props.graph.nodes.map((node, index) => ({
-    ...node,
-    x: index % 2 === 0 ? 25 : 345,
-    y: 25 + Math.floor(index / 2) * 115,
+const selectedId = ref('')
+const nodes = computed<GraphNode[]>(() =>
+  props.graph.nodes.map((node) => ({
+    id: node.id,
+    label: `${node.label} · ${node.kind}`,
   })),
 )
-const edges = computed(() =>
-  props.graph.edges.flatMap((edge) => {
-    const from = nodes.value.find((node) => node.id === edge.from),
-      to = nodes.value.find((node) => node.id === edge.to)
-    return from && to
-      ? [{ ...edge, x1: from.x + 115, y1: from.y + 58, x2: to.x + 115, y2: to.y }]
-      : []
-  }),
+const edges = computed<GraphEdge[]>(() =>
+  props.graph.edges.map((edge) => ({
+    id: edge.id,
+    source: edge.from,
+    target: edge.to,
+    label: edge.label,
+  })),
 )
-const height = computed(() => Math.max(130, Math.ceil(nodes.value.length / 2) * 115 + 25))
+const selected = computed(() => props.graph.nodes.find((node) => node.id === selectedId.value))
 </script>
 <template>
   <section class="stack">
-    <h3>执行关系图</h3>
-    <p v-if="!nodes.length" class="muted">此记录未保存图节点。</p>
-    <div v-else class="graph-frame">
-      <svg :viewBox="`0 0 600 ${height}`" role="img" aria-label="由实际执行节点和关联生成的追溯图">
-        <defs>
-          <marker :id="marker" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
-            <path d="M0,0 L8,3 L0,6" fill="#64748b" />
-          </marker>
-        </defs>
-        <g v-for="edge in edges" :key="edge.id" :data-edge-id="edge.id">
-          <path
-            :d="`M ${edge.x1} ${edge.y1} L ${edge.x2} ${edge.y2}`"
-            fill="none"
-            stroke="#64748b"
-            :marker-end="`url(#${marker})`"
-          />
-          <title>{{ edge.label }}</title>
-        </g>
-        <g
-          v-for="node in nodes"
-          :key="node.id"
-          :data-node-id="node.id"
-          :transform="`translate(${node.x},${node.y})`"
-        >
-          <rect width="230" height="58" rx="6" fill="#eef4ff" stroke="#93b4fc" />
-          <text x="12" y="23" fill="#172b46">
-            {{ node.label.length > 19 ? node.label.slice(0, 19) + '…' : node.label }}
-          </text>
-          <text x="12" y="44" fill="#64748b" font-size="10">{{ node.kind }}</text>
-          <title>{{ node.label }} · {{ node.ref ?? node.id }}</title>
-        </g>
-      </svg>
+    <div class="row spread">
+      <h3>执行关系图</h3>
+      <span class="muted">{{ graph.nodes.length }} 节点 · {{ graph.edges.length }} 关系</span>
     </div>
+    <p v-if="!graph.nodes.length" class="muted">此记录未保存图节点。</p>
+    <template v-else>
+      <OntoGraph
+        :nodes="nodes"
+        :edges="edges"
+        :selected-id="selectedId"
+        :height="480"
+        @select="selectedId = $event"
+      />
+      <div v-if="selected" class="record">
+        <b>{{ selected.label }} · {{ selected.kind }}</b>
+        <p class="identity">引用：{{ selected.ref ?? '未记录' }}</p>
+        <p class="muted">节点标识：{{ selected.id }}</p>
+      </div>
+      <p v-else class="muted">点击画布节点查看引用与证据标识。</p>
+    </template>
     <details>
       <summary>可读节点与关系列表</summary>
       <ul>
@@ -73,20 +59,6 @@ const height = computed(() => Math.max(130, Math.ceil(nodes.value.length / 2) * 
   </section>
 </template>
 <style scoped>
-.graph-frame {
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  overflow: auto;
-  max-height: 650px;
-}
-svg {
-  display: block;
-  width: 100%;
-  min-width: 350px;
-  font:
-    13px 'Microsoft YaHei',
-    sans-serif;
-}
 li {
   overflow-wrap: anywhere;
   margin: 8px 0;
