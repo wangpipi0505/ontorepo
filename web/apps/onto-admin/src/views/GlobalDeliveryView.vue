@@ -24,9 +24,20 @@ interface ReleaseRow {
   status: string
   publishedAt?: string
 }
+interface TestCaseRow {
+  id: string
+  spaceId: string
+  spaceName?: string
+  name: string
+  question: string
+  mode?: string
+  matchMode?: string
+  enabled: boolean
+}
 interface GlobalDelivery {
   candidates: CandidateRow[]
   releases: ReleaseRow[]
+  testCases: TestCaseRow[]
 }
 const router = useRouter(),
   api = useSession().api,
@@ -34,7 +45,7 @@ const router = useRouter(),
   spaces = useResource<Space[]>([])
 const spaceFilter = ref(''),
   keyword = ref(''),
-  tab = ref<'candidates' | 'releases'>('candidates')
+  tab = ref<'candidates' | 'releases' | 'testCases'>('candidates')
 const spaceNames = computed(() => new Map(spaces.data.value.map((item) => [item.id, item.name])))
 function filterRows<T extends { spaceId: string; spaceName?: string }>(rows: T[]) {
   const text = keyword.value.trim().toLocaleLowerCase()
@@ -48,6 +59,7 @@ function filterRows<T extends { spaceId: string; spaceName?: string }>(rows: T[]
 }
 const candidates = computed(() => filterRows(data.data.value?.candidates ?? []))
 const releases = computed(() => filterRows(data.data.value?.releases ?? []))
+const testCases = computed(() => filterRows(data.data.value?.testCases ?? []))
 async function load() {
   await Promise.all([
     data.load(() => api.get<GlobalDelivery>('/global/delivery')),
@@ -136,6 +148,33 @@ onMounted(load)
                     @click="router.push(`/delivery?spaceId=${row.spaceId}&tab=delivery`)"
                   >
                     进入发布与服务
+                  </el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-tab-pane>
+          <el-tab-pane :label="`用例 ${testCases.length}`" name="testCases">
+            <el-table :data="testCases" row-key="id">
+              <el-table-column prop="name" label="用例" min-width="180" />
+              <el-table-column prop="question" label="问题 / 输入" min-width="260" show-overflow-tooltip />
+              <el-table-column prop="mode" label="模式" width="100" />
+              <el-table-column prop="matchMode" label="匹配" width="100" />
+              <el-table-column label="启用" width="80">
+                <template #default="{ row }">{{ row.enabled ? '是' : '否' }}</template>
+              </el-table-column>
+              <el-table-column label="所属本体" min-width="180">
+                <template #default="{ row }">
+                  {{ row.spaceName || spaceNames.get(row.spaceId) || row.spaceId }}
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="150">
+                <template #default="{ row }">
+                  <el-button
+                    link
+                    type="primary"
+                    @click="router.push(`/delivery?spaceId=${row.spaceId}&tab=testing`)"
+                  >
+                    进入用例
                   </el-button>
                 </template>
               </el-table-column>
