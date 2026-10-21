@@ -3853,6 +3853,33 @@
         }
       }
     },
+    "/onto/spaces/{id}/catalog" : {
+      "get" : {
+        "tags" : [ "mapping-controller" ],
+        "operationId" : "catalogBySpace",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/EnvelopeMapStringObject"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/onto/releases" : {
       "get" : {
         "tags" : [ "release-controller" ],
@@ -5244,6 +5271,9 @@
           "name" : {
             "type" : "string"
           },
+          "displayName" : {
+            "type" : "string"
+          },
           "rangeType" : {
             "type" : "string"
           },
@@ -5273,6 +5303,12 @@
             "type" : "string"
           },
           "name" : {
+            "type" : "string"
+          },
+          "description" : {
+            "type" : "string"
+          },
+          "precondition" : {
             "type" : "string"
           },
           "queryTemplate" : {
@@ -6574,6 +6610,9 @@
           "name" : {
             "type" : "string"
           },
+          "displayName" : {
+            "type" : "string"
+          },
           "rangeType" : {
             "type" : "string"
           },
@@ -6966,6 +7005,12 @@
             "type" : "string"
           },
           "name" : {
+            "type" : "string"
+          },
+          "description" : {
+            "type" : "string"
+          },
+          "precondition" : {
             "type" : "string"
           },
           "kind" : {
