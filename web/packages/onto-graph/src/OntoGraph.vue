@@ -104,9 +104,11 @@ async function render() {
       if (props.editable) emit('create-node')
     })
     await graph.render()
+    await graph.fitView({ direction: 'both', when: 'always' })
   } else {
     graph.setData(data())
     await graph.render()
+    await graph.fitView({ direction: 'both', when: 'always' })
   }
 }
 
