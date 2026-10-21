@@ -79,9 +79,9 @@
 
 ## OM-R-D4
 
-- [ ] `deploy/Test-Local.ps1` 在 `Import-OntoEnvironment` 后把 `ONTO_TEST_DB_URL` 改写为 `onto_test_p4`（或 `Initialize-Local.ps1` 创建并写入）。
-- [ ] README 同步命令与说明。
-- [ ] 验证：照 README 执行 `Test-Local.ps1 -BackendOnly` 得到 407 项通过。
+- [x] `deploy/Test-Local.ps1` 在 `Import-OntoEnvironment` 后把 `ONTO_TEST_DB_URL` 改写为 `onto_test_p4`（或 `Initialize-Local.ps1` 创建并写入）。
+- [x] README 同步命令与说明。
+- [x] 验证：照 README 执行 `Test-Local.ps1 -BackendOnly` 得到 407 项通过。
 
 ## 执行顺序
 
