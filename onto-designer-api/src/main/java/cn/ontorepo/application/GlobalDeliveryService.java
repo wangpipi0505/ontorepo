@@ -1,6 +1,7 @@
 package cn.ontorepo.application;
 
 import cn.ontorepo.operation.application.TestCaseService;
+import cn.ontorepo.release.application.ReleaseGatewayService;
 import cn.ontorepo.release.application.ReleaseHistoryService;
 import cn.ontorepo.space.application.SpaceService;
 import cn.ontorepo.trace.application.CandidateService;
@@ -9,23 +10,26 @@ import org.springframework.stereotype.Service;
 
 import java.util.*;
 
-/** 跨本体测试与发布聚合：用例、候选、正式版本按可见空间汇总。 */
+/** 跨本体测试与发布聚合：用例、候选、正式版本、服务端点按可见空间汇总。 */
 @Service
 public class GlobalDeliveryService {
     private final SpaceService spaces;
     private final CandidateService candidates;
     private final ReleaseHistoryService releases;
     private final TestCaseService testCases;
+    private final ReleaseGatewayService gateway;
 
     public GlobalDeliveryService(
             SpaceService spaces,
             CandidateService candidates,
             ReleaseHistoryService releases,
-            TestCaseService testCases) {
+            TestCaseService testCases,
+            ReleaseGatewayService gateway) {
         this.spaces = spaces;
         this.candidates = candidates;
         this.releases = releases;
         this.testCases = testCases;
+        this.gateway = gateway;
     }
 
     public Map<String, Object> data(UUID user) {
@@ -52,5 +56,25 @@ public class GlobalDeliveryService {
                 "candidates", candidateRows,
                 "releases", releaseRows,
                 "testCases", testRows);
+    }
+
+    /** 端点目录只读；调用方已由控制器要求 release.read，服务端仍逐空间复核。 */
+    public List<Map<String, Object>> services(UUID user) {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (Map<String, Object> space : spaces.list(user)) {
+            UUID spaceId = UUID.fromString(space.get("id").toString());
+            String spaceName = String.valueOf(space.get("name"));
+            for (Map<String, Object> release : releases.list(user, spaceId)) {
+                UUID releaseId = UUID.fromString(release.get("id").toString());
+                for (Map<String, Object> endpoint : gateway.endpoints(user, releaseId)) {
+                    endpoint.put("spaceId", spaceId.toString());
+                    endpoint.put("spaceName", spaceName);
+                    endpoint.put("releaseId", releaseId.toString());
+                    endpoint.put("versionNo", release.get("versionNo"));
+                    rows.add(endpoint);
+                }
+            }
+        }
+        return rows;
     }
 }

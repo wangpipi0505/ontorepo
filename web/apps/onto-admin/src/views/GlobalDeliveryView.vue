@@ -34,6 +34,17 @@ interface TestCaseRow {
   matchMode?: string
   enabled: boolean
 }
+interface ServiceRow {
+  id: string
+  spaceId: string
+  spaceName?: string
+  releaseId: string
+  versionNo: number
+  opCode: string
+  route: string
+  description?: string
+  status: string
+}
 interface GlobalDelivery {
   candidates: CandidateRow[]
   releases: ReleaseRow[]
@@ -42,10 +53,11 @@ interface GlobalDelivery {
 const router = useRouter(),
   api = useSession().api,
   data = useResource<GlobalDelivery | null>(null),
+  services = useResource<ServiceRow[]>([]),
   spaces = useResource<Space[]>([])
 const spaceFilter = ref(''),
   keyword = ref(''),
-  tab = ref<'candidates' | 'releases' | 'testCases'>('candidates')
+  tab = ref<'candidates' | 'releases' | 'testCases' | 'services'>('candidates')
 const spaceNames = computed(() => new Map(spaces.data.value.map((item) => [item.id, item.name])))
 function filterRows<T extends { spaceId: string; spaceName?: string }>(rows: T[]) {
   const text = keyword.value.trim().toLocaleLowerCase()
@@ -60,13 +72,20 @@ function filterRows<T extends { spaceId: string; spaceName?: string }>(rows: T[]
 const candidates = computed(() => filterRows(data.data.value?.candidates ?? []))
 const releases = computed(() => filterRows(data.data.value?.releases ?? []))
 const testCases = computed(() => filterRows(data.data.value?.testCases ?? []))
+const serviceRows = computed(() => services.data.value)
+async function loadServices() {
+  await services.load(() => api.get<ServiceRow[]>('/global/services'))
+}
 async function load() {
   await Promise.all([
     data.load(() => api.get<GlobalDelivery>('/global/delivery')),
     spaces.load(() => api.get<Space[]>('/spaces')),
   ])
 }
-onMounted(load)
+onMounted(async () => {
+  await load()
+  await loadServices()
+})
 </script>
 <template>
   <section class="module-page">
@@ -179,6 +198,45 @@ onMounted(load)
                 </template>
               </el-table-column>
             </el-table>
+          </el-tab-pane>
+          <el-tab-pane :label="`服务端点 ${serviceRows.length}`" name="services">
+            <AsyncState
+              :loading="services.loading.value"
+              :error="services.error.value"
+              :empty="!serviceRows.length"
+              empty-text="当前可见版本尚未发布服务端点。"
+              @retry="loadServices"
+            >
+              <el-table :data="serviceRows" row-key="id">
+                <el-table-column label="版本" width="90">
+                  <template #default="{ row }">v{{ row.versionNo }}</template>
+                </el-table-column>
+                <el-table-column prop="opCode" label="操作码" min-width="160" />
+                <el-table-column prop="route" label="路由" min-width="220" show-overflow-tooltip />
+                <el-table-column prop="description" label="说明" min-width="200" />
+                <el-table-column label="状态" width="90">
+                  <template #default="{ row }">
+                    {{ row.status === 'ACTIVE' ? '启用' : '禁用' }}
+                  </template>
+                </el-table-column>
+                <el-table-column label="所属本体" min-width="180">
+                  <template #default="{ row }">
+                    {{ row.spaceName || spaceNames.get(row.spaceId) || row.spaceId }}
+                  </template>
+                </el-table-column>
+                <el-table-column label="操作" width="150">
+                  <template #default="{ row }">
+                    <el-button
+                      link
+                      type="primary"
+                      @click="router.push(`/delivery?spaceId=${row.spaceId}&tab=delivery`)"
+                    >
+                      进入发布与服务
+                    </el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </AsyncState>
           </el-tab-pane>
         </el-tabs>
       </AsyncState>

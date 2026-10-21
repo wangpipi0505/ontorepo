@@ -4385,6 +4385,24 @@
         }
       }
     },
+    "/onto/global/services" : {
+      "get" : {
+        "tags" : [ "global-module-controller" ],
+        "operationId" : "services",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/EnvelopeListMapStringObject"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/onto/global/delivery" : {
       "get" : {
         "tags" : [ "global-module-controller" ],

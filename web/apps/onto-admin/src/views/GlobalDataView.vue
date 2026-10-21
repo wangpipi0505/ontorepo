@@ -32,6 +32,18 @@ interface MappingCountRow {
   properties: number
   relations: number
 }
+interface MappingDetailRow {
+  id: string
+  spaceId: string
+  spaceName: string
+  category: string
+  sourceResource?: string
+  sourceField?: string
+  targetClassId?: string
+  targetPropertyId?: string
+  relationId?: string
+  [key: string]: unknown
+}
 interface SnapshotRow {
   id: string
   spaceId: string
@@ -68,6 +80,7 @@ interface GlobalData {
   knowledge: KnowledgeRow[]
   sources: SourceRow[]
   mappings: MappingCountRow[]
+  mappingRows: MappingDetailRow[]
   snapshots: SnapshotRow[]
   inventory: InventoryRow[]
   suggestions: SuggestionRow[]
@@ -109,11 +122,21 @@ function knowledgeRows() {
           .includes(text),
     )
 }
-function mappingRows() {
+
+function mappingDetailRows() {
   const text = keyword.value.trim().toLocaleLowerCase()
-  return (data.data.value?.mappings ?? [])
+  return (data.data.value?.mappingRows ?? [])
     .filter((item) => !spaceId.value || item.spaceId === spaceId.value)
     .filter((item) => !text || item.spaceName.toLocaleLowerCase().includes(text))
+}
+function mappingCategory(category: string) {
+  return category === 'objects' ? '对象' : category === 'properties' ? '属性' : '关系'
+}
+function mappingSource(row: MappingDetailRow) {
+  return [row.sourceResource, row.sourceField].filter(Boolean).join(' · ') || '—'
+}
+function mappingTarget(row: MappingDetailRow) {
+  return [row.targetClassId, row.targetPropertyId, row.relationId].filter(Boolean).join(' · ') || '—'
 }
 function snapshotRows() {
   const text = keyword.value.trim().toLocaleLowerCase()
@@ -223,12 +246,18 @@ onMounted(load)
               </el-table-column>
             </el-table>
           </el-tab-pane>
-          <el-tab-pane :label="`映射 ${mappingRows().length}`" name="mappings">
-            <el-table :data="mappingRows()" row-key="spaceId">
-              <el-table-column prop="spaceName" label="所属本体" min-width="240" />
-              <el-table-column prop="objects" label="对象映射" width="120" />
-              <el-table-column prop="properties" label="属性映射" width="120" />
-              <el-table-column prop="relations" label="关系映射" width="120" />
+          <el-tab-pane :label="`映射 ${mappingDetailRows().length}`" name="mappings">
+            <el-table :data="mappingDetailRows()" row-key="id">
+              <el-table-column label="类别" width="80">
+                <template #default="{ row }">{{ mappingCategory(row.category) }}</template>
+              </el-table-column>
+              <el-table-column label="来源" min-width="220">
+                <template #default="{ row }">{{ mappingSource(row) }}</template>
+              </el-table-column>
+              <el-table-column label="目标" min-width="220">
+                <template #default="{ row }">{{ mappingTarget(row) }}</template>
+              </el-table-column>
+              <el-table-column prop="spaceName" label="所属本体" min-width="200" />
               <el-table-column label="操作" width="140">
                 <template #default="{ row }">
                   <el-button

@@ -36,6 +36,7 @@ public class GlobalDataService {
         List<Map<String, Object>> sources = new ArrayList<>();
         List<Map<String, Object>> entries = new ArrayList<>();
         List<Map<String, Object>> mappingCounts = new ArrayList<>();
+        List<Map<String, Object>> mappingRows = new ArrayList<>();
         List<Map<String, Object>> snapshots = new ArrayList<>();
         List<Map<String, Object>> inventory = new ArrayList<>();
         List<Map<String, Object>> suggestions = new ArrayList<>();
@@ -59,6 +60,16 @@ public class GlobalDataService {
                             "objects", ((List<?>) mapping.get("objects")).size(),
                             "properties", ((List<?>) mapping.get("properties")).size(),
                             "relations", ((List<?>) mapping.get("relations")).size()));
+            for (String category : List.of("objects", "properties", "relations")) {
+                for (Object entry : (List<?>) mapping.get(category)) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> row = new LinkedHashMap<>((Map<String, Object>) entry);
+                    row.put("spaceId", id.toString());
+                    row.put("spaceName", name);
+                    row.put("category", category);
+                    mappingRows.add(row);
+                }
+            }
             for (Map<String, Object> snapshot :
                     db.list(
                             "SELECT id,datasource_id,sha256,captured_at FROM meta_snapshot"
@@ -106,6 +117,7 @@ public class GlobalDataService {
                 "sources", sources,
                 "knowledge", entries,
                 "mappings", mappingCounts,
+                "mappingRows", mappingRows,
                 "snapshots", snapshots,
                 "inventory", inventory,
                 "suggestions", suggestions,

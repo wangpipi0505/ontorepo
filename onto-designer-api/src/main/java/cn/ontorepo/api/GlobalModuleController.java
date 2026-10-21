@@ -38,4 +38,10 @@ public class GlobalModuleController {
     public Envelope<Map<String, Object>> trace(HttpServletRequest r) {
         return Envelope.ok(trace.data(t.user(r)));
     }
+
+    @RequiresPermission("release.read")
+    @GetMapping("/global/services")
+    public Envelope<java.util.List<Map<String, Object>>> services(HttpServletRequest r) {
+        return Envelope.ok(delivery.services(t.user(r)));
+    }
 }

@@ -16,6 +16,7 @@ class GlobalModuleTest extends WorkflowFixture {
         assertTrue(delivery.path("candidates").size() >= 1);
         assertTrue(delivery.path("releases").isArray());
         assertTrue(delivery.path("testCases").isArray());
+        assertTrue(data(get("/onto/global/services"), null).isArray());
         var trace = data(get("/onto/global/trace"), null);
         assertTrue(trace.path("executions").isArray());
         assertTrue(trace.path("audit").size() >= 1);
