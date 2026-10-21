@@ -25,9 +25,17 @@ interface SourceRow {
   dialect?: string
   status?: string
 }
+interface MappingCountRow {
+  spaceId: string
+  spaceName: string
+  objects: number
+  properties: number
+  relations: number
+}
 interface GlobalData {
   knowledge: KnowledgeRow[]
   sources: SourceRow[]
+  mappings: MappingCountRow[]
 }
 const router = useRouter(),
   api = useSession().api,
@@ -35,7 +43,7 @@ const router = useRouter(),
   spaces = useResource<Space[]>([])
 const spaceId = ref(''),
   keyword = ref(''),
-  tab = ref<'knowledge' | 'sources'>('knowledge')
+  tab = ref<'knowledge' | 'sources' | 'mappings'>('knowledge')
 const spaceNames = computed(
   () => new Map(spaces.data.value.map((space) => [space.id, space.name])),
 )
@@ -64,6 +72,12 @@ function knowledgeRows() {
           .toLocaleLowerCase()
           .includes(text),
     )
+}
+function mappingRows() {
+  const text = keyword.value.trim().toLocaleLowerCase()
+  return (data.data.value?.mappings ?? [])
+    .filter((item) => !spaceId.value || item.spaceId === spaceId.value)
+    .filter((item) => !text || item.spaceName.toLocaleLowerCase().includes(text))
 }
 async function load() {
   await Promise.all([
@@ -144,6 +158,25 @@ onMounted(load)
                     @click="router.push(`/data?spaceId=${row.spaceId}&tab=datasources`)"
                   >
                     进入本体
+                  </el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-tab-pane>
+          <el-tab-pane :label="`映射 ${mappingRows().length}`" name="mappings">
+            <el-table :data="mappingRows()" row-key="spaceId">
+              <el-table-column prop="spaceName" label="所属本体" min-width="240" />
+              <el-table-column prop="objects" label="对象映射" width="120" />
+              <el-table-column prop="properties" label="属性映射" width="120" />
+              <el-table-column prop="relations" label="关系映射" width="120" />
+              <el-table-column label="操作" width="140">
+                <template #default="{ row }">
+                  <el-button
+                    link
+                    type="primary"
+                    @click="router.push(`/data?spaceId=${row.spaceId}&tab=mappings`)"
+                  >
+                    进入映射
                   </el-button>
                 </template>
               </el-table-column>
