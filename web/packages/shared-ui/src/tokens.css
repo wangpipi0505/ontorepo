@@ -190,6 +190,33 @@ code {
   margin-bottom: 16px;
   font-size: 13px;
 }
+.module-page {
+  display: grid;
+  gap: 12px;
+}
+.module-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 4px;
+}
+.module-heading h1 {
+  margin: 0 0 4px;
+  font-size: 22px;
+  line-height: 1.3;
+}
+.module-heading p {
+  margin: 0;
+  max-width: 860px;
+}
+.module-tabs .el-tabs__header {
+  margin-bottom: 10px;
+}
+
+.el-table .cell {
+  line-height: 1.45;
+}
 @media (max-width: 700px) {
   .form-columns {
     grid-template-columns: minmax(0, 1fr);
