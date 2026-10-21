@@ -4033,6 +4033,50 @@
         }
       }
     },
+    "/onto/releases/{id}/knowledge-search" : {
+      "get" : {
+        "tags" : [ "knowledge-controller" ],
+        "summary" : "检索正式版本冻结知识",
+        "operationId" : "releaseSearch",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        }, {
+          "name" : "q",
+          "in" : "query",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        }, {
+          "name" : "limit",
+          "in" : "query",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32",
+            "default" : 10
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/EnvelopeMapStringObject"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/onto/releases/{id}/entities" : {
       "get" : {
         "tags" : [ "release-controller" ],
