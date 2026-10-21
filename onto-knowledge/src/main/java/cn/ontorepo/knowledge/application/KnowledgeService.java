@@ -26,9 +26,20 @@ public class KnowledgeService {
 
     public Map<String, Object> save(UUID u, UUID id, Map<String, Object> b) {
         UUID s = Input.uuid(b.get("spaceId"));
+        String kind =
+                b.get("kind") == null ? "TERM" : Input.text(b, "kind", 20);
+        if (!Set.of("TERM", "ENTITY", "RELATION").contains(kind))
+            throw Problem.bad("知识类型必须为 TERM/ENTITY/RELATION");
         String term = Input.text(b, "term", 200),
-                definition = Input.text(b, "definition", 20000),
-                source = Input.text(b, "sourceRef", 1000);
+                definition = Input.optionalText(b, "definition", 20000),
+                source = Input.text(b, "sourceRef", 1000),
+                subject = Input.optionalText(b, "subjectRef", 1000),
+                predicate = Input.optionalText(b, "predicate", 200),
+                object = Input.optionalText(b, "objectRef", 1000);
+        if (!kind.equals("RELATION") && definition.isBlank())
+            throw Problem.bad("术语/实体定义不能为空");
+        if (kind.equals("RELATION") && (subject.isBlank() || predicate.isBlank() || object.isBlank()))
+            throw Problem.bad("事实关系必须包含主语、谓词和宾语");
         if (!(b.get("aliases") instanceof List<?> values) || values.size() > 100)
             throw Problem.bad("别名必须为最多100项的数组");
         Set<String> aliases = new LinkedHashSet<>();
@@ -55,25 +66,33 @@ public class KnowledgeService {
                     if (id == null)
                         db.update(
                                 "INSERT INTO"
-                                    + " ont_knowledge(id,space_id,term,aliases,definition,concept_ref,source_ref)"
-                                    + " VALUES(?,?,?,?::jsonb,?,?,?)",
+                                    + " ont_knowledge(id,space_id,kind,term,aliases,definition,concept_ref,source_ref,subject_ref,predicate,object_ref)"
+                                    + " VALUES(?,?,?,?,?::jsonb,?,?,?,?,?,?)",
                                 UUID.randomUUID(),
                                 s,
-                                term,
-                                db.json(aliases),
-                                definition,
-                                concept,
-                                source);
-                    else
-                        db.update(
-                                "UPDATE ont_knowledge SET"
-                                    + " term=?,aliases=?::jsonb,definition=?,concept_ref=?,source_ref=?"
-                                    + " WHERE id=?",
+                                kind,
                                 term,
                                 db.json(aliases),
                                 definition,
                                 concept,
                                 source,
+                                subject,
+                                predicate,
+                                object);
+                    else
+                        db.update(
+                                "UPDATE ont_knowledge SET"
+                                    + " kind=?,term=?,aliases=?::jsonb,definition=?,concept_ref=?,source_ref=?,subject_ref=?,predicate=?,object_ref=?"
+                                    + " WHERE id=?",
+                                kind,
+                                term,
+                                db.json(aliases),
+                                definition,
+                                concept,
+                                source,
+                                subject,
+                                predicate,
+                                object,
                                 id);
                 });
     }

@@ -55,11 +55,15 @@ export interface SpaceGrant extends GrantUser {
 export interface KnowledgeEntry {
   id: string
   spaceId: string
+  kind?: 'TERM' | 'ENTITY' | 'RELATION'
   term: string
   aliases: string[]
   definition: string
   conceptRef: string | null
   sourceRef: string
+  subjectRef?: string | null
+  predicate?: string | null
+  objectRef?: string | null
 }
 export interface CandidateIdentity {
   candidateId: string

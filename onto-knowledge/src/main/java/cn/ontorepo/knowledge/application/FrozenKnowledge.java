@@ -132,6 +132,8 @@ public class FrozenKnowledge {
                         Map.of(
                                 "entryId",
                                 id,
+                                "kind",
+                                d.get("kind"),
                                 "term",
                                 d.get("term"),
                                 "definition",
@@ -179,20 +181,40 @@ public class FrozenKnowledge {
             try (var writer =
                     new IndexWriter(dir, new IndexWriterConfig(analyzer).setRAMBufferSizeMB(4))) {
                 for (var e : rows(p, "knowledge")) {
+                    String relationText =
+                            Objects.toString(e.get("subjectRef"), "")
+                                    + " "
+                                    + Objects.toString(e.get("predicate"), "")
+                                    + " "
+                                    + Objects.toString(e.get("objectRef"), "");
                     List<String> aliases = new ArrayList<>();
                     aliases.add(e.get("term").toString());
                     for (Object alias : (List<?>) e.getOrDefault("aliases", List.of()))
                         aliases.add(alias.toString());
                     for (String alias : aliases) {
                         var d = new Document();
-                        for (String key : List.of("term", "definition", "sourceRef"))
+                        for (String key :
+                                List.of(
+                                        "term",
+                                        "definition",
+                                        "sourceRef",
+                                        "kind",
+                                        "subjectRef",
+                                        "predicate",
+                                        "objectRef"))
                             d.add(new StoredField(key, Objects.toString(e.get(key), "")));
                         d.add(new StoredField("entryId", e.get("id").toString()));
                         d.add(new StoredField("alias", alias));
                         d.add(
                                 new TextField(
                                         "text",
-                                        alias + " " + e.get("term") + " " + e.get("definition"),
+                                        alias
+                                                + " "
+                                                + e.get("term")
+                                                + " "
+                                                + Objects.toString(e.get("definition"), "")
+                                                + " "
+                                                + relationText,
                                         Field.Store.NO));
                         writer.addDocument(d);
                     }

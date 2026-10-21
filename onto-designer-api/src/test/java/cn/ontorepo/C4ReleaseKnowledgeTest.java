@@ -29,6 +29,46 @@ class C4ReleaseKnowledgeTest extends P4Fixture {
                         "生产设备",
                         "sourceRef",
                         "doc:equipment"));
+        data(
+                post("/onto/knowledge"),
+                Map.of(
+                        "spaceId",
+                        space,
+                        "expectedDraftRev",
+                        rev(space),
+                        "kind",
+                        "ENTITY",
+                        "term",
+                        "泵",
+                        "aliases",
+                        List.of(),
+                        "definition",
+                        "输送液体的设备",
+                        "sourceRef",
+                        "doc:pump"));
+        data(
+                post("/onto/knowledge"),
+                Map.of(
+                        "spaceId",
+                        space,
+                        "expectedDraftRev",
+                        rev(space),
+                        "kind",
+                        "RELATION",
+                        "term",
+                        "泵属于设备",
+                        "aliases",
+                        List.of(),
+                        "definition",
+                        "",
+                        "sourceRef",
+                        "doc:fact-1",
+                        "subjectRef",
+                        "泵",
+                        "predicate",
+                        "属于",
+                        "objectRef",
+                        "设备"));
         var candidate = freeze(space);
         String id = candidate.path("id").asText();
         data(post("/onto/candidates/" + id + "/validate"), null);
@@ -52,8 +92,17 @@ class C4ReleaseKnowledgeTest extends P4Fixture {
                                 .param("q", "设备"),
                         null);
         assertEquals(releaseId, result.path("releaseId").asText());
-        assertEquals(1, result.path("hits").size());
-        assertEquals("设备", result.path("hits").get(0).path("term").asText());
+        assertTrue(result.path("hits").size() >= 1);
+        assertTrue(
+                java.util.stream.StreamSupport.stream(result.path("hits").spliterator(), false)
+                        .anyMatch(hit -> "设备".equals(hit.path("term").asText())));
+        var fact =
+                data(
+                        get("/onto/releases/" + releaseId + "/knowledge-search")
+                                .param("q", "属于"),
+                        null);
+        assertTrue(fact.path("hits").size() >= 1);
+        assertEquals("RELATION", fact.path("hits").get(0).path("kind").asText());
         call(
                 get("/onto/releases/" + releaseId + "/knowledge-search").param("q", "设备"),
                 strangerToken,

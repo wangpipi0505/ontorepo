@@ -28,11 +28,15 @@ public final class P2Dtos {
     public record KnowledgeEntry(
             UUID id,
             UUID spaceId,
+            String kind,
             String term,
             List<String> aliases,
             String definition,
             UUID conceptRef,
-            String sourceRef) {}
+            String sourceRef,
+            String subjectRef,
+            String predicate,
+            String objectRef) {}
 
     public record TermEntry(
             UUID id,
@@ -59,6 +63,7 @@ public final class P2Dtos {
 
     public record KnowledgeHit(
             UUID entryId,
+            String kind,
             String term,
             String definition,
             double score,
@@ -94,9 +99,13 @@ public final class P2Dtos {
     public record KnowledgeWrite(
             UUID spaceId,
             Long expectedDraftRev,
+            String kind,
             String term,
             List<String> aliases,
             String definition,
             UUID conceptRef,
-            String sourceRef) {}
+            String sourceRef,
+            String subjectRef,
+            String predicate,
+            String objectRef) {}
 }

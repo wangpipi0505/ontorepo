@@ -158,6 +158,8 @@ describe('实际页面写上下文隔离', () => {
       const textInputs = old.get('.el-dialog').findAll('input[type=text]')
       await textInputs[0]!.setValue('旧空间术语')
       await textInputs[1]!.setValue('原始来源')
+      const textareas = old.get('.el-dialog').findAll('textarea')
+      await textareas[1]!.setValue('原始定义')
       await old.get('.el-dialog form').trigger('submit')
       expect(write).toHaveBeenCalledWith(
         '/knowledge',

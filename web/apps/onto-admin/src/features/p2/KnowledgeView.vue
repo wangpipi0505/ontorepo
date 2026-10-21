@@ -27,11 +27,15 @@ const open = ref(false),
   draft = useDraftRevision()
 // 输入归页面所有，弹窗内部过渡或权限更新导致子组件重建时仍保留用户编辑。
 const form = ref<KnowledgeDraft>({
+  kind: 'TERM',
   term: '',
   aliases: '',
   definition: '',
   sourceRef: '',
   conceptRef: '',
+  subjectRef: '',
+  predicate: '',
+  objectRef: '',
 })
 const releases = ref<Release[]>([]),
   releaseId = ref(''),
@@ -78,11 +82,15 @@ function edit(item: KnowledgeEntry | null) {
   if (!editor.workspace.canWrite || !snapshot) return
   editing.value = item
   form.value = {
+    kind: item?.kind || 'TERM',
     term: item?.term || '',
     aliases: item?.aliases.join('\n') || '',
     definition: item?.definition || '',
     sourceRef: item?.sourceRef || '',
     conceptRef: item?.conceptRef || '',
+    subjectRef: item?.subjectRef || '',
+    predicate: item?.predicate || '',
+    objectRef: item?.objectRef || '',
   }
   draft.start(snapshot.space.draftRev)
   editor.mutation.error.value = ''
@@ -151,10 +159,23 @@ onMounted(load)
     <section class="panel overflow">
       <el-table :data="items">
         <el-table-column prop="term" label="术语" min-width="130" />
+        <el-table-column label="类型" width="100">
+          <template #default="{ row }">
+            {{ row.kind === 'ENTITY' ? '实体' : row.kind === 'RELATION' ? '事实关系' : '术语' }}
+          </template>
+        </el-table-column>
         <el-table-column label="别名" min-width="150">
           <template #default="{ row }">{{ row.aliases.join('、') || '—' }}</template>
         </el-table-column>
-        <el-table-column prop="definition" label="定义" min-width="220" />
+        <el-table-column label="定义/事实" min-width="220">
+          <template #default="{ row }">
+            {{
+              row.kind === 'RELATION'
+                ? `${row.subjectRef ?? ''} ${row.predicate ?? ''} ${row.objectRef ?? ''}`.trim()
+                : row.definition
+            }}
+          </template>
+        </el-table-column>
         <el-table-column prop="sourceRef" label="来源" min-width="150" />
         <el-table-column v-if="editor.workspace.canWrite" label="维护" width="135">
           <template #default="{ row }">

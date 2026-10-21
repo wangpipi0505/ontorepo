@@ -300,7 +300,7 @@ describe('P2 知识管理与确定性用例', () => {
     const wrapper = await page('KnowledgeView')
     await button(wrapper, '新建知识').trigger('click')
     await flushPromises()
-    await field(wrapper, '术语').get('input').setValue('设备')
+    await field(wrapper, '名称/术语').get('input').setValue('设备')
     await field(wrapper, '别名（每行一个）').get('textarea').setValue('器材\n装备\n器材')
     await field(wrapper, '定义').get('textarea').setValue('完成业务任务的设施')
     await field(wrapper, '来源').get('input').setValue('业务规范')
@@ -310,13 +310,17 @@ describe('P2 知识管理与确定性用例', () => {
     expect(write).toHaveBeenCalledWith('/knowledge', {
       spaceId: 's',
       expectedDraftRev: 5,
+      kind: 'TERM',
       term: '设备',
       aliases: ['器材', '装备'],
       definition: '完成业务任务的设施',
       sourceRef: '业务规范',
       conceptRef: 'a',
+      subjectRef: null,
+      predicate: null,
+      objectRef: null,
     })
-    expect(field(wrapper, '术语').get<HTMLInputElement>('input').element.value).toBe('设备')
+    expect(field(wrapper, '名称/术语').get<HTMLInputElement>('input').element.value).toBe('设备')
     expect(useWorkspace().stale).toBe(true)
   })
   it('用例允许显式NL模式，期望操作和EXACT断言仍提交', async () => {
