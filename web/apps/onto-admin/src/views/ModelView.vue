@@ -2,7 +2,7 @@
 /** 建模主工作区：对象树与属性面板按职责分离；异步重载保留有效选择，失败不制造本地成功状态。 */
 import { computed, defineAsyncComponent, onMounted, reactive, ref, inject, watch } from 'vue'
 import { routeLocationKey } from 'vue-router'
-import type { Conflicts, OntClass, Relation, Space } from '@onto/api-client'
+import type { Conflicts, Constraint, OntClass, Relation, Rule, Space } from '@onto/api-client'
 import type Node from 'element-plus/es/components/tree/src/model/node'
 import AsyncState from '@onto/shared-ui/AsyncState.vue'
 import { useWorkspace } from '../stores/workspace'
@@ -18,6 +18,8 @@ const workspace = useWorkspace(),
   api = useSession().api,
   classes = useResource<OntClass[]>([]),
   relations = useResource<Relation[]>([]),
+  constraints = useResource<Constraint[]>([]),
+  rules = useResource<Rule[]>([]),
   mutation = useMutation()
 const route = inject(routeLocationKey, undefined)
 const focusId = computed(() =>
@@ -45,6 +47,7 @@ const tree = computed(() => buildTree(classes.data.value)),
   selected = computed(() => classes.data.value.find((item) => item.id === selectedId.value))
 const viewMode = ref<'graph' | 'tree'>('graph'),
   linkMode = ref(false),
+  sideTab = ref<'properties' | 'relations' | 'constraints' | 'rules'>('properties'),
   draggingNew = ref(false),
   graphKey = ref(0),
   relationOpen = ref(false),
@@ -74,6 +77,19 @@ const graphEdges = computed(() =>
     target: item.toClassId,
     label: item.name,
   })),
+)
+const selectedRelations = computed(() =>
+  relations.data.value.filter(
+    (item) => item.fromClassId === selectedId.value || item.toClassId === selectedId.value,
+  ),
+)
+const selectedConstraints = computed(() =>
+  constraints.data.value.filter(
+    (item) => item.targetType === 'CLASS' && item.targetRef === selectedId.value,
+  ),
+)
+const selectedRules = computed(() =>
+  rules.data.value.filter((item) => item.applicableClassId === selectedId.value),
 )
 const classLabel = (id: string) =>
   classes.data.value.find((item) => item.id === id)?.name || id
@@ -142,6 +158,8 @@ async function load() {
     workspace.refreshed(latestSpace)
   }
   await relations.load(() => api.get<Relation[]>(`/relations?spaceId=${id}`))
+  await constraints.load(() => api.get<Constraint[]>(`/constraints?spaceId=${id}`))
+  await rules.load(() => api.get<Rule[]>(`/rules?spaceId=${id}`))
   conflictError.value = ''
   try {
     const conflicts = await api.get<Conflicts>(`/spaces/${id}/conflicts`)
@@ -329,13 +347,49 @@ onMounted(load)
           />
         </div>
       </section>
-      <PropertyPanel
-        v-if="selected"
-        :key="selected.id"
-        :item="selected"
-        @edit="edit(selected)"
-        @remove="remove"
-      />
+      <section v-if="selected" class="panel detail-panel">
+        <el-tabs v-model="sideTab">
+          <el-tab-pane label="属性" name="properties">
+            <PropertyPanel
+              :key="selected.id"
+              :item="selected"
+              @edit="edit(selected)"
+              @remove="remove"
+            />
+          </el-tab-pane>
+          <el-tab-pane :label="`关系 ${selectedRelations.length}`" name="relations">
+            <p v-if="!selectedRelations.length" class="muted">该对象暂无关系。</p>
+            <article v-for="item in selectedRelations" :key="item.id" class="record">
+              <b>{{ item.name }}</b>
+              <p class="muted">
+                {{ classLabel(item.fromClassId) }} → {{ classLabel(item.toClassId) }} ·
+                {{ item.cardinality }}
+              </p>
+            </article>
+            <RouterLink :to="`/spaces/${workspace.space?.id}/relations`">
+              去关系页维护
+            </RouterLink>
+          </el-tab-pane>
+          <el-tab-pane :label="`约束 ${selectedConstraints.length}`" name="constraints">
+            <p v-if="!selectedConstraints.length" class="muted">该对象暂无约束。</p>
+            <article v-for="item in selectedConstraints" :key="item.id" class="record">
+              <b>{{ item.name }}</b>
+              <p class="muted">{{ item.kind }}</p>
+            </article>
+            <RouterLink :to="`/spaces/${workspace.space?.id}/constraints`">
+              去约束页维护
+            </RouterLink>
+          </el-tab-pane>
+          <el-tab-pane :label="`规则 ${selectedRules.length}`" name="rules">
+            <p v-if="!selectedRules.length" class="muted">该对象暂无规则。</p>
+            <article v-for="item in selectedRules" :key="item.id" class="record">
+              <b>{{ item.name }}</b>
+              <p class="muted">{{ item.kind }} · {{ item.severity }}</p>
+            </article>
+            <RouterLink :to="`/spaces/${workspace.space?.id}/rules`">去规则页维护</RouterLink>
+          </el-tab-pane>
+        </el-tabs>
+      </section>
       <section v-else class="panel model-placeholder">
         <div class="ontology-glyph">◈</div>
         <h2>选择一个领域对象</h2>
@@ -403,6 +457,16 @@ onMounted(load)
 }
 .graph-drop-active {
   outline-color: #2563eb;
+}
+.detail-panel {
+  min-height: 480px;
+  padding: 8px 14px;
+}
+.detail-panel :deep(.panel) {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
 }
 .model-grid {
   display: grid;
