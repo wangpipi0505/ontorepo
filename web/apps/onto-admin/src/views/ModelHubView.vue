@@ -43,14 +43,14 @@ function select(name: string | number) {
   <div class="model-hub">
     <el-tabs :model-value="tab" @tab-change="select">
       <el-tab-pane v-for="item in tabs" :key="item.name" :label="item.label" :name="item.name">
-        <ModelView v-if="tab === 'classes'" />
-        <RulesView v-else-if="tab === 'rules'" />
-        <ConflictsView v-else-if="tab === 'conflicts'" />
-        <StrategiesView v-else-if="tab === 'strategies'" />
-        <OperationsView v-else-if="tab === 'operations'" />
-        <RelationsView v-else-if="tab === 'relations'" />
-        <ConstraintsView v-else-if="tab === 'constraints'" />
-        <CodebooksView v-else />
+        <ModelView v-if="item.name === 'classes'" />
+        <RulesView v-else-if="item.name === 'rules'" />
+        <ConflictsView v-else-if="item.name === 'conflicts'" />
+        <StrategiesView v-else-if="item.name === 'strategies'" />
+        <OperationsView v-else-if="item.name === 'operations'" />
+        <RelationsView v-else-if="item.name === 'relations'" />
+        <ConstraintsView v-else-if="item.name === 'constraints'" />
+        <CodebooksView v-else-if="item.name === 'codebooks'" />
       </el-tab-pane>
     </el-tabs>
   </div>

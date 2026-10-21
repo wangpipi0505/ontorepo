@@ -47,6 +47,14 @@ const selectedId = ref(''),
   dialog = ref(false),
   editing = ref<OntClass | null>(null),
   loadedRev = ref<number>()
+interface UndoAction {
+  label: string
+  undo: () => Promise<Space>
+}
+const undoStack = ref<UndoAction[]>([])
+let classSnapshot: OntClass[] = []
+let classEditing: OntClass | null = null
+let relationSnapshot: Relation[] = []
 const tree = computed(() => buildTree(classes.data.value)),
   selected = computed(() => classes.data.value.find((item) => item.id === selectedId.value))
 const viewMode = ref<'graph' | 'tree'>('graph'),
@@ -111,6 +119,7 @@ function editGraph(id: string) {
 }
 function openRelation(payload: { source: string; target: string }) {
   if (!workspace.canWrite) return
+  relationSnapshot = relations.data.value.map((entry) => ({ ...entry }))
   relationForm.name = ''
   relationForm.fromClassId = payload.source
   relationForm.toClassId = payload.target
@@ -142,6 +151,16 @@ async function saveRelation() {
     relationOpen.value = false
     graphKey.value++
     await load()
+    const spaceId = workspace.space?.id
+    const beforeIds = new Set(relationSnapshot.map((item) => item.id))
+    const created = relations.data.value.find((item) => !beforeIds.has(item.id))
+    relationSnapshot = []
+    if (spaceId && created)
+      pushUndo(`新建关系“${created.name}”`, () =>
+        api.delete<Space>(
+          `/relations/${created.id}?spaceId=${spaceId}&expectedDraftRev=${workspace.space?.draftRev}`,
+        ),
+      )
   }
 }
 async function load() {
@@ -180,8 +199,54 @@ async function load() {
 }
 function edit(item: OntClass | null) {
   if (!workspace.canWrite || loadedRev.value === undefined) return
+  classSnapshot = classes.data.value.map((entry) => ({ ...entry }))
+  classEditing = item
   editing.value = item
   dialog.value = true
+}
+function pushUndo(label: string, undo: () => Promise<Space>) {
+  undoStack.value = [...undoStack.value.slice(-19), { label, undo }]
+}
+/** 撤销仅覆盖建模画布内的新建/修改/关系操作；删除与属性编辑仍需走草稿恢复。 */
+async function undoLast() {
+  const action = undoStack.value.at(-1)
+  if (!action || mutation.pending.value || !workspace.canWrite) return
+  undoStack.value = undoStack.value.slice(0, -1)
+  await mutation.run(async ({ isCurrent }) => {
+    const next = await action.undo()
+    if (!isCurrent()) return
+    workspace.accept(next)
+    await load()
+  })
+  if (mutation.error.value) undoStack.value = [...undoStack.value, action]
+}
+async function classSaved() {
+  await load()
+  const before = classSnapshot
+  classSnapshot = []
+  const spaceId = workspace.space?.id
+  if (!spaceId) return
+  if (classEditing) {
+    const old = before.find((item) => item.id === classEditing?.id)
+    if (old)
+      pushUndo(`修改对象“${old.name}”`, () =>
+        api.put<Space>(`/classes/${old.id}`, {
+          ...old,
+          spaceId,
+          expectedDraftRev: workspace.space?.draftRev,
+        }),
+      )
+  } else {
+    const beforeIds = new Set(before.map((item) => item.id))
+    const created = classes.data.value.find((item) => !beforeIds.has(item.id))
+    if (created)
+      pushUndo(`新建对象“${created.name}”`, () =>
+        api.delete<Space>(
+          `/classes/${created.id}?spaceId=${spaceId}&expectedDraftRev=${workspace.space?.draftRev}`,
+        ),
+      )
+  }
+  classEditing = null
 }
 async function remove() {
   const item = selected.value,
@@ -258,6 +323,13 @@ onBeforeUnmount(() => window.removeEventListener('resize', fitCanvas))
         <el-radio-button value="graph">图谱</el-radio-button>
         <el-radio-button value="tree">层级</el-radio-button>
       </el-radio-group>
+      <el-button
+        :disabled="!undoStack.length || mutation.pending.value"
+        title="撤销建模画布中的新建对象/关系操作；删除与属性编辑不可撤销"
+        @click="undoLast"
+      >
+        撤销{{ undoStack.length ? ` ${undoStack.length}` : '' }}
+      </el-button>
       <el-button @click="load">刷新模型</el-button>
       <el-button v-if="workspace.canWrite" type="primary" @click="edit(null)">新建对象</el-button>
     </div>
@@ -445,7 +517,7 @@ onBeforeUnmount(() => window.removeEventListener('resize', fitCanvas))
     :item="editing"
     :classes="classes.data.value"
     :revision="loadedRev"
-    @saved="load"
+    @saved="classSaved"
   />
 </template>
 <style scoped>
