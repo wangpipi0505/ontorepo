@@ -26,7 +26,7 @@ const items = computed(() =>
   flex-wrap: wrap;
   gap: 6px;
   align-items: center;
-  padding: 10px 32px 0;
+  padding: 8px 14px 0;
   font-size: 12px;
   color: var(--muted);
 }

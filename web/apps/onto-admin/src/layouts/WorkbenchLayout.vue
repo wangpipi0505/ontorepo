@@ -21,6 +21,7 @@ const loading = ref(false),
 const spaceId = computed(() =>
   typeof route.params.spaceId === 'string' ? route.params.spaceId : '',
 )
+const userInitial = computed(() => session.user?.displayName?.slice(0, 1) || '我')
 watch(
   () => route.path,
   (path) => {
@@ -51,6 +52,10 @@ async function loadSpace() {
   }
 }
 watch(spaceId, loadSpace, { immediate: true })
+function accountCommand(command: string) {
+  if (command === 'logout') void logout()
+  else void router.push('/account')
+}
 async function logout() {
   if (signingOut.value) return
   signingOut.value = true
@@ -74,66 +79,50 @@ async function logout() {
           <small>建模工作台</small>
         </span>
       </router-link>
-      <div class="nav-label">本体建模</div>
-      <router-link v-if="session.has('space.read')" to="/spaces" class="nav-item" active-class="" exact-active-class="active">
-        本体空间
+      <div class="nav-label">工作模块</div>
+      <router-link
+        v-if="session.has('space.read')"
+        to="/spaces"
+        class="nav-item"
+        active-class=""
+        :class="{ active: route.path.startsWith('/spaces') }"
+      >
+        本体建模
       </router-link>
       <template v-if="spaceId">
         <router-link
-          :to="`/spaces/${spaceId}`"
-          class="nav-item" active-class=""
-          :class="{ active: route.path === `/spaces/${spaceId}` }"
-        >
-          空间概览
-        </router-link>
-        <router-link
-          :to="`/spaces/${spaceId}/model`"
-          class="nav-item" active-class=""
-          :class="{ active: route.path.startsWith(`/spaces/${spaceId}/model`) }"
-        >
-          建模工作台
-        </router-link>
-      </template>
-      <div class="nav-label">功能模块</div>
-      <template v-if="spaceId">
-        <router-link
           :to="`/spaces/${spaceId}/data`"
-          class="nav-item" active-class=""
+          class="nav-item"
+          active-class=""
           :class="{ active: route.path.startsWith(`/spaces/${spaceId}/data`) }"
         >
           知识与数据
         </router-link>
         <router-link
           :to="`/spaces/${spaceId}/delivery`"
-          class="nav-item" active-class=""
+          class="nav-item"
+          active-class=""
           :class="{ active: route.path.startsWith(`/spaces/${spaceId}/delivery`) }"
         >
           测试与服务封装
         </router-link>
         <router-link
           :to="`/spaces/${spaceId}/trace`"
-          class="nav-item" active-class=""
+          class="nav-item"
+          active-class=""
           :class="{ active: route.path.startsWith(`/spaces/${spaceId}/trace`) }"
         >
           数据溯源审计
         </router-link>
-        <router-link
-          v-if="workspace.space?.role === 'OWNER'"
-          :to="`/spaces/${spaceId}/settings`"
-          class="nav-item" active-class=""
-          :class="{ active: route.path.startsWith(`/spaces/${spaceId}/settings`) }"
-        >
-          空间设置
-        </router-link>
       </template>
-      <p v-else class="nav-hint">先从“本体空间”列表选择一套本体，再进入建模与数据模块。</p>
-      <div class="nav-label">系统</div>
-      <router-link to="/account" class="nav-item">当前账号</router-link>
+      <p v-else class="nav-hint">进入“本体建模”选择一套本体后，功能模块自动展开。</p>
+      <div class="nav-label">系统管理</div>
       <router-link
         v-for="tab in systemTabs.filter((item) => session.has(item.permission))"
         :key="tab.path"
         :to="tab.path"
         class="nav-item"
+        active-class=""
       >
         {{ tab.label }}
       </router-link>
@@ -145,20 +134,28 @@ async function logout() {
     </aside>
     <div class="work-area">
       <header class="topbar">
-        <span class="muted">
-          {{ workspace.space?.name || '工作空间' }}
-          <template v-if="workspace.space">
-            /
-            <span class="mono">r{{ workspace.space.draftRev }}</span>
-            <span class="pill">{{ roleLabels[workspace.space.role] }}</span>
-          </template>
+        <router-link to="/spaces" class="space-context">
+          <span class="space-name">{{ workspace.space?.name || '选择本体空间' }}</span>
+          <span v-if="workspace.space" class="space-meta">
+            r{{ workspace.space.draftRev }} · {{ roleLabels[workspace.space.role] }}
+          </span>
           <RequirementTags v-if="route.path.startsWith('/spaces/')" />
-        </span>
+          <span class="space-switch">切换</span>
+        </router-link>
         <GlobalSearch v-if="spaceId" />
-        <div class="row">
-          <span class="muted">{{ session.user?.displayName }}</span>
-          <el-button text :loading="signingOut" @click="logout">退出登录</el-button>
-        </div>
+        <el-dropdown trigger="click" @command="accountCommand">
+          <button class="user-chip" type="button" :title="session.user?.displayName">
+            <span class="avatar">{{ userInitial }}</span>
+          </button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="account">账号信息</el-dropdown-item>
+              <el-dropdown-item command="logout" divided :disabled="signingOut">
+                退出登录
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </header>
       <Breadcrumbs v-if="spaceId" />
       <main class="main-content">
@@ -180,11 +177,14 @@ async function logout() {
 </template>
 <style scoped>
 .workbench {
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);
 }
 .navigation {
+  height: 100vh;
+  overflow-y: auto;
   background: var(--nav);
   color: #bed0e5;
   padding: 28px 16px;
@@ -274,23 +274,71 @@ async function logout() {
 }
 .work-area {
   min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #eef2f7;
 }
 .topbar {
-  height: 66px;
+  flex: 0 0 60px;
+  height: 60px;
   background: #fff;
   border-bottom: 1px solid var(--line);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 32px;
+  padding: 0 14px;
   gap: 12px;
 }
 .topbar .pill {
   margin-left: 8px;
 }
+.space-context {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--text);
+}
+.space-name {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.space-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+.space-switch {
+  font-size: 12px;
+  color: var(--primary);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.user-chip {
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 600;
+}
 .main-content {
+  flex: 1;
   width: 100%;
-  padding: 24px 28px 40px;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px;
+  background: #eef2f7;
 }
 @media (max-width: 900px) {
   .workbench {
