@@ -34,6 +34,7 @@ export interface ReleaseArtifact {
   ready: boolean
 }
 export interface Publication {
+  capability: 'CONTRACT' | 'MODEL_ONLY' | null
   candidateId: string
   candidateSha256: string
   draftRev: number

@@ -54,6 +54,16 @@ class ReleaseGatePolicyTest {
     }
 
     @Test
+    void zeroOperationModelCandidateNeedsNoCaseButAnyOperationStillDoes() {
+        assertTrue(
+                ReleaseGatePolicy.evaluate(SHA, 8, 8, passed(), 0, 0, null).allowed(),
+                "零操作纯模型候选的TEST门禁按空真通过");
+        assertFalse(
+                ReleaseGatePolicy.evaluate(SHA, 8, 8, passed(), 0, 1, null).allowed(),
+                "存在操作但零启用用例仍必须阻断");
+    }
+
+    @Test
     void onlyOwnerWaiverBoundToSameDigestAndRevisionCanCoverSubset() {
         var checks = passed();
         checks.set(

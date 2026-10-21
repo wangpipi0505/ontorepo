@@ -100,6 +100,7 @@ public class PublicationService {
                         default -> field;
                     },
                     c.get(field));
+        result.put("capability", c.get("capability"));
         result.put("checks", checks(id));
         result.put(
                 "waivers",
@@ -264,11 +265,20 @@ public class PublicationService {
                                                                         m.get("executionId"), "")
                                                                 .isBlank())
                                 .count();
+        boolean noOperations = operationCount(c) == 0;
         boolean passed =
-                enabled > 0 && completed == enabled && Boolean.TRUE.equals(result.get("passed"));
-        // 旧候选仍走原LOCAL_TEST返回值；新候选的返回和报告都必须明确零用例未通过。
+                noOperations
+                        ? completed == 0 && Boolean.TRUE.equals(result.get("passed"))
+                        : enabled > 0
+                                && completed == enabled
+                                && Boolean.TRUE.equals(result.get("passed"));
+        // 旧候选仍走原LOCAL_TEST返回值；零操作纯模型候选按空真通过（DEC-1=A），其余零用例仍明确未通过。
         result.put("passed", passed);
-        if (enabled == 0) result.put("reason", "NO_ENABLED_TEST_CASES");
+        String gateReason =
+                noOperations
+                        ? (passed ? "NO_OPERATION_NO_CASE" : "NO_OPERATION_NO_CASE_FAILED")
+                        : enabled == 0 ? "NO_ENABLED_TEST_CASES" : passed ? "" : "TEST_FAILED";
+        if (!gateReason.isEmpty()) result.put("reason", gateReason);
         tx.executeWithoutResult(
                 status -> {
                     var current =
@@ -289,9 +299,7 @@ public class PublicationService {
                             report(
                                     "TEST",
                                     passed ? "PASSED" : "FAILED",
-                                    enabled == 0
-                                            ? "NO_ENABLED_TEST_CASES"
-                                            : passed ? "" : "TEST_FAILED",
+                                    gateReason,
                                     result));
                     // 本地用例可先于正式机器校验执行；TEST通过不能补造缺失门禁，也不能清除真实失败。
                     // 在写回锁内读取最新同摘要结果，避免并行validate已写入的失败被较早开始的tests覆盖。
@@ -301,7 +309,7 @@ public class PublicationService {
                             nextStage,
                             passed
                                     ? "FAILED".equals(nextStage) ? "MACHINE_GATE_BLOCKED" : null
-                                    : enabled == 0 ? "NO_ENABLED_TEST_CASES" : "TEST_FAILED",
+                                    : gateReason,
                             id);
                 });
         return result;
@@ -601,9 +609,18 @@ public class PublicationService {
     }
 
     private Map<String, Object> contract(Map<String, Object> c, Map<String, Object> p) {
+        boolean modelOnly = "MODEL_ONLY".equals(c.get("capability"));
         try {
             var manifests = supply.manifests(p, c.get("id").toString());
-            return report("CONTRACT", "PASSED", "", Map.of("manifestCount", manifests.size()));
+            return report(
+                    "CONTRACT",
+                    "PASSED",
+                    modelOnly ? "MODEL_ONLY_NO_CONTRACT" : "",
+                    Map.of(
+                            "manifestCount",
+                            manifests.size(),
+                            "contractMode",
+                            modelOnly ? "MODEL_ONLY" : "CONTRACT"));
         } catch (ContractProblem e) {
             return report(
                     "CONTRACT",
@@ -785,9 +802,18 @@ public class PublicationService {
                         current,
                         checks,
                         count,
+                        operationCount(c),
                         waiver);
         if (!result.allowed())
             throw new Problem(409, "RELEASE_GATES_BLOCKED", "缺少验收用例、有效复核或必要门禁未通过");
+    }
+
+    /** 冻结载荷中的操作数量；零操作候选的 TEST 门禁按空真通过（DEC-1=A）。 */
+    private int operationCount(Map<String, Object> c) {
+        Object raw = c.get("payload");
+        if (raw instanceof byte[] bytes)
+            return codec.rows(codec.decode(bytes), "operations").size();
+        return codec.rows(bundles.payload(c), "operations").size();
     }
 
     public void enqueue(

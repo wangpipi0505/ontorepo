@@ -183,8 +183,9 @@ public final class P1Dtos {
     public record TestResult(
             String caseId, String name, boolean passed, String executionId, String message) {}
 
-    /** P1 Tests契约，空间写入必须携带预期修订。 */
-    public record Tests(String candidateSha256, boolean passed, List<TestResult> results) {}
+    /** P1 Tests契约，空间写入必须携带预期修订；reason 复述门禁空真/零用例原因。 */
+    public record Tests(
+            String candidateSha256, boolean passed, String reason, List<TestResult> results) {}
 
     /** P1 Check契约，空间写入必须携带预期修订。 */
     public record Check(

@@ -48,11 +48,27 @@ public final class ReleaseGatePolicy {
             List<Check> checks,
             int enabledCaseCount,
             Waiver waiver) {
+        // 兼容既有调用：默认视为"存在操作"，沿用必须有启用用例的原语义。
+        return evaluate(sha, candidateRev, currentRev, checks, enabledCaseCount, 1, waiver);
+    }
+
+    /**
+     * 纯模型候选（零操作）没有可执行用例，TEST 门禁按空真通过（DEC-1=A）； 只要存在操作，启用用例数不足仍按原规则阻断。
+     */
+    public static Result evaluate(
+            String sha,
+            long candidateRev,
+            long currentRev,
+            List<Check> checks,
+            int enabledCaseCount,
+            int operationCount,
+            Waiver waiver) {
         List<Violation> violations = new ArrayList<>();
         if (sha == null || !sha.matches("[0-9a-f]{64}") || candidateRev < 0 || currentRev < 0)
             violations.add(new Violation("INVALID_CANDIDATE", null));
         if (candidateRev != currentRev) violations.add(new Violation("DRAFT_CHANGED", null));
-        if (enabledCaseCount < 1) violations.add(new Violation("NO_ENABLED_TEST_CASES", Kind.TEST));
+        if (operationCount > 0 && enabledCaseCount < 1)
+            violations.add(new Violation("NO_ENABLED_TEST_CASES", Kind.TEST));
         var byKind = new EnumMap<Kind, Check>(Kind.class);
         if (checks != null) {
             for (Check check : checks) {

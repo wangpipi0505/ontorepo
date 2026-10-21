@@ -5,23 +5,23 @@
 
 ## OM-R-A1
 
-- [ ] **目标**：DEC-1=A 落地——无助手声明的纯模型空间可发布；发布版本无端点；部分声明仍阻断。
-- [ ] 后端
-  - [ ] `onto-trace/.../SupplyService.java`：`manifests()` 在 `MODEL_ONLY` 返回空列表（不再抛 409）。
-  - [ ] `onto-release/.../PublicationService.java`：`contract()` 对 MODEL_ONLY 返回 `PASSED/MODEL_ONLY_NO_CONTRACT/{manifestCount:0}`；提交时不生成 `service_endpoint`；`publication()` 返回 `contractMode`。
-  - [ ] `onto-trace/.../CandidateCheckService.java`：MODEL_ONLY 也写 CONTRACT=PASSED（0 manifest）。
-  - [ ] `onto-release/.../ReleaseGatePolicy.java`：增加 `operationCount`；0 操作时跳过 `NO_ENABLED_TEST_CASES`，有操作无用例仍阻断。
-  - [ ] `PublicationService` 统计冻结 payload 的 operations 数量并传入。
-- [ ] 前端
-  - [ ] `features/p4/PublicationView.vue`：MODEL_ONLY 候选显示"本候选不含服务契约，发布后无服务端点"。
-  - [ ] `features/p2/CandidateSupplyPanel.vue`：保留 preview/不可供给提示。
-- [ ] 测试（新增集成测试类 `P4ModelOnlyReleaseTest`）
-  - [ ] T1 0 操作 → validate/prepare/commit 成功；`service_endpoint` 0 条；RELEASED 1 条。
-  - [ ] T2 1 操作无助手 + 1 用例 → 发布成功、0 端点；SERVICE 仍拒绝。
-  - [ ] T3 1 操作有帮助声明但缺 param_examples → `MISSING_PARAM_EXAMPLES` 阻断。
-  - [ ] T4 1 操作无启用用例 → `NO_ENABLED_TEST_CASES` 阻断。
-  - [ ] T5 CONTRACT 路径回归（端点生成、manifest、meta）。
-- [ ] 文档：详设 v2.10 §8.4 已补；验收对照表 2.2③/2.1⑧ 状态待 D2 回填。
+- [x] **目标**：DEC-1=A 落地——无助手声明的纯模型空间可发布；发布版本无端点；部分声明仍阻断。
+- [x] 后端
+  - [x] `onto-trace/.../SupplyService.java`：`manifests()` 在 `MODEL_ONLY` 返回空列表（不再抛 409）。
+  - [x] `onto-release/.../PublicationService.java`：`contract()` 对 MODEL_ONLY 返回 `PASSED/MODEL_ONLY_NO_CONTRACT/{manifestCount:0}`；提交时不生成 `service_endpoint`；`publication()` 返回 `contractMode`。
+  - [x] `onto-trace/.../CandidateCheckService.java`：MODEL_ONLY 也写 CONTRACT=PASSED（0 manifest）。
+  - [x] `onto-release/.../ReleaseGatePolicy.java`：增加 `operationCount`；0 操作时跳过 `NO_ENABLED_TEST_CASES`，有操作无用例仍阻断。
+  - [x] `PublicationService` 统计冻结 payload 的 operations 数量并传入。
+- [x] 前端
+  - [x] `features/p4/PublicationView.vue`：MODEL_ONLY 候选显示"本候选不含服务契约，发布后无服务端点"。
+  - [x] `features/p2/CandidateSupplyPanel.vue`：保留 preview/不可供给提示。
+- [x] 测试（新增集成测试类 `P4ModelOnlyReleaseTest`）
+  - [x] T1 0 操作 → validate/prepare/commit 成功；`service_endpoint` 0 条；RELEASED 1 条。
+  - [x] T2 1 操作无助手 + 1 用例 → 发布成功、0 端点；SERVICE 仍拒绝。
+  - [x] T3 1 操作有帮助声明但缺 param_examples → `MISSING_PARAM_EXAMPLES` 阻断。
+  - [x] T4 1 操作无启用用例 → `NO_ENABLED_TEST_CASES` 阻断。
+  - [x] T5 CONTRACT 路径回归（端点生成、manifest、meta）。
+- [x] 文档：详设 v2.10 §8.4 已补；验收对照表 2.2③/2.1⑧ 状态待 D2 回填。
 
 ## OM-R-A2
 

@@ -115,7 +115,22 @@ public class CandidateCheckService {
                         "details",
                         tested));
         boolean contractPassed = false;
-        if ("CONTRACT".equals(p.get("capability"))) {
+        boolean modelOnly = "MODEL_ONLY".equals(p.get("capability"));
+        if (modelOnly) {
+            // 纯模型候选按 DEC-1=A 记一条零 manifest 的 CONTRACT 通过，但永久不具备供给资格。
+            checks.add(
+                    Map.of(
+                            "kind",
+                            "CONTRACT",
+                            "conclusion",
+                            "PASSED",
+                            "reason",
+                            "MODEL_ONLY_NO_CONTRACT",
+                            "message",
+                            "纯模型候选不含服务契约",
+                            "details",
+                            Map.of("manifestCount", 0)));
+        } else if ("CONTRACT".equals(p.get("capability"))) {
             try {
                 var manifests = supply.manifests(p, id.toString());
                 contractPassed = true;

@@ -47,8 +47,9 @@ public class SupplyService {
                 ((Map<String, Object>) p.get("space")).getOrDefault("guardCfg", Map.of()));
     }
 
-    /** MODEL_ONLY能力不能生成供给契约；冻结格式缺标记的旧候选也绝不默认通过。 */
+    /** MODEL_ONLY 不生成供给契约，但可作为纯模型发布（DEC-1=A）；缺能力标记的旧候选仍不默认通过。 */
     public List<JsonNode> manifests(Map<String, Object> p, String candidate) {
+        if ("MODEL_ONLY".equals(p.get("capability"))) return List.of();
         if (!"CONTRACT".equals(p.get("capability")))
             throw new Problem(409, "CONTRACT_NOT_AVAILABLE", "该候选仅具备MODEL_ONLY本地模型能力");
         List<JsonNode> result = new ArrayList<>();

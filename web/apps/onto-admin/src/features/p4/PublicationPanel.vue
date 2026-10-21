@@ -221,6 +221,10 @@ async function action(kind: 'validate' | 'review' | 'prepare' | 'commit' | 'canc
         <p v-if="legacy" class="readonly-note">
           此旧候选继续兼容本地试验；请重新冻结当前草稿以获得正式发布能力。
         </p>
+        <p v-if="publication.capability === 'MODEL_ONLY'" class="notice">
+          本候选仅含模型（无助手声明），发布后不生成服务端点；契约门禁按 0 个 manifest
+          通过，消费方无法调用。
+        </p>
         <p v-if="publication.releaseId" class="notice">已发布版本：{{ publication.releaseId }}</p>
         <div class="gates" aria-label="五项发布门禁">
           <article

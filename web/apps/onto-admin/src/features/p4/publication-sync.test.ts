@@ -25,6 +25,7 @@ const candidates: PublicationCandidate[] = ['a', 'b'].map((id) => ({
 }))
 function detail(id = 'a', status: Publication['status'] = 'REVIEWING'): Publication {
   return {
+    capability: 'CONTRACT',
     candidateId: id,
     candidateSha256: `sha-${id}`,
     draftRev: 5,
