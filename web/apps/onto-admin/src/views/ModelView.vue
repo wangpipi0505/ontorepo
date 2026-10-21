@@ -239,6 +239,13 @@ function pushCommand(
   undoStack.value = [...undoStack.value.slice(-19), { label, undo, redo }]
   redoStack.value = []
 }
+function pushChildCommand(command: {
+  label: string
+  undo: (rev: number) => Promise<Space>
+  redo: (rev: number) => Promise<Space>
+}) {
+  pushCommand(command.label, command.undo, command.redo)
+}
 /** 撤销/重做共用一条命令栈；删除与属性编辑不纳入。 */
 async function runCommand(direction: 'undo' | 'redo') {
   const source = direction === 'undo' ? undoStack : redoStack,
@@ -509,6 +516,7 @@ onBeforeUnmount(() => window.removeEventListener('resize', fitCanvas))
               :item="selected"
               @edit="edit(selected)"
               @remove="remove"
+              @command="pushChildCommand"
             />
           </el-tab-pane>
           <el-tab-pane :label="`关系 ${selectedRelations.length}`" name="relations">

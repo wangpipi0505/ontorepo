@@ -11,7 +11,17 @@ import PropertyDialog from './PropertyDialog.vue'
 import { readDraftSnapshot } from '../composables/readDraftSnapshot'
 /** 面板只加载当前类的属性；类变更时立即清空旧属性、关闭旧编辑框。 */
 const props = defineProps<{ item: OntClass }>(),
-  emit = defineEmits<{ edit: []; remove: [] }>()
+  emit = defineEmits<{
+    edit: []
+    remove: []
+    command: [
+      command: {
+        label: string
+        undo: (rev: number) => Promise<Space>
+        redo: (rev: number) => Promise<Space>
+      },
+    ]
+  }>()
 const api = useSession().api,
   workspace = useWorkspace(),
   properties = useResource<OntProperty[]>([]),
@@ -19,6 +29,8 @@ const api = useSession().api,
 const focus = useEntityFocus(properties.data, properties.loading)
 const dialog = ref(false),
   selected = ref<OntProperty | null>(null)
+let propertySnapshot: OntProperty[] = []
+let propertyEditing: OntProperty | null = null
 const loadedRev = ref<number>()
 async function load() {
   const { spaceId, id } = props.item
@@ -44,8 +56,70 @@ watch(
   { immediate: true },
 )
 function edit(item: OntProperty | null) {
+  propertySnapshot = properties.data.value.map((entry) => ({ ...entry }))
+  propertyEditing = item
   selected.value = item
   dialog.value = true
+}
+/** 属性新建/修改进入父级命令栈；删除暂不撤销。 */
+async function propertySaved() {
+  await load()
+  const before = propertySnapshot
+  propertySnapshot = []
+  const spaceId = props.item.spaceId
+  if (propertyEditing) {
+    const old = before.find((entry) => entry.id === propertyEditing?.id)
+    const after = properties.data.value.find((entry) => entry.id === propertyEditing?.id)
+    if (!old || !after) return
+    const put = (entry: OntProperty, rev: number) =>
+      api.put<Space>(`/properties/${entry.id}`, {
+        ...entry,
+        spaceId,
+        domainClassId: props.item.id,
+        expectedDraftRev: rev,
+      })
+    emit('command', {
+      label: `修改属性“${old.name}”`,
+      undo: (rev) => put(old, rev),
+      redo: (rev) => put(after, rev),
+    })
+    propertyEditing = null
+    return
+  }
+  const beforeIds = new Set(before.map((entry) => entry.id))
+  const created = properties.data.value.find((entry) => !beforeIds.has(entry.id))
+  if (!created) return
+  const payload = {
+    name: created.name,
+    rangeType: created.rangeType,
+    required: created.required,
+    description: created.description,
+    facets: created.facets,
+  }
+  let createdId = created.id
+  const findCreated = async () => {
+    const rows = await api.get<OntProperty[]>(
+      `/properties?spaceId=${spaceId}&classId=${props.item.id}`,
+    )
+    return rows.find((entry) => !beforeIds.has(entry.id) && entry.name === payload.name)?.id
+  }
+  emit('command', {
+    label: `新建属性“${created.name}”`,
+    undo: (rev) =>
+      api.delete<Space>(`/properties/${createdId}?spaceId=${spaceId}&expectedDraftRev=${rev}`),
+    redo: async (rev) => {
+      const next = await api.post<Space>('/properties', {
+        ...payload,
+        spaceId,
+        domainClassId: props.item.id,
+        expectedDraftRev: rev,
+      })
+      const id = await findCreated()
+      if (id) createdId = id
+      return next
+    },
+  })
+  propertyEditing = null
 }
 async function remove(item: OntProperty) {
   if (!workspace.canWrite || !workspace.space || loadedRev.value === undefined) return
@@ -135,7 +209,7 @@ async function remove(item: OntProperty) {
       :item="selected"
       :class-id="item.id"
       :revision="loadedRev"
-      @saved="load"
+      @saved="propertySaved"
     />
   </section>
 </template>
