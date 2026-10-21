@@ -38,6 +38,17 @@ const spaces = [
 const wrappers: VueWrapper[] = []
 function response(path: string): unknown {
   if (path === '/spaces') return spaces
+  if (/^\/spaces\/[^/]+\/readiness$/.test(path))
+    return {
+      classCount: 2,
+      propertyCount: 3,
+      relationCount: 1,
+      ruleCount: 2,
+      assistantCount: 1,
+      guardCount: 1,
+      caseCount: 1,
+      candidateCount: 1,
+    }
   if (path.startsWith('/spaces/') && !path.endsWith('/conflicts'))
     return spaces.find((item) => path === `/spaces/${item.id}`)
   if (path.startsWith('/relations?')) return [{ id: 'rel' }]

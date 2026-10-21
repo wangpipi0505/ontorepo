@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /** 控制器仅处理传输类型和会话身份，写事务由应用服务管理。 */
@@ -47,6 +48,14 @@ public class SpaceController {
     @GetMapping("/{id}")
     public Envelope<Space> get(HttpServletRequest r, @PathVariable UUID id) {
         return Envelope.ok(t.as(spaces.get(t.user(r), id), Space.class));
+    }
+
+    /** 发布就绪度计数聚合；只读，不替代候选门禁。 */
+    @RequiresPermission("space.read")
+    @GetMapping("/{id}/readiness")
+    public Envelope<Map<String, Object>> readiness(
+            HttpServletRequest r, @PathVariable UUID id) {
+        return Envelope.ok(spaces.readiness(t.user(r), id));
     }
 
     /** 创建命名空间不可变的空间。 */

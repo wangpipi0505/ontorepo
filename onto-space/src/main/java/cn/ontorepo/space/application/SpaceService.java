@@ -85,6 +85,23 @@ public class SpaceService {
         return get(user, id);
     }
 
+    /** 发布就绪度只做计数聚合，不替代候选五项门禁；未分类/未检查项不折算为通过。 */
+    public Map<String, Object> readiness(UUID user, UUID space) {
+        role(user, space);
+        return db.one(
+                "SELECT"
+                    + " (SELECT count(*) FROM ont_class c WHERE c.space_id=s.id AND NOT c.deprecated) class_count,"
+                    + " (SELECT count(*) FROM ont_property p WHERE p.space_id=s.id) property_count,"
+                    + " (SELECT count(*) FROM ont_relation r WHERE r.space_id=s.id) relation_count,"
+                    + " (SELECT count(*) FROM ont_rule r WHERE r.space_id=s.id) rule_count,"
+                    + " (SELECT count(*) FROM ont_operation o WHERE o.space_id=s.id AND o.assistant_tool IS NOT NULL) assistant_count,"
+                    + " (SELECT count(*) FROM jsonb_object_keys(s.guard_cfg)) guard_count,"
+                    + " (SELECT count(*) FROM ont_test_case t WHERE t.space_id=s.id AND t.enabled) case_count,"
+                    + " (SELECT count(*) FROM publish_candidate c WHERE c.space_id=s.id) candidate_count"
+                    + " FROM ontology_space s WHERE s.id=?",
+                space);
+    }
+
     /** action 在行锁持有期间执行；抛错使整个写入和审计一起回滚。 */
     @Transactional
     public Map<String, Object> write(

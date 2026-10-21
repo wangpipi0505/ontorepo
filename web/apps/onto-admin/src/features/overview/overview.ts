@@ -12,12 +12,23 @@ import { readDraftSnapshot } from '../../composables/readDraftSnapshot'
 
 /** 单项读取失败保留未知态；不把接口故障折算成零条记录或通过。 */
 export type Reading<T> = { value: T; error: '' } | { value: null; error: string }
+export interface Readiness {
+  classCount: number
+  propertyCount: number
+  relationCount: number
+  ruleCount: number
+  assistantCount: number
+  guardCount: number
+  caseCount: number
+  candidateCount: number
+}
 export interface SpaceOverview {
   space: Space
   relations: Reading<number>
   rules: Reading<number>
   conflicts: Reading<Conflicts>
   mappings: Reading<MappingValidation>
+  readiness: Reading<Readiness>
   release: Reading<Release | null>
 }
 async function read<T>(work: () => Promise<T>): Promise<Reading<T>> {
@@ -32,7 +43,7 @@ export async function loadOverview(
   id: string,
 ): Promise<SpaceOverview> {
   const snapshot = await readDraftSnapshot(api, id, async () => {
-    const [relations, rules, conflicts, release, mappings] = await Promise.all([
+    const [relations, rules, conflicts, release, mappings, readiness] = await Promise.all([
       read(async () => (await api.get<Relation[]>(`/relations?spaceId=${id}`)).length),
       read(async () => (await api.get<Rule[]>(`/rules?spaceId=${id}`)).length),
       read(() => api.get<Conflicts>(`/spaces/${id}/conflicts`)),
@@ -43,8 +54,9 @@ export async function loadOverview(
         ),
       ),
       read(() => api.get<MappingValidation>(`/mappings/validate?spaceId=${id}`)),
+      read(() => api.get<Readiness>(`/spaces/${id}/readiness`)),
     ])
-    return { relations, rules, conflicts, release, mappings }
+    return { relations, rules, conflicts, release, mappings, readiness }
   })
   return { ...snapshot.items, space: snapshot.space }
 }

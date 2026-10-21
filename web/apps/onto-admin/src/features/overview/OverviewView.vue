@@ -68,6 +68,43 @@ const readiness = computed(() => {
       to: 'mappings',
     },
     {
+      key: 'assistant',
+      label: '助手声明',
+      detail:
+        value.readiness.value === null
+          ? '读取失败'
+          : `${value.readiness.value.assistantCount} 个操作`,
+      done: (value.readiness.value?.assistantCount ?? 0) > 0,
+      to: 'assistant',
+    },
+    {
+      key: 'guards',
+      label: '守卫绑定',
+      detail:
+        value.readiness.value === null
+          ? '读取失败'
+          : `${value.readiness.value.guardCount} 项`,
+      done: (value.readiness.value?.guardCount ?? 0) > 0,
+      to: 'guards',
+    },
+    {
+      key: 'cases',
+      label: '启用用例',
+      detail: value.readiness.value === null ? '读取失败' : `${value.readiness.value.caseCount} 条`,
+      done: (value.readiness.value?.caseCount ?? 0) > 0,
+      to: 'test-cases',
+    },
+    {
+      key: 'candidates',
+      label: '候选冻结',
+      detail:
+        value.readiness.value === null
+          ? '读取失败'
+          : `${value.readiness.value.candidateCount} 个`,
+      done: (value.readiness.value?.candidateCount ?? 0) > 0,
+      to: 'candidates',
+    },
+    {
       key: 'release',
       label: '正式版本',
       detail: value.release.value ? `v${value.release.value.versionNo}` : '尚无发布',
