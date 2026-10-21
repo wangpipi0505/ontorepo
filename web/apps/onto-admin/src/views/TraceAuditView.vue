@@ -19,12 +19,6 @@ function select(name: string | number) {
 <template>
   <GlobalTraceView v-if="!spaceId" />
   <section v-else class="module-page">
-    <header class="module-heading">
-      <div>
-        <h1>数据溯源审计</h1>
-        <p class="muted">按执行查看数据来源、语义映射、规则/操作与输出证据；审计记录支持对象/动作/时间检索。</p>
-      </div>
-    </header>
     <el-tabs :model-value="tab" class="module-tabs" @tab-change="select">
       <el-tab-pane label="执行与追溯" name="executions">
         <ExecutionsView v-if="tab === 'executions'" />

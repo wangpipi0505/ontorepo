@@ -7,6 +7,13 @@ import type { AuditPage } from '../../../../packages/api-client/src/release'
 import AsyncState from '@onto/shared-ui/AsyncState.vue'
 import { useSession } from '../stores/session'
 import { useResource } from '../composables/useResource'
+import {
+  auditActionLabel,
+  auditResultLabels,
+  auditSubjectLabels,
+  executionCallerLabels,
+  executionStatusLabels,
+} from '../composables/auditLabels'
 type ExecutionRow = Execution & { spaceName?: string }
 type AuditRow = AuditPage['items'][number] & { spaceName?: string }
 interface GlobalTrace {
@@ -79,8 +86,16 @@ onMounted(load)
                 </template>
               </el-table-column>
               <el-table-column prop="opCode" label="操作" min-width="140" />
-              <el-table-column prop="status" label="状态" width="110" />
-              <el-table-column prop="caller" label="调用方" width="150" />
+              <el-table-column label="状态" width="110">
+                <template #default="{ row }">
+                  {{ executionStatusLabels[row.status] ?? row.status }}
+                </template>
+              </el-table-column>
+              <el-table-column label="调用方" width="150">
+                <template #default="{ row }">
+                  {{ executionCallerLabels[row.caller] ?? row.caller }}
+                </template>
+              </el-table-column>
               <el-table-column label="操作" width="140">
                 <template #default="{ row }">
                   <el-button
@@ -98,15 +113,25 @@ onMounted(load)
           </el-tab-pane>
           <el-tab-pane :label="`审计 ${audit.length}`" name="audit">
             <el-table :data="audit" row-key="id">
-              <el-table-column prop="action" label="动作" min-width="160" />
+              <el-table-column label="动作" min-width="160">
+                <template #default="{ row }">{{ auditActionLabel(row.action) }}</template>
+              </el-table-column>
               <el-table-column label="所属本体" min-width="180">
                 <template #default="{ row }">
                   {{ row.spaceName || spaceNames.get(row.spaceId) || row.spaceId }}
                 </template>
               </el-table-column>
               <el-table-column prop="actorName" label="操作人" width="130" />
-              <el-table-column prop="subjectType" label="对象类型" width="110" />
-              <el-table-column prop="result" label="结果" width="90" />
+              <el-table-column label="对象类型" width="110">
+                <template #default="{ row }">
+                  {{ auditSubjectLabels[row.subjectType ?? ''] ?? row.subjectType ?? '—' }}
+                </template>
+              </el-table-column>
+              <el-table-column label="结果" width="90">
+                <template #default="{ row }">
+                  {{ auditResultLabels[row.result ?? ''] ?? row.result ?? '—' }}
+                </template>
+              </el-table-column>
               <el-table-column prop="createdAt" label="时间" width="190" />
               <el-table-column label="操作" width="120">
                 <template #default="{ row }">

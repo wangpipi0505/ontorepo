@@ -6,6 +6,11 @@ import type { AuditPage } from '../../../../../packages/api-client/src/release'
 import { useWorkspace } from '../../stores/workspace'
 import { useSession } from '../../stores/session'
 import { useResource } from '../../composables/useResource'
+import {
+  auditActionLabel,
+  auditResultLabels,
+  auditSubjectLabels,
+} from '../../composables/auditLabels'
 import './p4.css'
 const route = inject(routeLocationKey, undefined),
   workspace = useWorkspace(),
@@ -23,47 +28,7 @@ const filters = reactive({
   to: '',
 })
 const subjectTypes = ['CANDIDATE', 'RELEASE', 'DATASOURCE', 'MAPPING', 'OPERATION', 'SPACE']
-const subjectTypeLabels: Record<string, string> = {
-  CANDIDATE: '候选',
-  RELEASE: '版本',
-  DATASOURCE: '数据源',
-  MAPPING: '映射',
-  OPERATION: '操作',
-  SPACE: '空间',
-}
-const resultLabels: Record<string, string> = { SUCCESS: '成功', FAILURE: '失败', DENIED: '拒绝' }
-const actionLabels: Record<string, string> = {
-  SPACE_CREATE: '创建空间',
-  SPACE_ARCHIVE: '归档空间',
-  CANDIDATE_FREEZE: '冻结候选',
-  CANDIDATE_VALIDATE: '候选机器检查',
-  CANDIDATE_REVIEW: '人工复核',
-  CANDIDATE_CANCEL: '取消候选',
-  CANDIDATE_TRIAL: '候选试执行',
-  RELEASE_COMMIT: '发布提交',
-  RELEASE_EXECUTE: '正式服务调用',
-  RELEASE_DEPRECATE: '弃用版本',
-  RELEASE_CORRUPTED: '制品损坏隔离',
-  DATASOURCE_CREATE: '新增数据源',
-  DATASOURCE_UPDATE: '修改数据源',
-  DATASOURCE_DELETE: '删除数据源',
-  DATASOURCE_PROBE: '连接测试',
-  DATASOURCE_SYNC: '元数据同步',
-  MAPPING_OBJECT_SAVE: '对象映射保存',
-  MAPPING_PROPERTY_SAVE: '属性映射保存',
-  MAPPING_RELATION_SAVE: '关系映射保存',
-  MAPPING_DELETE: '删除映射',
-  DATA_QUERY_SAVE: '实例查询配置',
-  ENDPOINT_STATUS: '端点启停',
-  ENDPOINT_GRANT: '端点授权',
-  API_CREDENTIAL_CREATE: '创建 API key',
-  API_CREDENTIAL_REVOKE: '撤销 API key',
-  TEST_CASE_SAVE: '用例保存',
-  CANDIDATE_CHECK: '候选检查',
-}
-function actionLabel(action: string) {
-  return actionLabels[action] || action
-}
+
 function load(append = false) {
   const id = workspace.space?.id
   if (!id || request.loading.value || (append && cursor.value === null)) return
@@ -130,7 +95,7 @@ watch(
         <select v-model="filters.subjectType" aria-label="对象类型">
           <option value="">全部对象类型</option>
           <option v-for="type in subjectTypes" :key="type" :value="type">
-              {{ subjectTypeLabels[type] ?? type }}
+              {{ auditSubjectLabels[type] ?? type }}
             </option>
         </select>
         <el-input v-model="filters.subjectId" placeholder="对象 ID" clearable />
@@ -149,13 +114,13 @@ watch(
       <p v-if="initialized && !items.length" class="muted">没有符合条件的审计活动。</p>
       <article v-for="item in items" :key="item.id" class="record">
         <div class="row spread">
-          <b>#{{ item.id }} · {{ actionLabel(item.action) }}</b>
+          <b>#{{ item.id }} · {{ auditActionLabel(item.action) }}</b>
           <time>{{ new Date(item.createdAt).toLocaleString('zh-CN') }}</time>
         </div>
         <p class="muted">
           操作人 {{ item.actorName || item.actorId || '未记录' }} · 对象
-          {{ item.subjectType ? (subjectTypeLabels[item.subjectType] ?? item.subjectType) : '—' }}
-          {{ item.subjectId || '未记录' }} · 结果 {{ item.result ? (resultLabels[item.result] ?? item.result) : '—' }}
+          {{ item.subjectType ? (auditSubjectLabels[item.subjectType] ?? item.subjectType) : '—' }}
+          {{ item.subjectId || '未记录' }} · 结果 {{ item.result ? (auditResultLabels[item.result] ?? item.result) : '—' }}
         </p>
         <details>
           <summary>安全审计详情</summary>

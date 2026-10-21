@@ -19,12 +19,6 @@ function select(name: string | number) {
 <template>
   <GlobalDeliveryView v-if="!spaceId" />
   <section v-else class="module-page">
-    <header class="module-heading">
-      <div>
-        <h1>测试与服务封装</h1>
-        <p class="muted">冻结候选验证、发布门禁、正式版本与服务消费；测试结果直接进入发布链路。</p>
-      </div>
-    </header>
     <el-tabs :model-value="tab" class="module-tabs" @tab-change="select">
       <el-tab-pane label="验证与候选" name="testing">
         <TestingView v-if="tab === 'testing'" />

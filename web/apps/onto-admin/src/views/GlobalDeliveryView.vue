@@ -6,6 +6,8 @@ import type { Space } from '@onto/api-client'
 import AsyncState from '@onto/shared-ui/AsyncState.vue'
 import { useSession } from '../stores/session'
 import { useResource } from '../composables/useResource'
+import { publicationStatusLabels } from '../features/p4/publication'
+import { releaseLabels } from '../features/overview/overview'
 interface CandidateRow {
   id: string
   spaceId: string
@@ -92,7 +94,11 @@ onMounted(load)
                 </template>
               </el-table-column>
               <el-table-column prop="draftRev" label="草稿修订" width="100" />
-              <el-table-column prop="status" label="状态" width="140" />
+              <el-table-column label="状态" width="140">
+                <template #default="{ row }">
+                  {{ publicationStatusLabels[row.status] ?? row.status }}
+                </template>
+              </el-table-column>
               <el-table-column label="操作" width="150">
                 <template #default="{ row }">
                   <el-button
@@ -116,7 +122,11 @@ onMounted(load)
                   {{ row.spaceName || spaceNames.get(row.spaceId) || row.spaceId }}
                 </template>
               </el-table-column>
-              <el-table-column prop="status" label="状态" width="140" />
+              <el-table-column label="状态" width="140">
+                <template #default="{ row }">
+                  {{ releaseLabels[row.status as keyof typeof releaseLabels] ?? row.status }}
+                </template>
+              </el-table-column>
               <el-table-column prop="publishedAt" label="发布时间" width="190" />
               <el-table-column label="操作" width="150">
                 <template #default="{ row }">

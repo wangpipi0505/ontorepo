@@ -34,14 +34,6 @@ function select(name: string | number) {
 <template>
   <GlobalDataView v-if="!spaceId" />
   <section v-else class="module-page">
-    <header class="module-heading">
-      <div>
-        <h1>知识与数据</h1>
-        <p class="muted">
-          统一管理领域知识物料、数据源连接、字段映射与元数据快照；供当前本体空间建模时引用和绑定。
-        </p>
-      </div>
-    </header>
     <el-tabs :model-value="tab" class="module-tabs" @tab-change="select">
       <el-tab-pane label="知识物料" name="knowledge">
         <KnowledgeView v-if="tab === 'knowledge'" />
