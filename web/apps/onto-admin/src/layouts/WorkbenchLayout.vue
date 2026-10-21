@@ -71,34 +71,77 @@ const tabs = [
   { path: 'candidates', label: '候选与试执行' },
   { path: 'supply', label: '候选供给' },
   { path: 'executions', label: '执行记录' },
-]
-const publicationTabs = [
   { path: 'publication', label: '候选发布' },
   { path: 'releases', label: '正式版本' },
   { path: 'consumption', label: '服务消费' },
   { path: 'events', label: '事件与收件箱' },
   { path: 'audit', label: '审计记录' },
 ]
-const visibleTabs = computed(() =>
-  tabs.filter(
-    (tab) =>
-      session.has(spacePagePermissions[tab.path].read) &&
-      (!tab.ownerOnly || workspace.space?.role === 'OWNER'),
-  ),
+const groups = [
+  {
+    label: '概念建模',
+    paths: [
+      'model',
+      'codebooks',
+      'relations',
+      'constraints',
+      'rules',
+      'conflicts',
+      'strategies',
+      'operations',
+      'assistant',
+    ],
+  },
+  {
+    label: '知识与数据',
+    paths: [
+      'knowledge',
+      'datasources',
+      'mappings',
+      'data-query',
+      'suggestions',
+      'data-catalog',
+      'imports',
+    ],
+  },
+  { label: '操作与测试', paths: ['test-cases', 'candidates', 'supply', 'executions'] },
+  { label: '发布与服务', paths: ['publication', 'releases', 'consumption', 'events'] },
+  { label: '溯源审计', paths: ['audit'] },
+  { label: '空间设置', paths: ['guards', 'grants'] },
+]
+const visibleGroups = computed(() =>
+  groups
+    .map((group) => ({
+      label: group.label,
+      tabs: tabs.filter(
+        (tab) =>
+          group.paths.includes(tab.path) &&
+          session.has(spacePagePermissions[tab.path].read) &&
+          (!tab.ownerOnly || workspace.space?.role === 'OWNER'),
+      ),
+    }))
+    .filter((group) => group.tabs.length > 0),
 )
-const visiblePublicationTabs = computed(() =>
-  publicationTabs.filter((tab) => session.has(spacePagePermissions[tab.path].read)),
-)
-const publicationOpen = ref(false)
-// 直接进入发布子路由时展开所在组，导航仍可由用户手动折叠。
+const openGroups = ref<string[]>([])
+function activeGroup() {
+  return groups.find((group) => group.paths.some((path) => route.path.endsWith(`/${path}`)))
+    ?.label
+}
 watch(
   () => route.path,
   () => {
-    if (publicationTabs.some((tab) => route.path.endsWith(`/${tab.path}`)))
-      publicationOpen.value = true
+    const label = activeGroup()
+    if (label && !openGroups.value.includes(label))
+      openGroups.value = [...openGroups.value, label]
   },
   { immediate: true },
 )
+function toggleGroup(label: string, event: Event) {
+  const open = (event.target as HTMLDetailsElement).open
+  openGroups.value = open
+    ? [...new Set([...openGroups.value, label])]
+    : openGroups.value.filter((item) => item !== label)
+}
 async function logout() {
   if (signingOut.value) return
   signingOut.value = true
@@ -144,22 +187,16 @@ async function logout() {
         >
           空间概览
         </router-link>
-        <router-link
-          v-for="tab in visibleTabs"
-          :key="tab.path"
-          :to="`/spaces/${spaceId}/${tab.path}`"
-          class="nav-item"
-        >
-          {{ tab.label }}
-        </router-link>
         <details
+          v-for="group in visibleGroups"
+          :key="group.label"
           class="nav-group"
-          :open="publicationOpen"
-          @toggle="publicationOpen = ($event.target as HTMLDetailsElement).open"
+          :open="openGroups.includes(group.label)"
+          @toggle="toggleGroup(group.label, $event)"
         >
-          <summary>发布与消费</summary>
+          <summary>{{ group.label }}</summary>
           <router-link
-            v-for="tab in visiblePublicationTabs"
+            v-for="tab in group.tabs"
             :key="tab.path"
             :to="`/spaces/${spaceId}/${tab.path}`"
             class="nav-item"
