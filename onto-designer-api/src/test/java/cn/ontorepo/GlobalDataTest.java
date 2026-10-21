@@ -34,6 +34,8 @@ class GlobalDataTest extends WorkflowFixture {
         assertEquals(2, data.path("sources").size());
         assertTrue(data.path("snapshots").isArray());
         assertEquals(2, data.path("inventory").size());
+        assertTrue(data.path("suggestions").isArray());
+        assertTrue(data.path("imports").isArray());
         for (var item : data.path("sources"))
             assertFalse(item.path("spaceName").asText().isBlank());
     }

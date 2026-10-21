@@ -46,12 +46,32 @@ interface InventoryRow {
   pendingSuggestions: number
   imports: number
 }
+interface SuggestionRow {
+  id: string
+  spaceId: string
+  spaceName: string
+  kind: string
+  status: string
+  confidence: number
+  createdAt?: string
+}
+interface ImportRow {
+  id: string
+  spaceId: string
+  spaceName: string
+  kind: string
+  status: string
+  applied: boolean
+  targetDraftRev: number
+}
 interface GlobalData {
   knowledge: KnowledgeRow[]
   sources: SourceRow[]
   mappings: MappingCountRow[]
   snapshots: SnapshotRow[]
   inventory: InventoryRow[]
+  suggestions: SuggestionRow[]
+  imports: ImportRow[]
 }
 const router = useRouter(),
   api = useSession().api,
@@ -59,7 +79,7 @@ const router = useRouter(),
   spaces = useResource<Space[]>([])
 const spaceId = ref(''),
   keyword = ref(''),
-  tab = ref<'knowledge' | 'sources' | 'mappings' | 'snapshots' | 'inventory'>('knowledge')
+  tab = ref<'knowledge' | 'sources' | 'mappings' | 'snapshots' | 'inventory' | 'suggestions' | 'imports'>('knowledge')
 const spaceNames = computed(
   () => new Map(spaces.data.value.map((space) => [space.id, space.name])),
 )
@@ -104,6 +124,18 @@ function snapshotRows() {
 function inventoryRows() {
   const text = keyword.value.trim().toLocaleLowerCase()
   return (data.data.value?.inventory ?? [])
+    .filter((item) => !spaceId.value || item.spaceId === spaceId.value)
+    .filter((item) => !text || item.spaceName.toLocaleLowerCase().includes(text))
+}
+function suggestionRows() {
+  const text = keyword.value.trim().toLocaleLowerCase()
+  return (data.data.value?.suggestions ?? [])
+    .filter((item) => !spaceId.value || item.spaceId === spaceId.value)
+    .filter((item) => !text || item.spaceName.toLocaleLowerCase().includes(text))
+}
+function importRows() {
+  const text = keyword.value.trim().toLocaleLowerCase()
+  return (data.data.value?.imports ?? [])
     .filter((item) => !spaceId.value || item.spaceId === spaceId.value)
     .filter((item) => !text || item.spaceName.toLocaleLowerCase().includes(text))
 }
@@ -247,6 +279,48 @@ onMounted(load)
                     @click="router.push(`/data?spaceId=${row.spaceId}&tab=suggestions`)"
                   >
                     进入抽取
+                  </el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-tab-pane>
+          <el-tab-pane :label="`抽取候选 ${suggestionRows().length}`" name="suggestions">
+            <el-table :data="suggestionRows()" row-key="id">
+              <el-table-column prop="spaceName" label="所属本体" min-width="200" />
+              <el-table-column prop="kind" label="类型" width="110" />
+              <el-table-column prop="status" label="状态" width="110" />
+              <el-table-column prop="confidence" label="置信度" width="100" />
+              <el-table-column prop="createdAt" label="创建时间" width="190" />
+              <el-table-column label="操作" width="150">
+                <template #default="{ row }">
+                  <el-button
+                    link
+                    type="primary"
+                    @click="router.push(`/data?spaceId=${row.spaceId}&tab=suggestions`)"
+                  >
+                    进入确认队列
+                  </el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-tab-pane>
+          <el-tab-pane :label="`导入记录 ${importRows().length}`" name="imports">
+            <el-table :data="importRows()" row-key="id">
+              <el-table-column prop="spaceName" label="所属本体" min-width="200" />
+              <el-table-column prop="kind" label="格式" width="100" />
+              <el-table-column prop="status" label="状态" width="110" />
+              <el-table-column prop="targetDraftRev" label="目标修订" width="100" />
+              <el-table-column label="已应用" width="90">
+                <template #default="{ row }">{{ row.applied ? '是' : '否' }}</template>
+              </el-table-column>
+              <el-table-column label="操作" width="140">
+                <template #default="{ row }">
+                  <el-button
+                    link
+                    type="primary"
+                    @click="router.push(`/data?spaceId=${row.spaceId}&tab=imports`)"
+                  >
+                    进入导入
                   </el-button>
                 </template>
               </el-table-column>

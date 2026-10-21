@@ -38,6 +38,8 @@ public class GlobalDataService {
         List<Map<String, Object>> mappingCounts = new ArrayList<>();
         List<Map<String, Object>> snapshots = new ArrayList<>();
         List<Map<String, Object>> inventory = new ArrayList<>();
+        List<Map<String, Object>> suggestions = new ArrayList<>();
+        List<Map<String, Object>> imports = new ArrayList<>();
         for (Map<String, Object> space : spaces.list(user)) {
             UUID id = UUID.fromString(space.get("id").toString());
             String name = String.valueOf(space.get("name"));
@@ -80,12 +82,33 @@ public class GlobalDataService {
                             "spaceName", name,
                             "pendingSuggestions", counts.get("pendingSuggestions"),
                             "imports", counts.get("imports")));
+            for (Map<String, Object> row :
+                    db.list(
+                            "SELECT id,kind,status,confidence,source_kind,created_at"
+                                    + " FROM modeling_suggestion WHERE space_id=?"
+                                    + " AND status='PENDING' ORDER BY created_at DESC",
+                            id)) {
+                row.put("spaceId", id.toString());
+                row.put("spaceName", name);
+                suggestions.add(row);
+            }
+            for (Map<String, Object> row :
+                    db.list(
+                            "SELECT id,kind,status,applied,target_draft_rev FROM ont_import"
+                                    + " WHERE space_id=? ORDER BY id DESC",
+                            id)) {
+                row.put("spaceId", id.toString());
+                row.put("spaceName", name);
+                imports.add(row);
+            }
         }
         return Map.of(
                 "sources", sources,
                 "knowledge", entries,
                 "mappings", mappingCounts,
                 "snapshots", snapshots,
-                "inventory", inventory);
+                "inventory", inventory,
+                "suggestions", suggestions,
+                "imports", imports);
     }
 }
