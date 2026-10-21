@@ -67,7 +67,10 @@ export const router = createRouter({
           path: 'spaces/:spaceId/knowledge',
           component: () => import('./features/p2/KnowledgeView.vue'),
         },
-        { path: 'spaces/:spaceId/supply', component: () => import('./features/p2/SupplyView.vue') },
+        {
+          path: 'spaces/:spaceId/supply',
+          redirect: (to) => `/spaces/${String(to.params.spaceId)}/testing?tab=supply`,
+        },
         {
           path: 'spaces/:spaceId/datasources',
           component: () => import('./features/p3/SourcesView.vue'),

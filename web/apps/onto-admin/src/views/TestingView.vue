@@ -4,11 +4,14 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import TestCasesView from '../features/p1/TestCasesView.vue'
 import CandidatesView from './CandidatesView.vue'
+import SupplyView from '../features/p2/SupplyView.vue'
 const route = useRoute(),
   router = useRouter()
-const tab = computed<'cases' | 'candidates'>(() =>
-  route.query.tab === 'candidates' ? 'candidates' : 'cases',
-)
+const tab = computed<'cases' | 'candidates' | 'supply'>(() => {
+  if (route.query.tab === 'candidates') return 'candidates'
+  if (route.query.tab === 'supply') return 'supply'
+  return 'cases'
+})
 function select(name: string | number) {
   void router.replace({ query: { ...route.query, tab: String(name) } })
 }
@@ -18,8 +21,11 @@ function select(name: string | number) {
     <el-tab-pane label="用例与试执行" name="cases">
       <TestCasesView v-if="tab === 'cases'" />
     </el-tab-pane>
-    <el-tab-pane label="候选与供给" name="candidates">
+    <el-tab-pane label="候选与试执行" name="candidates">
       <CandidatesView v-if="tab === 'candidates'" />
+    </el-tab-pane>
+    <el-tab-pane label="候选供给" name="supply">
+      <SupplyView v-if="tab === 'supply'" />
     </el-tab-pane>
   </el-tabs>
 </template>
