@@ -97,6 +97,16 @@ public class DatasourceController {
     }
 
     @RequiresPermission("datasource.read")
+    @GetMapping("/{id}/snapshots/{snapshotId}/verify")
+    public Envelope<Map<String, Object>> verifySnapshot(
+            HttpServletRequest r,
+            @PathVariable UUID id,
+            @PathVariable UUID snapshotId,
+            @RequestParam UUID spaceId) {
+        return Envelope.ok(service.verifySnapshot(t.user(r), spaceId, id, snapshotId));
+    }
+
+    @RequiresPermission("datasource.read")
     @GetMapping("/{id}/snapshots/{snapshotId}")
     public Envelope<Map<String, Object>> snapshot(
             HttpServletRequest r,

@@ -304,7 +304,7 @@ public class DatasourceService {
         spaces.role(u, s);
         owned(s, id);
         return db.list(
-                "SELECT id,sha256,captured_at FROM meta_snapshot WHERE datasource_id=? AND"
+                "SELECT id,sha256,canonical_sha256,captured_at FROM meta_snapshot WHERE datasource_id=? AND"
                         + " space_id=? ORDER BY captured_at DESC,id",
                 id,
                 s);
@@ -314,7 +314,7 @@ public class DatasourceService {
     public Map<String, Object> snapshot(UUID s, Object source, Object snapshot) {
         var rows =
                 db.list(
-                        "SELECT id,datasource_id,sha256,captured_at,resources FROM meta_snapshot"
+                        "SELECT id,datasource_id,sha256,canonical_sha256,captured_at,resources FROM meta_snapshot"
                                 + " WHERE id=? AND datasource_id=? AND space_id=?",
                         Input.uuid(snapshot),
                         Input.uuid(source),
@@ -327,6 +327,39 @@ public class DatasourceService {
     public Map<String, Object> snapshot(UUID u, UUID s, UUID source, UUID snapshot) {
         spaces.role(u, s);
         return snapshot(s, source, snapshot);
+    }
+
+    /** 规范化摘要可复算；旧快照无 canonical 列时明确返回 legacy，不把复算值冒充原始摘要。 */
+    public Map<String, Object> verifySnapshot(UUID u, UUID s, UUID source, UUID snapshot) {
+        spaces.role(u, s);
+        var row = snapshot(s, source, snapshot);
+        String recomputed =
+                AuthService.digest(
+                        canonicalJson(row.get("resources"))
+                                .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        String stored = Objects.toString(row.get("canonicalSha256"), null);
+        var result = new LinkedHashMap<String, Object>();
+        result.put("snapshotId", row.get("id"));
+        result.put("sha256", row.get("sha256"));
+        result.put("canonicalSha256", stored);
+        result.put("recomputedSha256", recomputed);
+        result.put("legacy", stored == null);
+        result.put("matches", stored != null && stored.equals(recomputed));
+        return result;
+    }
+
+    private static String canonicalJson(Object value) {
+        try {
+            var mapper =
+                    new com.fasterxml.jackson.databind.ObjectMapper()
+                            .configure(
+                                    com.fasterxml.jackson.databind.SerializationFeature
+                                            .ORDER_MAP_ENTRIES_BY_KEYS,
+                                    true);
+            return mapper.writeValueAsString(value);
+        } catch (Exception e) {
+            throw Problem.bad("快照内容无法规范化");
+        }
     }
 
     @Transactional
@@ -365,15 +398,21 @@ public class DatasourceService {
                             String sha =
                                     AuthService.digest(
                                             raw.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                            String canonical = canonicalJson(db.read(raw));
+                            String canonicalSha =
+                                    AuthService.digest(
+                                            canonical.getBytes(
+                                                    java.nio.charset.StandardCharsets.UTF_8));
                             UUID snap = UUID.randomUUID();
                             db.update(
                                     "INSERT INTO"
-                                        + " meta_snapshot(id,space_id,datasource_id,sha256,resources)"
-                                        + " VALUES(?,?,?,?,?::jsonb)",
+                                        + " meta_snapshot(id,space_id,datasource_id,sha256,canonical_sha256,resources)"
+                                        + " VALUES(?,?,?,?,?,?::jsonb)",
                                     snap,
                                     s,
                                     id,
                                     sha,
+                                    canonicalSha,
                                     raw);
                             var saved = snapshot(s, id, snap);
                             auditRefs.put("snapshotId", snap.toString());

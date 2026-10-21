@@ -582,6 +582,38 @@ class P3MappingTest extends P3Fixture {
     }
 
     @Test
+    void snapshotCanonicalDigestIsRecomputableAndLegacyIsExplicit() throws Exception {
+        var x = scenario();
+        var path = "/onto/datasources/" + x.source() + "/snapshots/" + x.snapshot() + "/verify";
+        var verified = data(get(path).param("spaceId", x.space()), null);
+        assertTrue(verified.path("matches").asBoolean(), verified.toString());
+        assertFalse(verified.path("legacy").asBoolean());
+        assertEquals(
+                verified.path("canonicalSha256").asText(),
+                verified.path("recomputedSha256").asText());
+        UUID legacySnap = UUID.randomUUID();
+        db.update(
+                "INSERT INTO meta_snapshot(id,space_id,datasource_id,sha256,resources)"
+                        + " VALUES(?,?,?,repeat('a',64),'[]'::jsonb)",
+                legacySnap,
+                UUID.fromString(x.space()),
+                UUID.fromString(x.source()));
+        var legacy =
+                data(
+                        get(
+                                        "/onto/datasources/"
+                                                + x.source()
+                                                + "/snapshots/"
+                                                + legacySnap
+                                                + "/verify")
+                                .param("spaceId", x.space()),
+                        null);
+        assertTrue(legacy.path("legacy").asBoolean());
+        assertFalse(legacy.path("matches").asBoolean());
+        assertFalse(legacy.path("recomputedSha256").asText().isBlank());
+    }
+
+    @Test
     void propertyMappingRejectsIncompatibleSourceTypeAtSave() throws Exception {
         var x = scenario();
         String s = x.space();
