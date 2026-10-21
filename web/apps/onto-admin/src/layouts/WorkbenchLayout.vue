@@ -60,8 +60,7 @@ const tabs = [
   { path: 'operations', label: '模型操作' },
   { path: 'assistant', label: '助手声明' },
   { path: 'knowledge', label: '知识管理' },
-  { path: 'guards', label: '空间守卫' },
-  { path: 'grants', label: '主体授权', ownerOnly: true },
+  { path: 'settings', label: '空间设置', ownerOnly: true },
   { path: 'datasources', label: '数据源管理' },
   { path: 'mappings', label: '三层映射' },
   { path: 'suggestions', label: '三来源建模抽取' },
@@ -103,7 +102,7 @@ const groups = [
   { label: '操作与测试', paths: ['testing', 'executions'] },
   { label: '发布与服务', paths: ['publication', 'releases', 'consumption'] },
   { label: '溯源审计', paths: ['audit'] },
-  { label: '空间设置', paths: ['guards', 'grants'] },
+  { label: '空间设置', paths: ['settings'] },
 ]
 const visibleGroups = computed(() =>
   groups

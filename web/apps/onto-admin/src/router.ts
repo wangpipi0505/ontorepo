@@ -61,8 +61,18 @@ export const router = createRouter({
           path: 'spaces/:spaceId/assistant',
           component: () => import('./features/p2/AssistantView.vue'),
         },
-        { path: 'spaces/:spaceId/guards', component: () => import('./features/p2/GuardsView.vue') },
-        { path: 'spaces/:spaceId/grants', component: () => import('./features/p2/GrantsView.vue') },
+        {
+          path: 'spaces/:spaceId/guards',
+          redirect: (to) => `/spaces/${String(to.params.spaceId)}/settings?tab=guards`,
+        },
+        {
+          path: 'spaces/:spaceId/grants',
+          redirect: (to) => `/spaces/${String(to.params.spaceId)}/settings?tab=members`,
+        },
+        {
+          path: 'spaces/:spaceId/settings',
+          component: () => import('./views/SettingsView.vue'),
+        },
         {
           path: 'spaces/:spaceId/knowledge',
           component: () => import('./features/p2/KnowledgeView.vue'),

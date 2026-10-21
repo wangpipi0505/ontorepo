@@ -11,6 +11,7 @@ export const spacePagePermissions: Record<string, { read: string; write: string 
   assistant: { read: 'operation.read', write: 'operation.write' },
   knowledge: { read: 'knowledge.read', write: 'knowledge.write' },
   guards: { read: 'grant.read', write: 'grant.write' },
+  settings: { read: 'grant.read', write: 'grant.write' },
   grants: { read: 'grant.read', write: 'grant.write' },
   datasources: { read: 'datasource.read', write: 'datasource.write' },
   mappings: { read: 'mapping.read', write: 'mapping.write' },

@@ -10,6 +10,7 @@ const tags: Record<string, string[]> = {
   operations: ['2.1⑤', '2.4②'],
   assistant: ['2.4②'],
   guards: ['2.5②'],
+  settings: ['2.5②'],
   grants: ['2.4③'],
   knowledge: ['2.3①'],
   datasources: ['2.3②', '2.3③'],
