@@ -1,4 +1,4 @@
-# 显式启动验收样例；不在正常业务启动时自动增加监听器。
+﻿# 显式启动验收样例；不在正常业务启动时自动增加监听器。
 . (Join-Path $PSScriptRoot 'Environment.ps1')
 $root = Get-OntoRoot
 if (Get-NetTCPConnection -State Listen -LocalPort 19180 -ErrorAction SilentlyContinue) {

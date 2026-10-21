@@ -1,4 +1,4 @@
-param([string]$JavaHome, [switch]$BackendOnly, [switch]$FrontendOnly)
+﻿param([string]$JavaHome, [switch]$BackendOnly, [switch]$FrontendOnly)
 . (Join-Path $PSScriptRoot 'Environment.ps1')
 if ($BackendOnly -and $FrontendOnly) { throw '不能同时指定 BackendOnly 和 FrontendOnly。' }
 $root = Get-OntoRoot

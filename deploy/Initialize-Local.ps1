@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$PostgresBin,
     [int]$DatabasePort = 15472,
     [string]$Drive = 'O:',

@@ -1,4 +1,4 @@
-# 浏览器自动化的本地辅助：将随机密码写入短生命周期脚本，并屏蔽 CLI 对执行代码的回显。
+﻿# 浏览器自动化的本地辅助：将随机密码写入短生命周期脚本，并屏蔽 CLI 对执行代码的回显。
 # 仅用于已经由 playwright-cli 打开的 onto-p1 会话，不向版本库保存密码或令牌。
 . (Join-Path $PSScriptRoot 'Environment.ps1')
 $root = Get-OntoRoot

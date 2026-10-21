@@ -1,4 +1,4 @@
-# 复用本工程已经验证过的依赖classpath；不运行并发Maven、不修改共享target。
+﻿# 复用本工程已经验证过的依赖classpath；不运行并发Maven、不修改共享target。
 . (Join-Path $PSScriptRoot 'Environment.ps1')
 $root = Get-OntoRoot
 $config = Import-OntoEnvironment

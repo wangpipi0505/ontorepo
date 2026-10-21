@@ -1,4 +1,4 @@
-. (Join-Path $PSScriptRoot 'Environment.ps1')
+﻿. (Join-Path $PSScriptRoot 'Environment.ps1')
 $recordPath = Join-Path (Get-OntoRoot) '.runtime/sample-http-process.json'
 if (Test-Path -LiteralPath $recordPath) {
     $record = Get-Content -LiteralPath $recordPath -Raw -Encoding UTF8 | ConvertFrom-Json

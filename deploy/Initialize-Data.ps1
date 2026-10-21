@@ -1,4 +1,4 @@
-. (Join-Path $PSScriptRoot 'Environment.ps1')
+﻿. (Join-Path $PSScriptRoot 'Environment.ps1')
 $root = Get-OntoRoot
 $configPath = Join-Path $root '.runtime/local-env.json'
 $config = Import-OntoEnvironment

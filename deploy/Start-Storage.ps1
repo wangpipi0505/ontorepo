@@ -1,4 +1,4 @@
-param([string]$MinioExecutable)
+﻿param([string]$MinioExecutable)
 . (Join-Path $PSScriptRoot 'Environment.ps1')
 $root = Get-OntoRoot
 $config = Import-OntoEnvironment

@@ -1,4 +1,4 @@
-param([switch]$WithDatabase)
+﻿param([switch]$WithDatabase)
 . (Join-Path $PSScriptRoot 'Environment.ps1')
 $root = Get-OntoRoot
 $processFile = Join-Path $root '.runtime/processes.json'

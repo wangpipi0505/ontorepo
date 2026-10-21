@@ -1,4 +1,4 @@
-# 公共环境函数只修改当前 PowerShell 进程，不修改机器级 PATH、已有服务或相邻工程配置。
+﻿# 公共环境函数只修改当前 PowerShell 进程，不修改机器级 PATH、已有服务或相邻工程配置。
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
@@ -8,7 +8,10 @@ function Get-OntoRoot {
 
 function Invoke-OntoCommand {
     param([string]$Executable, [string[]]$Arguments)
-    & $Executable @Arguments
+    # Windows PowerShell 5.1 会把原生命令的 stderr 记为错误；统一先放行，再按退出码判定失败。
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { & $Executable @Arguments } finally { $ErrorActionPreference = $previous }
     if ($LASTEXITCODE -ne 0) {
         throw "命令执行失败（退出码 $LASTEXITCODE）：$Executable"
     }
@@ -65,7 +68,11 @@ function Set-OntoJava {
     }
     $env:JAVA_HOME = $JavaHome
     $env:Path = (Join-Path $JavaHome 'bin') + [IO.Path]::PathSeparator + $env:Path
-    $version = & (Join-Path $JavaHome 'bin/java.exe') -version 2>&1 | Out-String
+    # java -version 走 stderr；5.1 下不能按 Stop 处理，否则版本探测会被误判为失败。
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { $version = & (Join-Path $JavaHome 'bin/java.exe') -version 2>&1 | Out-String }
+    finally { $ErrorActionPreference = $previous }
     if ($version -notmatch 'version "21\.') { throw '本工程要求 JDK 21。' }
 }
 

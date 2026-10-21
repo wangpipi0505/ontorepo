@@ -1,4 +1,4 @@
-# 使用本工程已解析的测试依赖生成样例，不启动Maven、不写共享target。
+﻿# 使用本工程已解析的测试依赖生成样例，不启动Maven、不写共享target。
 . (Join-Path $PSScriptRoot 'Environment.ps1')
 $projectRoot = Get-OntoRoot
 $config = Import-OntoEnvironment

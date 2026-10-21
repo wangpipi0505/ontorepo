@@ -1,4 +1,4 @@
-. (Join-Path $PSScriptRoot 'Environment.ps1')
+﻿. (Join-Path $PSScriptRoot 'Environment.ps1')
 $root = Get-OntoRoot
 $config = Import-OntoEnvironment
 $env:PGPASSWORD = $config.ONTO_DB_PASSWORD

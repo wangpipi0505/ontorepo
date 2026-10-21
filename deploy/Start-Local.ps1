@@ -1,4 +1,4 @@
-param([string]$JavaHome, [switch]$Build)
+﻿param([string]$JavaHome, [switch]$Build)
 . (Join-Path $PSScriptRoot 'Environment.ps1')
 $root = Get-OntoRoot
 $config = Import-OntoEnvironment

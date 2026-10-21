@@ -1,4 +1,4 @@
-. (Join-Path $PSScriptRoot 'Environment.ps1')
+﻿. (Join-Path $PSScriptRoot 'Environment.ps1')
 $recordPath = Join-Path (Get-OntoRoot) '.runtime/storage-process.json'
 if (-not (Test-Path -LiteralPath $recordPath)) { Write-Output '本工程没有对象存储进程记录。'; return }
 $record = Get-Content -LiteralPath $recordPath -Raw | ConvertFrom-Json
