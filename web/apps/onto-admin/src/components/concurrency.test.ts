@@ -60,7 +60,7 @@ const option = defineComponent({
 })
 const global = {
   plugins: [ElementPlus],
-  stubs: { teleport: true, ElSelect: select, ElOption: option },
+  stubs: { teleport: true, ElSelect: select, ElOption: option, OntoGraph: true },
 }
 function waiting<T>() {
   let resolve!: (value: T) => void
@@ -166,6 +166,8 @@ describe('全量审查：迟到保存与各实体独立修订', () => {
       )
       const wrapper = mount(ModelView, { global })
       wrappers.push(wrapper)
+      await flushPromises()
+      await wrapper.findAll('.el-radio-button input')[1]!.setValue(true)
       await flushPromises()
       await wrapper.get('.el-tree-node__content').trigger('click')
       await flushPromises()

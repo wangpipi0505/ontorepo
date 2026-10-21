@@ -43,7 +43,7 @@ const selectedId = ref(''),
   loadedRev = ref<number>()
 const tree = computed(() => buildTree(classes.data.value)),
   selected = computed(() => classes.data.value.find((item) => item.id === selectedId.value))
-const viewMode = ref<'graph' | 'tree'>('tree'),
+const viewMode = ref<'graph' | 'tree'>('graph'),
   graphKey = ref(0),
   relationOpen = ref(false),
   relationForm = reactive({
