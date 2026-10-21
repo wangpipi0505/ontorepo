@@ -143,6 +143,39 @@ async function remove(item: OntProperty) {
     if (!isCurrent()) return
     workspace.accept(next)
     await load()
+    const payload = {
+      name: item.name,
+      rangeType: item.rangeType,
+      required: item.required,
+      description: item.description,
+      facets: item.facets,
+    }
+    const beforeIds = new Set(properties.data.value.map((entry) => entry.id))
+    let deletedId = item.id
+    const findCreated = async () => {
+      const rows = await api.get<OntProperty[]>(
+        `/properties?spaceId=${space.id}&classId=${props.item.id}`,
+      )
+      return rows.find((entry) => !beforeIds.has(entry.id) && entry.name === payload.name)?.id
+    }
+    emit('command', {
+      label: `删除属性“${item.name}”`,
+      undo: async (rev) => {
+        const restored = await api.post<Space>('/properties', {
+          ...payload,
+          spaceId: space.id,
+          domainClassId: props.item.id,
+          expectedDraftRev: rev,
+        })
+        const id = await findCreated()
+        if (id) deletedId = id
+        return restored
+      },
+      redo: (rev) =>
+        api.delete<Space>(
+          `/properties/${deletedId}?spaceId=${space.id}&expectedDraftRev=${rev}`,
+        ),
+    })
   })
 }
 </script>
