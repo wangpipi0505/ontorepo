@@ -190,6 +190,56 @@ async function saveRelation() {
     }
   }
 }
+/** 删除关系后保留重建命令；重建会生成新 id，重做时删除新 id。 */
+async function removeRelation(item: Relation) {
+  const space = workspace.space
+  if (!space || !workspace.canWrite || loadedRev.value === undefined) return
+  if (!(await confirmAction(`删除关系“${item.name}”？删除后可撤销。`))) return
+  const expectedDraftRev = loadedRev.value
+  await mutation.run(async ({ isCurrent }) => {
+    const next = await api.delete<Space>(
+      `/relations/${item.id}?spaceId=${space.id}&expectedDraftRev=${expectedDraftRev}`,
+    )
+    if (!isCurrent()) return
+    workspace.accept(next)
+    await load()
+    const payload = {
+      name: item.name,
+      fromClassId: item.fromClassId,
+      toClassId: item.toClassId,
+      cardinality: item.cardinality,
+    }
+    const beforeIds = new Set(relations.data.value.map((entry) => entry.id))
+    let deletedId = item.id
+    const findCreated = async () => {
+      const rows = await api.get<Relation[]>(`/relations?spaceId=${space.id}`)
+      return rows.find(
+        (entry) =>
+          !beforeIds.has(entry.id) &&
+          entry.name === payload.name &&
+          entry.fromClassId === payload.fromClassId &&
+          entry.toClassId === payload.toClassId,
+      )?.id
+    }
+    pushCommand(
+      `删除关系“${item.name}”`,
+      async (rev) => {
+        const restored = await api.post<Space>('/relations', {
+          ...payload,
+          spaceId: space.id,
+          expectedDraftRev: rev,
+        })
+        const id = await findCreated()
+        if (id) deletedId = id
+        return restored
+      },
+      (rev) =>
+        api.delete<Space>(
+          `/relations/${deletedId}?spaceId=${space.id}&expectedDraftRev=${rev}`,
+        ),
+    )
+  })
+}
 async function load() {
   const id = workspace.space?.id
   if (!id) return
@@ -326,7 +376,7 @@ async function classSaved() {
   if (!item || !space || !workspace.canWrite || loadedRev.value === undefined) return
   const expectedDraftRev = loadedRev.value,
     context = workspace.captureContext()
-  if (await confirmAction(`删除对象“${item.name}”？存在子对象或属性时服务端会拒绝删除。`)) {
+  if (await confirmAction(`删除对象“${item.name}”？存在子对象或属性时服务端会拒绝删除；删除后可撤销。`)) {
     if (!workspace.isCurrentContext(context)) return
     await mutation.run(async ({ isCurrent }) => {
       const next = await api.delete<Space>(
@@ -335,6 +385,40 @@ async function classSaved() {
       if (!isCurrent()) return
       workspace.accept(next)
       await load()
+      const payload = {
+        name: item.name,
+        parentId: item.parentId,
+        description: item.description,
+        deprecated: item.deprecated,
+      }
+      const beforeIds = new Set(classes.data.value.map((entry) => entry.id))
+      let deletedId = item.id
+      const findCreated = async () => {
+        const rows = await api.get<OntClass[]>(`/classes?spaceId=${space.id}`)
+        return rows.find(
+          (entry) =>
+            !beforeIds.has(entry.id) &&
+            entry.name === payload.name &&
+            entry.parentId === payload.parentId,
+        )?.id
+      }
+      pushCommand(
+        `删除对象“${item.name}”`,
+        async (rev) => {
+          const restored = await api.post<Space>('/classes', {
+            ...payload,
+            spaceId: space.id,
+            expectedDraftRev: rev,
+          })
+          const id = await findCreated()
+          if (id) deletedId = id
+          return restored
+        },
+        (rev) =>
+          api.delete<Space>(
+            `/classes/${deletedId}?spaceId=${space.id}&expectedDraftRev=${rev}`,
+          ),
+      )
     })
   }
 }
@@ -352,17 +436,36 @@ async function dropped(drag: Node, target: Node) {
   const item = classes.data.value.find((entry) => entry.id === drag.data.id),
     space = workspace.space
   if (!item || !space || !workspace.canWrite || loadedRev.value === undefined) return
-  const expectedDraftRev = loadedRev.value
+  const expectedDraftRev = loadedRev.value,
+    before = { ...item },
+    parentId = String(target.data.id)
   await mutation.run(async ({ isCurrent }) => {
     const next = await api.put<Space>(`/classes/${item.id}`, {
       ...item,
-      parentId: String(target.data.id),
+      parentId,
       expectedDraftRev,
     })
     if (!isCurrent()) return
     workspace.accept(next)
     await load()
   })
+  if (!mutation.error.value)
+    pushCommand(
+      `调整对象“${item.name}”父级`,
+      (rev) =>
+        api.put<Space>(`/classes/${item.id}`, {
+          ...before,
+          spaceId: space.id,
+          expectedDraftRev: rev,
+        }),
+      (rev) =>
+        api.put<Space>(`/classes/${item.id}`, {
+          ...before,
+          parentId,
+          spaceId: space.id,
+          expectedDraftRev: rev,
+        }),
+    )
   if (mutation.error.value) await load()
 }
 function select(node: ClassNode) {
@@ -522,7 +625,18 @@ onBeforeUnmount(() => window.removeEventListener('resize', fitCanvas))
           <el-tab-pane :label="`关系 ${selectedRelations.length}`" name="relations">
             <p v-if="!selectedRelations.length" class="muted">该对象暂无关系。</p>
             <article v-for="item in selectedRelations" :key="item.id" class="record">
-              <b>{{ item.name }}</b>
+              <div class="row spread">
+                <b>{{ item.name }}</b>
+                <el-button
+                  v-if="workspace.canWrite"
+                  link
+                  type="danger"
+                  :disabled="mutation.pending.value"
+                  @click="removeRelation(item)"
+                >
+                  删除
+                </el-button>
+              </div>
               <p class="muted">
                 {{ classLabel(item.fromClassId) }} → {{ classLabel(item.toClassId) }} ·
                 {{ item.cardinality }}
