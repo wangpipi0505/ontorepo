@@ -4367,10 +4367,64 @@
         }
       }
     },
+    "/onto/global/trace" : {
+      "get" : {
+        "tags" : [ "global-module-controller" ],
+        "operationId" : "trace",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/EnvelopeMapStringObject"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/onto/global/delivery" : {
+      "get" : {
+        "tags" : [ "global-module-controller" ],
+        "operationId" : "delivery",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/EnvelopeMapStringObject"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/onto/global/data" : {
+      "get" : {
+        "tags" : [ "global-data-controller" ],
+        "operationId" : "data",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/EnvelopeMapStringObject"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/onto/executions/{id}/trace" : {
       "get" : {
         "tags" : [ "release-controller" ],
-        "operationId" : "trace",
+        "operationId" : "trace_1",
         "parameters" : [ {
           "name" : "id",
           "in" : "path",
