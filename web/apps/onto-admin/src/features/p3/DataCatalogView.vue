@@ -1,17 +1,80 @@
 <script setup lang="ts">
 /** 数据目录为服务端同空间读取视图，映射计数与关联不由客户端猜测。 */
-import { onMounted } from 'vue'
-import type { DataCatalog } from '@onto/api-client'
+import { computed, onMounted, reactive, ref } from 'vue'
+import type {
+  DataCatalog,
+  MappingCollection,
+  OntProperty,
+  Space,
+} from '@onto/api-client'
 import { useSession } from '../../stores/session'
 import { useWorkspace } from '../../stores/workspace'
 import { useResource } from '../../composables/useResource'
+import { useMutation } from '../../composables/useMutation'
 import AsyncState from '@onto/shared-ui/AsyncState.vue'
 const api = useSession().api,
   workspace = useWorkspace(),
-  catalog = useResource<DataCatalog | null>(null)
+  catalog = useResource<DataCatalog | null>(null),
+  mappings = useResource<MappingCollection | null>(null),
+  properties = useResource<OntProperty[]>([]),
+  mappingMutation = useMutation()
+const mappingOpen = ref(false),
+  mappingField = reactive({ datasourceId: '', resource: '', field: '', type: '' }),
+  mappingForm = reactive({ objectMappingId: '', targetPropertyId: '' })
+const candidateObjects = computed(
+  () =>
+    mappings.data.value?.objects.filter(
+      (item) =>
+        item.datasourceId === mappingField.datasourceId &&
+        item.sourceResource === mappingField.resource,
+    ) ?? [],
+)
+const selectedObject = computed(() =>
+  candidateObjects.value.find((item) => item.id === mappingForm.objectMappingId),
+)
+const candidateProperties = computed(() =>
+  properties.data.value.filter(
+    (item) => item.domainClassId === selectedObject.value?.targetClassId,
+  ),
+)
+function openMapping(datasourceId: string, resource: string, field: string, type: string) {
+  if (!workspace.canWrite) return
+  mappingField.datasourceId = datasourceId
+  mappingField.resource = resource
+  mappingField.field = field
+  mappingField.type = type
+  mappingForm.objectMappingId = candidateObjects.value[0]?.id ?? ''
+  mappingForm.targetPropertyId = ''
+  mappingMutation.error.value = ''
+  mappingOpen.value = true
+}
+async function saveMapping() {
+  const space = workspace.space
+  if (!space || !workspace.canWrite || !mappingForm.objectMappingId || !mappingForm.targetPropertyId)
+    return
+  await mappingMutation.run(async ({ isCurrent }) => {
+    const next = await api.post<Space>('/mappings/properties', {
+      spaceId: space.id,
+      expectedDraftRev: space.draftRev,
+      objectMappingId: mappingForm.objectMappingId,
+      sourceField: mappingField.field,
+      targetPropertyId: mappingForm.targetPropertyId,
+      transform: { kind: 'IDENTITY' },
+      required: false,
+    })
+    if (isCurrent()) workspace.accept(next)
+  })
+  if (!mappingMutation.error.value) {
+    mappingOpen.value = false
+    await load()
+  }
+}
 async function load() {
   const id = workspace.space?.id
-  if (id) await catalog.load(() => api.get<DataCatalog>(`/data-catalog?spaceId=${id}`))
+  if (!id) return
+  await catalog.load(() => api.get<DataCatalog>(`/data-catalog?spaceId=${id}`))
+  await mappings.load(() => api.get<MappingCollection>(`/mappings?spaceId=${id}`))
+  await properties.load(() => api.get<OntProperty[]>(`/spaces/${id}/properties`))
 }
 onMounted(load)
 </script>
@@ -52,6 +115,18 @@ onMounted(load)
                         <span v-else class="muted">未绑定</span>
                       </template>
                     </el-table-column>
+                    <el-table-column label="操作" width="120">
+                      <template #default="{ row: field }">
+                        <el-button
+                          v-if="workspace.canWrite"
+                          link
+                          type="primary"
+                          @click="openMapping(row.id, resource.name, field.name, field.type)"
+                        >
+                          新建映射
+                        </el-button>
+                      </template>
+                    </el-table-column>
                   </el-table>
                 </section>
               </div>
@@ -88,6 +163,55 @@ onMounted(load)
       </section>
     </div>
   </AsyncState>
+  <el-dialog v-model="mappingOpen" title="从字段新建属性映射" width="560px">
+    <p class="muted">
+      来源字段：{{ mappingField.resource }}.{{ mappingField.field }}
+      · {{ mappingField.type }}
+    </p>
+    <el-form label-position="top">
+      <el-form-item label="对象映射" required>
+        <el-select v-model="mappingForm.objectMappingId" style="width: 100%">
+          <el-option
+            v-for="item in candidateObjects"
+            :key="item.id"
+            :value="item.id"
+            :label="`${item.sourceResource} → ${item.targetClassId}`"
+          />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="目标属性" required>
+        <el-select
+          v-model="mappingForm.targetPropertyId"
+          style="width: 100%"
+          :disabled="!selectedObject"
+        >
+          <el-option
+            v-for="item in candidateProperties"
+            :key="item.id"
+            :value="item.id"
+            :label="item.displayName || item.name"
+          />
+        </el-select>
+      </el-form-item>
+      <p v-if="!candidateObjects.length" class="muted">
+        该资源尚无对象映射，请先在"三层映射"建立对象映射。
+      </p>
+      <p v-if="mappingMutation.error.value" class="error-text" role="alert">
+        {{ mappingMutation.error.value }}
+      </p>
+    </el-form>
+    <template #footer>
+      <el-button @click="mappingOpen = false">取消</el-button>
+      <el-button
+        type="primary"
+        :loading="mappingMutation.pending.value"
+        :disabled="!mappingForm.objectMappingId || !mappingForm.targetPropertyId"
+        @click="saveMapping"
+      >
+        保存属性映射
+      </el-button>
+    </template>
+  </el-dialog>
 </template>
 <style scoped>
 .resource-list {
