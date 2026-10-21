@@ -1,0 +1,50 @@
+{
+  "checkedAt": "2026-10-20T18:17:36.211Z",
+  "spaceId": "7249675c-670b-4b9f-8856-169b8bd8e309",
+  "draftScopeNarrowingPreserved": true,
+  "persistedExecutionEvidence": true,
+  "checks": [
+    {
+      "kind": "RELATIONAL",
+      "dialect": "postgresql",
+      "candidateId": "7faa12d2-d9c4-45d4-987e-45bb2b95947e",
+      "executionId": "4cc4a52a-1707-4a9f-b599-c3ded8d9fe82",
+      "status": "PASSED"
+    },
+    {
+      "kind": "FILE",
+      "dialect": "csv",
+      "candidateId": "baf5df37-36c0-4e61-80a0-d10553aac5eb",
+      "executionId": "7bde03eb-1449-401a-aac3-4090e57a087d",
+      "status": "PASSED"
+    },
+    {
+      "kind": "FILE",
+      "dialect": "json",
+      "candidateId": "1e7ec904-6633-4bec-bf01-c8da210bfabd",
+      "executionId": "62c1539a-a005-484c-a24c-233cfb7db0a1",
+      "status": "PASSED"
+    },
+    {
+      "kind": "FILE",
+      "dialect": "excel",
+      "candidateId": "cc300124-9411-48aa-be1a-332b51eca127",
+      "executionId": "7889e583-23eb-4c63-8607-a978991f127e",
+      "status": "PASSED"
+    },
+    {
+      "kind": "HTTP",
+      "dialect": "json",
+      "candidateId": "32d62ba6-b8ef-48bf-88e4-b7938fddb85a",
+      "executionId": "d6925d71-cd74-460d-8ab4-f1d2f5efe93b",
+      "status": "PASSED"
+    },
+    {
+      "kind": "LAKE",
+      "dialect": "s3-parquet",
+      "candidateId": "9edd1512-a07d-441c-b292-871063946f97",
+      "executionId": "1d495f57-2e55-4c6c-bac9-6e1a3fe0dcb4",
+      "status": "PASSED"
+    }
+  ]
+}

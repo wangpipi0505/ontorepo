@@ -1,0 +1,2898 @@
+FILE: web/apps/onto-admin/src/features/p2\useDraftDocument.ts
+import { useSession } from '../../stores/session'
+import { useWorkspace } from '../../stores/workspace'
+import { useResource } from '../../composables/useResource'
+import { useDraftRevision } from '../../composables/useDraftRevision'
+import { readDraftSnapshot } from '../../composables/readDraftSnapshot'
+import { useMutation, notifySaved } from '../../composables/useMutation'
+import type { Space } from '@onto/api-client'
+
+/** 单文档编辑的修订基线来自完整一致性读取；409 后不自动重读或替换用户输入。 */
+export function useDraftDocument<T>(read: (spaceId: string) => Promise<T>) {
+  const api = useSession().api,
+    workspace = useWorkspace()
+  const resource = useResource<{ items: T; space: Space } | null>(null)
+  const draft = useDraftRevision(),
+    mutation = useMutation()
+  async function load() {
+    const id = workspace.space?.id
+    if (!id) return
+    const result = await resource.load(() => readDraftSnapshot(api, id, () => read(id)))
+    if (result) {
+      draft.start(result.space.draftRev)
+      workspace.refreshed(result.space)
+      mutation.error.value = ''
+    }
+    return result
+  }
+  async function save(write: (expectedDraftRev: number) => Promise<Space>) {
+    if (!resource.data.value || !workspace.canWrite || draft.stale.value) return false
+    const ok = await mutation.run(() =>
+      draft.submit(async (rev) => workspace.accept(await write(rev))),
+    )
+    if (ok) notifySaved()
+    return ok
+  }
+  return { api, workspace, resource, draft, mutation, load, save }
+}
+
+FILE: web/apps/onto-admin/src/features/p2\transport.test.ts
+import { describe, expect, it, vi } from 'vitest'
+import { ApiClient } from '@onto/api-client'
+describe('候选内部调用信封', () => {
+  it('消费协议成功信封允许只有code/data/meta', async () => {
+    const api = new ApiClient(
+      () => null,
+      () => {},
+      async () =>
+        new Response(JSON.stringify({ code: 'OK', data: { rows: [] }, meta: { preview: true } })),
+    )
+    expect(await api.post('/internal/candidates/c/ops/query', {})).toEqual({ rows: [] })
+  })
+  it('保留真实业务结果和 preview 元数据，普通请求仍只返回 data', async () => {
+    const value = {
+      code: 'OK',
+      message: '',
+      data: { columns: ['name'], rows: [{ name: '设备' }] },
+      meta: {
+        spaceCode: 'demo',
+        releaseId: null,
+        version: null,
+        contentDigest: 'sha',
+        preview: true,
+      },
+    }
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async () => new Response(JSON.stringify(value), { status: 200 }))
+    const api = new ApiClient(
+      () => 'memory-token',
+      () => {},
+      fetcher,
+    )
+    expect('requestEnvelope' in api, '内部调用需保留候选元数据').toBe(true)
+    const transport = api as ApiClient & {
+      requestEnvelope<T>(
+        path: string,
+        method: string,
+        body: unknown,
+      ): Promise<{ data: T; meta?: unknown }>
+    }
+    const result = await transport.requestEnvelope('/internal/candidates/c/ops/query', 'POST', {
+      limit: 3,
+    })
+    expect(result).toEqual(value)
+    expect(await api.get('/ordinary')).toEqual(value.data)
+    expect(fetcher.mock.calls[0]?.[1]?.body).toBe('{"limit":3}')
+  })
+})
+
+FILE: web/apps/onto-admin/src/features/p2\SupplyView.vue
+<script setup lang="ts">
+/** 供给页独立于 P1 冻结/试执行页；切换候选销毁旧面板，避免异步结果串候选。 */
+import { computed, onMounted, ref } from 'vue'
+import type { Candidate } from '@onto/api-client'
+import { useWorkspace } from '../../stores/workspace'
+import { useSession } from '../../stores/session'
+import { useResource } from '../../composables/useResource'
+import AsyncState from '@onto/shared-ui/AsyncState.vue'
+import CandidateSupplyPanel from './CandidateSupplyPanel.vue'
+import InternalCallPanel from './InternalCallPanel.vue'
+const workspace = useWorkspace(),
+  api = useSession().api,
+  candidates = useResource<Candidate[]>([])
+const id = ref(''),
+  selected = computed(() => candidates.data.value.find((item) => item.id === id.value))
+async function load() {
+  const spaceId = workspace.space?.id
+  if (!spaceId) return
+  await candidates.load(() => api.get<Candidate[]>(`/spaces/${spaceId}/candidates`))
+  if (!selected.value) id.value = candidates.data.value[0]?.id || ''
+}
+onMounted(load)
+</script>
+<template>
+  <div class="page-heading">
+    <div>
+      <h1>候选供给</h1>
+      <p class="muted">查看冻结契约与知识包，并验证内部候选调用。</p>
+    </div>
+    <el-button @click="load">刷新候选</el-button>
+  </div>
+  <AsyncState
+    :loading="candidates.loading.value"
+    :error="candidates.error.value"
+    :empty="!candidates.data.value.length"
+    empty-text="暂无候选。先在候选与试执行页冻结当前草稿。"
+    @retry="load"
+  >
+    <div class="stack">
+      <section class="panel">
+        <el-form label-position="top">
+          <el-form-item label="冻结候选">
+            <el-select v-model="id">
+              <el-option
+                v-for="candidate in candidates.data.value"
+                :key="candidate.id"
+                :value="candidate.id"
+                :label="`草稿 r${candidate.draftRev} · ${candidate.sha256.slice(0, 16)}`"
+              />
+            </el-select>
+          </el-form-item>
+        </el-form>
+        <p class="muted">
+          旧格式候选保留原始字节，仅支持原有模型演示；不能取得 CONTRACT 资格或供内部服务消费。
+        </p>
+      </section>
+      <template v-if="selected">
+        <CandidateSupplyPanel :key="`${selected.id}-supply`" :candidate="selected" />
+        <InternalCallPanel :key="`${selected.id}-call`" :candidate="selected" />
+      </template>
+    </div>
+  </AsyncState>
+</template>
+
+FILE: web/apps/onto-admin/src/features/p2\supply.test.ts
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
+import { defineComponent, h, type Component } from 'vue'
+import ElementPlus from 'element-plus'
+import { routeLocationKey } from 'vue-router'
+import { ApiError, type Space, type Candidate } from '@onto/api-client'
+import { useSession } from '../../stores/session'
+import { useWorkspace } from '../../stores/workspace'
+import TestCasesView from '../p1/TestCasesView.vue'
+import { router } from '../../router'
+
+// 页面使用真实表单与输入；只隔离 jsdom 不支持的浮层定位。
+const select = defineComponent({
+  props: { modelValue: [String, Array], multiple: Boolean, disabled: Boolean },
+  emits: ['update:modelValue'],
+  setup(props, { emit, slots }) {
+    return () =>
+      h(
+        'select',
+        {
+          value: props.modelValue,
+          multiple: props.multiple,
+          disabled: props.disabled,
+          onChange: (event: Event) => {
+            const input = event.target as HTMLSelectElement
+            emit(
+              'update:modelValue',
+              props.multiple
+                ? Array.from(input.selectedOptions, (item) => item.value)
+                : input.value,
+            )
+          },
+        },
+        slots.default?.(),
+      )
+  },
+})
+const option = defineComponent({
+  props: { value: String, label: String },
+  setup: (props) => () => h('option', { value: props.value }, props.label),
+})
+const global = {
+  plugins: [ElementPlus],
+  provide: { [routeLocationKey as symbol]: { query: {} } },
+  stubs: { teleport: true, ElSelect: select, ElOption: option },
+}
+const modules = import.meta.glob<{ default: Component }>('./*.vue')
+const space = { id: 's', role: 'OWNER', status: 'ACTIVE', draftRev: 5 } as Space
+const candidate = {
+  id: 'c',
+  draftRev: 5,
+  sha256: 'frozen-sha',
+  createdAt: '2026-10-20T00:00:00Z',
+} as Candidate
+let wrappers: VueWrapper[] = []
+async function page(name: string, props = {}) {
+  const load = modules[`./${name}.vue`]
+  expect(load, `${name} 应提供独立业务界面`).toBeDefined()
+  const component = (await load!()).default
+  const wrapper = mount(component, { global, props, attachTo: document.body })
+  wrappers.push(wrapper)
+  await flushPromises()
+  return wrapper
+}
+function button(wrapper: VueWrapper, text: string) {
+  const result = wrapper.findAll('button').find((item) => item.text() === text)
+  expect(result, `应显示操作：${text}`).toBeDefined()
+  return result!
+}
+function field(wrapper: VueWrapper, label: string) {
+  const item = wrapper.findAll('.el-form-item').find((item) => {
+    const title = item.find('.el-form-item__label')
+    return title.exists() && title.text() === label
+  })
+  expect(item, `应提供字段：${label}`).toBeDefined()
+  return item!
+}
+beforeEach(() => {
+  setActivePinia(createPinia())
+  useWorkspace().space = { ...space }
+  vi.spyOn(useSession().api, 'get').mockImplementation(async <T>(path: string): Promise<T> => {
+    const value: unknown =
+      path === '/spaces/s'
+        ? space
+        : path.startsWith('/operations?')
+          ? [{ id: 'o', code: 'query', name: '对象查询' }]
+          : path === '/operations/o/assistant?spaceId=s'
+            ? { operationId: 'o', inputSchema: null, outputSchema: null, assistantTool: null }
+            : path === '/spaces/s/guards'
+              ? { guardCfg: {} }
+              : path === '/spaces/s/grants'
+                ? [
+                    {
+                      userId: 'u',
+                      username: 'editor',
+                      displayName: '编辑者',
+                      role: 'EDITOR',
+                      dataScope: null,
+                      attributes: {},
+                    },
+                  ]
+                : path === '/spaces/s/grant-users'
+                  ? [
+                      { userId: 'u', username: 'editor', displayName: '编辑者' },
+                      { userId: 'new', username: 'new', displayName: '新用户' },
+                    ]
+                  : path.startsWith('/classes?')
+                    ? [{ id: 'a', spaceId: 's', name: '设备' }]
+                    : []
+    return value as T
+  })
+})
+afterEach(() => {
+  wrappers.forEach((wrapper) => wrapper.unmount())
+  wrappers = []
+  document.body.innerHTML = ''
+  vi.restoreAllMocks()
+})
+
+describe('P2 助手声明与草稿并发', () => {
+  it('独立供给功能具备可直接访问的工作台路由', () => {
+    const paths = router.getRoutes().map((route) => route.path)
+    for (const path of ['assistant', 'guards', 'grants', 'knowledge', 'supply'])
+      expect(paths).toContain(`/spaces/:spaceId/${path}`)
+  })
+  it('独立表单提交原协议字段，保留参数示例和 Schema 默认值 JSON 类型', async () => {
+    const write = vi.spyOn(useSession().api, 'put').mockResolvedValue({ ...space, draftRev: 6 })
+    const wrapper = await page('AssistantView')
+    await field(wrapper, '草稿操作').get('select').setValue('o')
+    await flushPromises()
+    await field(wrapper, '助手名称').get('input').setValue('设备查询')
+    await field(wrapper, '输入 Schema')
+      .get('textarea')
+      .setValue('{"type":"object","properties":{"active":{"type":"boolean","default":false}}}')
+    await field(wrapper, '参数示例（JSON 数组）')
+      .get('textarea')
+      .setValue('[{"active":false,"limit":3,"ids":["a","b"]}]')
+    await field(wrapper, '必需守卫属性').get('textarea').setValue('region\ntenant_label')
+    useWorkspace().space = { ...space, draftRev: 99 }
+    await wrapper.get('form[data-editor=assistant]').trigger('submit')
+    await flushPromises()
+    expect(write).toHaveBeenCalledWith(
+      '/operations/o/assistant',
+      expect.objectContaining({
+        spaceId: 's',
+        expectedDraftRev: 5,
+        inputSchema: {
+          type: 'object',
+          properties: { active: { type: 'boolean', default: false } },
+        },
+        assistantTool: expect.objectContaining({
+          name: '设备查询',
+          guard_attrs: ['region', 'tenant_label'],
+          param_examples: [{ active: false, limit: 3, ids: ['a', 'b'] }],
+          risk_level: 'READ_ONLY',
+          exec: { readonly: true, side_effect: false, idempotent: true, cancellable: true },
+        }),
+      }),
+    )
+  })
+  it('参数示例格式错误定位字段；409保留输入并禁止借新修订再次保存', async () => {
+    const write = vi
+      .spyOn(useSession().api, 'put')
+      .mockRejectedValue(new ApiError('DRAFT_REV_CONFLICT', '草稿已变化', 409))
+    const wrapper = await page('AssistantView')
+    await field(wrapper, '草稿操作').get('select').setValue('o')
+    await flushPromises()
+    await field(wrapper, '助手名称').get('input').setValue('保留我的声明')
+    await field(wrapper, '参数示例（JSON 数组）').get('textarea').setValue('{}')
+    await wrapper.get('form[data-editor=assistant]').trigger('submit')
+    expect(write).not.toHaveBeenCalled()
+    await vi.waitFor(() =>
+      expect(field(wrapper, '参数示例（JSON 数组）').get('.el-form-item__error').text()).toContain(
+        'JSON 数组',
+      ),
+    )
+    await field(wrapper, '参数示例（JSON 数组）').get('textarea').setValue('[{}]')
+    await wrapper.get('form[data-editor=assistant]').trigger('submit')
+    await flushPromises()
+    expect(field(wrapper, '助手名称').get<HTMLInputElement>('input').element.value).toBe(
+      '保留我的声明',
+    )
+    expect(useWorkspace().stale).toBe(true)
+    useWorkspace().refreshed({ ...space, draftRev: 12 })
+    await wrapper.get('form[data-editor=assistant]').trigger('submit')
+    await flushPromises()
+    expect(write).toHaveBeenCalledTimes(1)
+  })
+  it('VIEWER 可以读取声明但没有保存入口', async () => {
+    useWorkspace().space = { ...space, role: 'VIEWER' }
+    vi.mocked(useSession().api.get).mockImplementation(
+      async <T>(path: string): Promise<T> =>
+        (path === '/spaces/s'
+          ? { ...space, role: 'VIEWER' }
+          : path.startsWith('/operations?')
+            ? [{ id: 'o', name: '查询' }]
+            : {
+                operationId: 'o',
+                inputSchema: null,
+                outputSchema: null,
+                assistantTool: null,
+              }) as T,
+    )
+    const wrapper = await page('AssistantView')
+    await field(wrapper, '草稿操作').get('select').setValue('o')
+    await flushPromises()
+    expect(wrapper.find('button[type=submit]').exists()).toBe(false)
+  })
+  it('服务端Schema错误显示在对应声明字段下', async () => {
+    vi.spyOn(useSession().api, 'put').mockRejectedValue(
+      new ApiError('INVALID_SCHEMA', 'inputSchema.properties.active.type: 不支持的类型', 400),
+    )
+    const wrapper = await page('AssistantView')
+    await field(wrapper, '草稿操作').get('select').setValue('o')
+    await flushPromises()
+    await wrapper.get('form[data-editor=assistant]').trigger('submit')
+    await flushPromises()
+    await vi.waitFor(() =>
+      expect(field(wrapper, '输入 Schema').text()).toContain('inputSchema.properties.active.type'),
+    )
+  })
+})
+
+describe('P2 守卫与主体授权', () => {
+  it('守卫表单生成明确的主体属性和源列过滤绑定', async () => {
+    const write = vi.spyOn(useSession().api, 'put').mockResolvedValue({ ...space, draftRev: 6 })
+    const wrapper = await page('GuardsView')
+    await button(wrapper, '添加守卫').trigger('click')
+    await wrapper.get('[data-field=guard-name] input').setValue('region')
+    await wrapper.get('[data-field=binding-kind] select').setValue('PRINCIPAL_ATTRIBUTE')
+    await wrapper.get('[data-field=principal-attribute] input').setValue('region')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(write).toHaveBeenCalledWith('/spaces/s/guards', {
+      expectedDraftRev: 5,
+      guardCfg: {
+        region: {
+          type: 'STRING',
+          authorization_rule: { kind: 'PRINCIPAL_ATTRIBUTE', attribute: 'region' },
+        },
+      },
+    })
+    await button(wrapper, '添加守卫').trigger('click')
+    await wrapper.get('[data-field=guard-name] input').setValue('tenant_label')
+    await wrapper.get('[data-field=binding-kind] select').setValue('FILTER')
+    await wrapper.get('[data-field=filter-table] input').setValue('task_table')
+    await wrapper.get('[data-field=filter-column] input').setValue('tenant_col')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(write).toHaveBeenLastCalledWith(
+      '/spaces/s/guards',
+      expect.objectContaining({
+        guardCfg: {
+          tenant_label: {
+            type: 'STRING',
+            filter_binding: { table: 'task_table', column: 'tenant_col', operator: 'IN' },
+          },
+        },
+      }),
+    )
+  })
+  it('EDITOR 无守卫写权限且不能读取主体授权目录', async () => {
+    useWorkspace().space = { ...space, role: 'EDITOR' }
+    vi.mocked(useSession().api.get).mockImplementation(
+      async <T>(path: string): Promise<T> =>
+        (path === '/spaces/s' ? { ...space, role: 'EDITOR' } : { guardCfg: {} }) as T,
+    )
+    const guards = await page('GuardsView')
+    expect(guards.find('button[type=submit]').exists()).toBe(false)
+    expect(guards.text()).toContain('仅空间所有者')
+    await page('GrantsView')
+    expect(useSession().api.get).not.toHaveBeenCalledWith('/spaces/s/grants')
+    expect(useSession().api.get).not.toHaveBeenCalledWith('/spaces/s/grant-users')
+  })
+  it('授权只选择后端本地用户，并提交可信属性与不限范围null', async () => {
+    const write = vi.spyOn(useSession().api, 'put').mockResolvedValue({ ...space, draftRev: 6 })
+    const wrapper = await page('GrantsView')
+    await field(wrapper, '本地用户').get('select').setValue('new')
+    await field(wrapper, '主体属性（JSON 对象）')
+      .get('textarea')
+      .setValue('{"region":["华东"],"level":2,"active":false}')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(write).toHaveBeenCalledWith('/spaces/s/grants/new', {
+      expectedDraftRev: 5,
+      role: 'VIEWER',
+      dataScope: null,
+      attributes: { region: ['华东'], level: 2, active: false },
+    })
+  })
+})
+
+describe('P2 知识管理与确定性用例', () => {
+  it('知识新增保留同空间概念引用和别名数组，冲突保留输入', async () => {
+    const write = vi
+      .spyOn(useSession().api, 'post')
+      .mockRejectedValue(new ApiError('DRAFT_REV_CONFLICT', '草稿已变化', 409))
+    const wrapper = await page('KnowledgeView')
+    await button(wrapper, '新建知识').trigger('click')
+    await flushPromises()
+    await field(wrapper, '术语').get('input').setValue('设备')
+    await field(wrapper, '别名（每行一个）').get('textarea').setValue('器材\n装备\n器材')
+    await field(wrapper, '定义').get('textarea').setValue('完成业务任务的设施')
+    await field(wrapper, '来源').get('input').setValue('业务规范')
+    await field(wrapper, '关联概念').get('select').setValue('a')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(write).toHaveBeenCalledWith('/knowledge', {
+      spaceId: 's',
+      expectedDraftRev: 5,
+      term: '设备',
+      aliases: ['器材', '装备'],
+      definition: '完成业务任务的设施',
+      sourceRef: '业务规范',
+      conceptRef: 'a',
+    })
+    expect(field(wrapper, '术语').get<HTMLInputElement>('input').element.value).toBe('设备')
+    expect(useWorkspace().stale).toBe(true)
+  })
+  it('用例允许显式NL模式，期望操作和EXACT断言仍提交', async () => {
+    const write = vi.spyOn(useSession().api, 'post').mockResolvedValue({ ...space, draftRev: 6 })
+    const wrapper = mount(TestCasesView, { global, attachTo: document.body })
+    wrappers.push(wrapper)
+    await flushPromises()
+    await button(wrapper, '新建用例').trigger('click')
+    await flushPromises()
+    await field(wrapper, '名称').get('input').setValue('自然语言查询')
+    await field(wrapper, '问题').get('textarea').setValue('列出设备')
+    await field(wrapper, '预期命中操作').get('select').setValue('o')
+    await field(wrapper, '执行模式').get('select').setValue('NL')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(write).toHaveBeenCalledWith(
+      '/test-cases',
+      expect.objectContaining({ mode: 'NL', operationId: 'o', matchMode: 'EXACT' }),
+    )
+  })
+})
+
+describe('P2 冻结供给预览', () => {
+  it('契约包装摘要正确但单个manifest带正式版本证据时仍拒绝展示', async () => {
+    vi.mocked(useSession().api.get).mockResolvedValue({
+      candidateId: 'c',
+      candidateSha256: 'frozen-sha',
+      manifests: [
+        {
+          tool_code: '伪正式版本',
+          ontology_meta: {
+            preview: false,
+            contentDigest: 'frozen-sha',
+            releaseId: 'release',
+            version: '1',
+          },
+        },
+      ],
+    })
+    const wrapper = await page('CandidateSupplyPanel', { candidate })
+    await button(wrapper, '读取契约预览').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('伪正式版本')
+    expect(wrapper.text()).toContain('候选预览元数据')
+  })
+  it('契约和知识包展示冻结摘要及preview，搜索请求真实接口并显示分数和来源', async () => {
+    vi.mocked(useSession().api.get).mockImplementation(async <T>(path: string): Promise<T> => {
+      const value: unknown = path.endsWith('/contracts')
+        ? {
+            candidateId: 'c',
+            candidateSha256: 'frozen-sha',
+            manifests: [
+              {
+                tool_code: 'query',
+                ontology_meta: {
+                  preview: true,
+                  spaceCode: null,
+                  contentDigest: null,
+                  releaseId: null,
+                  version: null,
+                },
+              },
+            ],
+          }
+        : path.endsWith('/context-pack')
+          ? {
+              candidateId: 'c',
+              candidateSha256: 'frozen-sha',
+              conceptCards: [{ name: '冻结设备' }],
+              termDictionary: [{ id: 'k', term: '设备', sourceRef: '冻结来源' }],
+              relationSummaries: [],
+              exampleQa: [],
+            }
+          : {
+              candidateId: 'c',
+              candidateSha256: 'frozen-sha',
+              hits: [
+                {
+                  entryId: 'k',
+                  term: '设备',
+                  definition: '冻结定义',
+                  score: 2.73,
+                  matchedAlias: '器材',
+                },
+              ],
+            }
+      return value as T
+    })
+    const wrapper = await page('CandidateSupplyPanel', { candidate })
+    await button(wrapper, '读取契约预览').trigger('click')
+    await button(wrapper, '读取知识包').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('frozen-sha')
+    expect(wrapper.text()).toContain('preview')
+    expect(wrapper.text()).toContain('冻结设备')
+    await field(wrapper, '搜索冻结知识').get('input').setValue('器材 & 设备')
+    await wrapper.get('form[data-search=knowledge]').trigger('submit')
+    await flushPromises()
+    expect(useSession().api.get).toHaveBeenCalledWith(
+      '/candidates/c/knowledge-search?q=%E5%99%A8%E6%9D%90%20%26%20%E8%AE%BE%E5%A4%87&limit=10',
+    )
+    expect(wrapper.text()).toContain('2.73')
+    expect(wrapper.text()).toContain('冻结来源')
+  })
+  it('摘要不匹配时拒绝显示契约，不以当前草稿补结果', async () => {
+    vi.mocked(useSession().api.get).mockResolvedValue({
+      candidateId: 'c',
+      candidateSha256: 'other',
+      manifests: [{ tool_code: '不可展示' }],
+    })
+    const wrapper = await page('CandidateSupplyPanel', { candidate })
+    await button(wrapper, '读取契约预览').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('摘要')
+    expect(wrapper.text()).not.toContain('不可展示')
+  })
+})
+
+describe('P2 内部候选调用', () => {
+  it('仅发送操作输入，显示真实服务器拒绝和输入原文', async () => {
+    vi.mocked(useSession().api.get).mockResolvedValue([
+      { id: 'o', code: 'query', name: '冻结查询' },
+    ])
+    const wrapper = await page('InternalCallPanel', { candidate })
+    const api = useSession().api
+    const request = vi
+      .spyOn(api, 'requestEnvelope')
+      .mockRejectedValue(
+        new ApiError('GUARD_BINDING_NOT_APPLICABLE', '数据源列过滤不能用于模型执行', 403),
+      )
+    await field(wrapper, '冻结操作').get('select').setValue('query')
+    await field(wrapper, '操作输入（JSON 对象）').get('textarea').setValue('{"limit":3}')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(request).toHaveBeenCalledWith('/internal/candidates/c/ops/query', 'POST', { limit: 3 })
+    expect(wrapper.text()).toContain('GUARD_BINDING_NOT_APPLICABLE')
+    expect(wrapper.text()).toContain('数据源列过滤不能用于模型执行')
+    expect(
+      field(wrapper, '操作输入（JSON 对象）').get<HTMLTextAreaElement>('textarea').element.value,
+    ).toBe('{"limit":3}')
+  })
+  it('内部结果摘要不符时隐藏业务结果', async () => {
+    vi.mocked(useSession().api.get).mockResolvedValue([
+      { id: 'o', code: 'query', name: '冻结查询' },
+    ])
+    const wrapper = await page('InternalCallPanel', { candidate })
+    const api = useSession().api
+    vi.spyOn(api, 'requestEnvelope').mockResolvedValue({
+      code: 'OK',
+      data: { secret: '错误候选结果' },
+      meta: { preview: true, releaseId: null, version: null, contentDigest: 'other' },
+    })
+    await field(wrapper, '冻结操作').get('select').setValue('query')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(wrapper.text()).toContain('摘要')
+    expect(wrapper.text()).not.toContain('错误候选结果')
+  })
+})
+
+FILE: web/apps/onto-admin/src/features/p2\KnowledgeView.vue
+<script setup lang="ts">
+/** 知识列表与同空间概念同批读取并核对修订；冻结后的知识只在候选供给页查看。 */
+import { computed, onMounted, ref, shallowRef } from 'vue'
+import type { KnowledgeEntry, OntClass, Space } from '@onto/api-client'
+import { useSession } from '../../stores/session'
+import { useDraftDocument } from './useDraftDocument'
+import { useDraftRevision } from '../../composables/useDraftRevision'
+import { confirmAction } from '../../composables/useMutation'
+import AsyncState from '@onto/shared-ui/AsyncState.vue'
+import KnowledgeForm, { type KnowledgeDraft } from './KnowledgeForm.vue'
+const api = useSession().api
+const editor = useDraftDocument(async (id) => {
+  const [entries, concepts] = await Promise.all([
+    api.get<KnowledgeEntry[]>(`/knowledge?spaceId=${id}`),
+    api.get<OntClass[]>(`/classes?spaceId=${id}`),
+  ])
+  return { entries, concepts }
+})
+const items = computed(() => editor.resource.data.value?.items.entries || [])
+const concepts = computed(() =>
+  (editor.resource.data.value?.items.concepts || []).filter(
+    (item) => item.spaceId === editor.workspace.space?.id,
+  ),
+)
+const open = ref(false),
+  editing = shallowRef<KnowledgeEntry | null>(null),
+  draft = useDraftRevision()
+// 输入归页面所有，弹窗内部过渡或权限更新导致子组件重建时仍保留用户编辑。
+const form = ref<KnowledgeDraft>({
+  term: '',
+  aliases: '',
+  definition: '',
+  sourceRef: '',
+  conceptRef: '',
+})
+async function load() {
+  open.value = false
+  await editor.load()
+}
+function edit(item: KnowledgeEntry | null) {
+  const snapshot = editor.resource.data.value
+  if (!editor.workspace.canWrite || !snapshot) return
+  editing.value = item
+  form.value = {
+    term: item?.term || '',
+    aliases: item?.aliases.join('\n') || '',
+    definition: item?.definition || '',
+    sourceRef: item?.sourceRef || '',
+    conceptRef: item?.conceptRef || '',
+  }
+  draft.start(snapshot.space.draftRev)
+  editor.mutation.error.value = ''
+  open.value = true
+}
+async function save(body: Omit<KnowledgeEntry, 'id' | 'spaceId'>) {
+  if (!editor.workspace.canWrite || draft.stale.value) return
+  const id = editor.workspace.space?.id
+  if (!id) return
+  const ok = await editor.mutation.run(() =>
+    draft.submit(async (expectedDraftRev) => {
+      const request = { ...body, spaceId: id, expectedDraftRev }
+      const next = editing.value
+        ? await api.put<Space>(`/knowledge/${editing.value.id}`, request)
+        : await api.post<Space>('/knowledge', request)
+      editor.workspace.accept(next)
+    }),
+  )
+  if (ok) await load()
+}
+async function remove(item: KnowledgeEntry) {
+  const snapshot = editor.resource.data.value
+  if (!snapshot || !editor.workspace.canWrite) return
+  // 删除确认期间工作区可能变化，始终提交用户点击此列表时看到的修订。
+  const expectedDraftRev = snapshot.space.draftRev,
+    spaceId = snapshot.space.id
+  if (!(await confirmAction(`删除知识“${item.term}”？已冻结候选中的知识仍会保留。`))) return
+  const ok = await editor.mutation.run(async () => {
+    editor.workspace.accept(
+      await api.delete<Space>(
+        `/knowledge/${item.id}?spaceId=${spaceId}&expectedDraftRev=${expectedDraftRev}`,
+      ),
+    )
+  })
+  if (ok) await load()
+}
+onMounted(load)
+</script>
+<template>
+  <div class="page-heading">
+    <div>
+      <h1>知识管理</h1>
+      <p class="muted">维护术语、别名、定义与来源，随候选冻结后用于检索和匹配。</p>
+    </div>
+    <div class="row">
+      <el-button :disabled="editor.mutation.pending.value" @click="load">刷新知识</el-button>
+      <el-button
+        v-if="editor.workspace.canWrite"
+        :disabled="!editor.resource.data.value"
+        type="primary"
+        @click="edit(null)"
+      >
+        新建知识
+      </el-button>
+    </div>
+  </div>
+  <p v-if="editor.mutation.error.value && !open" class="error-text" role="alert">
+    {{ editor.mutation.error.value }}
+  </p>
+  <AsyncState
+    :loading="editor.resource.loading.value"
+    :error="editor.resource.error.value"
+    :empty="!items.length"
+    empty-text="还没有知识条目。添加术语、定义和可追溯来源。"
+    @retry="load"
+  >
+    <section class="panel overflow">
+      <el-table :data="items">
+        <el-table-column prop="term" label="术语" min-width="130" />
+        <el-table-column label="别名" min-width="150">
+          <template #default="{ row }">{{ row.aliases.join('、') || '—' }}</template>
+        </el-table-column>
+        <el-table-column prop="definition" label="定义" min-width="220" />
+        <el-table-column prop="sourceRef" label="来源" min-width="150" />
+        <el-table-column v-if="editor.workspace.canWrite" label="维护" width="135">
+          <template #default="{ row }">
+            <el-button
+              link
+              type="primary"
+              :disabled="editor.mutation.pending.value"
+              @click="edit(row)"
+            >
+              编辑
+            </el-button>
+            <el-button
+              link
+              type="danger"
+              :disabled="editor.mutation.pending.value"
+              @click="remove(row)"
+            >
+              删除
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </section>
+  </AsyncState>
+  <el-dialog
+    v-model="open"
+    destroy-on-close
+    title="维护知识"
+    width="700px"
+    :close-on-click-modal="false"
+    :show-close="!editor.mutation.pending.value"
+    :close-on-press-escape="!editor.mutation.pending.value"
+  >
+    <KnowledgeForm
+      v-if="open"
+      v-model="form"
+      :concepts="concepts"
+      :pending="editor.mutation.pending.value"
+      :can-write="editor.workspace.canWrite"
+      :stale="draft.stale.value"
+      :error="editor.mutation.error.value"
+      @save="save"
+      @cancel="open = false"
+    />
+  </el-dialog>
+</template>
+
+FILE: web/apps/onto-admin/src/features/p2\KnowledgeForm.vue
+<script setup lang="ts">
+/** 知识引用只展示当前空间读取的概念；别名去重后以真实字符串数组提交。 */
+import { reactive } from 'vue'
+import type { KnowledgeEntry, OntClass } from '@onto/api-client'
+import { lines } from './fields'
+export interface KnowledgeDraft {
+  term: string
+  aliases: string
+  definition: string
+  sourceRef: string
+  conceptRef: string
+}
+const props = defineProps<{
+  concepts: OntClass[]
+  canWrite: boolean
+  pending: boolean
+  stale: boolean
+  error: string
+}>()
+const emit = defineEmits<{ save: [body: Omit<KnowledgeEntry, 'id' | 'spaceId'>]; cancel: [] }>()
+const form = defineModel<KnowledgeDraft>({ required: true })
+const errors = reactive<Record<string, string>>({})
+function save() {
+  if (!props.canWrite || props.pending || props.stale) return
+  Object.keys(errors).forEach((key) => delete errors[key])
+  if (!form.value.term.trim()) errors.term = '请填写术语。'
+  if (!form.value.sourceRef.trim()) errors.source = '请填写可追溯来源。'
+  if (form.value.conceptRef && !props.concepts.some((item) => item.id === form.value.conceptRef))
+    errors.concept = '请选择当前空间的概念。'
+  if (Object.keys(errors).length) return
+  emit('save', {
+    term: form.value.term.trim(),
+    aliases: lines(form.value.aliases),
+    definition: form.value.definition,
+    sourceRef: form.value.sourceRef.trim(),
+    conceptRef: form.value.conceptRef || null,
+  })
+}
+</script>
+<template>
+  <el-form label-position="top" :disabled="!canWrite || pending" @submit.prevent="save">
+    <el-form-item label="术语" :error="errors.term" required>
+      <el-input v-model="form.term" />
+    </el-form-item>
+    <el-form-item label="别名（每行一个）">
+      <el-input v-model="form.aliases" type="textarea" :rows="3" />
+    </el-form-item>
+    <el-form-item label="定义">
+      <el-input v-model="form.definition" type="textarea" :rows="4" />
+    </el-form-item>
+    <el-form-item label="来源" :error="errors.source" required>
+      <el-input v-model="form.sourceRef" />
+    </el-form-item>
+    <el-form-item label="关联概念" :error="errors.concept">
+      <el-select v-model="form.conceptRef" filterable>
+        <el-option value="" label="不关联概念" />
+        <el-option v-for="item in concepts" :key="item.id" :value="item.id" :label="item.name" />
+      </el-select>
+    </el-form-item>
+    <p v-if="stale" class="error-text" role="alert">
+      表单已过期，输入已保留。请复制后关闭并刷新知识列表。
+    </p>
+    <p v-if="error" class="error-text" role="alert">{{ error }}</p>
+    <div class="row">
+      <el-button
+        native-type="submit"
+        type="primary"
+        :disabled="!canWrite || stale"
+        :loading="pending"
+      >
+        保存知识
+      </el-button>
+      <el-button :disabled="pending" @click="emit('cancel')">取消</el-button>
+    </div>
+  </el-form>
+</template>
+
+FILE: web/apps/onto-admin/src/features/p2\InternalCallPanel.vue
+<script setup lang="ts">
+/** 独立内部调用入口：body 只有业务输入，调用身份和可信属性始终由服务器取得。 */
+import { ref, watch } from 'vue'
+import { ApiError, type Candidate, type Operation, type Envelope } from '@onto/api-client'
+import { useSession } from '../../stores/session'
+import { useWorkspace } from '../../stores/workspace'
+import { useResource } from '../../composables/useResource'
+import { useMutation } from '../../composables/useMutation'
+import { objectField, FieldError } from './fields'
+import { verifyInvocationMeta } from './candidateIdentity'
+import AsyncState from '@onto/shared-ui/AsyncState.vue'
+const props = defineProps<{ candidate: Candidate }>(),
+  api = useSession().api,
+  workspace = useWorkspace()
+const operations = useResource<Operation[]>([]),
+  mutation = useMutation()
+const code = ref(''),
+  input = ref('{}'),
+  inputError = ref(''),
+  result = ref<Envelope<unknown> | null>(null)
+let sequence = 0
+function loadOperations() {
+  const id = props.candidate.id
+  return operations.load(() => api.get<Operation[]>(`/candidates/${id}/operations`))
+}
+watch(
+  () => `${props.candidate.id}:${props.candidate.sha256}`,
+  () => {
+    sequence++
+    operations.reset()
+    code.value = ''
+    input.value = '{}'
+    result.value = null
+    mutation.error.value = ''
+    inputError.value = ''
+    void loadOperations()
+  },
+  { immediate: true },
+)
+async function execute() {
+  if (
+    !workspace.canWrite ||
+    !operations.data.value.some((operation) => operation.code === code.value)
+  )
+    return
+  const { id, sha256 } = props.candidate,
+    ticket = sequence,
+    opCode = code.value
+  result.value = null
+  inputError.value = ''
+  await mutation.run(async () => {
+    try {
+      const value = objectField(input.value, 'input', '操作输入')
+      const response = await api.requestEnvelope<unknown>(
+        `/internal/candidates/${id}/ops/${encodeURIComponent(opCode)}`,
+        'POST',
+        value,
+      )
+      verifyInvocationMeta(response.meta, sha256)
+      if (ticket === sequence) result.value = response
+    } catch (cause) {
+      if (ticket !== sequence) return
+      if (cause instanceof FieldError) inputError.value = cause.message
+      if (cause instanceof ApiError) throw new Error(`${cause.code}：${cause.message}`)
+      throw cause
+    }
+  })
+}
+</script>
+<template>
+  <section class="panel stack">
+    <div>
+      <h2>内部候选调用</h2>
+      <p class="muted">
+        使用当前账号调用冻结操作。旧格式候选、缺少绑定或权限不足由服务端拒绝，错误保留用于修复。
+      </p>
+    </div>
+    <AsyncState
+      :loading="operations.loading.value"
+      :error="operations.error.value"
+      @retry="loadOperations"
+    >
+      <el-form
+        label-position="top"
+        :disabled="mutation.pending.value || !workspace.canWrite"
+        @submit.prevent="execute"
+      >
+        <el-form-item label="冻结操作">
+          <el-select v-model="code" placeholder="请选择此候选中的操作">
+            <el-option
+              v-for="operation in operations.data.value"
+              :key="operation.id"
+              :value="operation.code"
+              :label="`${operation.name}（${operation.code}）`"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="操作输入（JSON 对象）" :error="inputError">
+          <el-input v-model="input" type="textarea" :rows="5" />
+        </el-form-item>
+        <el-button
+          v-if="workspace.canWrite"
+          native-type="submit"
+          type="primary"
+          :disabled="!code"
+          :loading="mutation.pending.value"
+        >
+          调用冻结操作
+        </el-button>
+        <p v-else class="muted">当前账号或空间仅可查看，内部调用需要编辑权限。</p>
+      </el-form>
+    </AsyncState>
+    <p v-if="mutation.error.value" class="error-text" role="alert">{{ mutation.error.value }}</p>
+    <template v-if="result">
+      <h3>业务结果</h3>
+      <pre class="result-json">{{ JSON.stringify(result.data, null, 2) }}</pre>
+      <h3>候选元数据 · preview</h3>
+      <pre class="result-json">{{ JSON.stringify(result.meta, null, 2) }}</pre>
+    </template>
+  </section>
+</template>
+<style scoped>
+.result-json {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-width: 0;
+  margin: 0;
+  padding: 16px;
+  background: var(--canvas);
+  font:
+    12px/1.7 Consolas,
+    monospace;
+}
+</style>
+
+FILE: web/apps/onto-admin/src/features/p2\GuardsView.vue
+<script setup lang="ts">
+/** 只有 OWNER 维护守卫；草稿允许未绑定，但不把“已保存”描述成可执行。 */
+import { computed, onMounted, ref } from 'vue'
+import type { Guards, GuardDefinition, Space } from '@onto/api-client'
+import { useSession } from '../../stores/session'
+import { useDraftDocument } from './useDraftDocument'
+import GuardBindingFields, { type GuardRow } from './GuardBindingFields.vue'
+import AsyncState from '@onto/shared-ui/AsyncState.vue'
+const api = useSession().api
+const editor = useDraftDocument((id) => api.get<Guards>(`/spaces/${id}/guards`))
+const rows = ref<GuardRow[]>([]),
+  errors = ref<Record<number, string>>({})
+const owner = computed(() => editor.workspace.space?.role === 'OWNER')
+const canWrite = computed(() => owner.value && editor.workspace.canWrite)
+async function load() {
+  const snapshot = await editor.load()
+  if (snapshot) {
+    rows.value = Object.entries(snapshot.items.guardCfg).map(([name, value]) => ({
+      name,
+      type: value.type,
+      kind: value.authorization_rule
+        ? 'PRINCIPAL_ATTRIBUTE'
+        : value.filter_binding
+          ? 'FILTER'
+          : 'NONE',
+      attribute: value.authorization_rule?.attribute || '',
+      table: value.filter_binding?.table || '',
+      column: value.filter_binding?.column || '',
+    }))
+    errors.value = {}
+  }
+}
+function add() {
+  if (canWrite.value)
+    rows.value.push({
+      name: '',
+      type: 'STRING',
+      kind: 'NONE',
+      attribute: '',
+      table: '',
+      column: '',
+    })
+}
+async function save() {
+  if (!canWrite.value || editor.draft.stale.value || editor.mutation.pending.value) return
+  errors.value = {}
+  const guardCfg: Record<string, GuardDefinition> = {}
+  rows.value.forEach((row, index) => {
+    const name = row.name.trim()
+    if (!name || Object.hasOwn(guardCfg, name)) {
+      errors.value[index] = '名称不能为空或重复。'
+      return
+    }
+    const value: GuardDefinition = { type: row.type }
+    if (row.kind === 'PRINCIPAL_ATTRIBUTE') {
+      if (!row.attribute.trim()) errors.value[index] = '请填写可信主体属性名称。'
+      value.authorization_rule = { kind: 'PRINCIPAL_ATTRIBUTE', attribute: row.attribute.trim() }
+    } else if (row.kind === 'FILTER') {
+      if (!row.table.trim() || !row.column.trim()) errors.value[index] = '请填写源表和过滤列。'
+      value.filter_binding = { table: row.table.trim(), column: row.column.trim(), operator: 'IN' }
+    }
+    Object.defineProperty(guardCfg, name, { value, enumerable: true })
+  })
+  if (Object.keys(errors.value).length) return
+  const id = editor.workspace.space?.id
+  if (
+    id &&
+    (await editor.save((expectedDraftRev) =>
+      api.put<Space>(`/spaces/${id}/guards`, { expectedDraftRev, guardCfg }),
+    ))
+  )
+    await load()
+}
+onMounted(load)
+</script>
+<template>
+  <div class="page-heading">
+    <div>
+      <h1>空间守卫</h1>
+      <p class="muted">维护服务必须执行的权限检查与数据过滤绑定。</p>
+    </div>
+    <el-button :disabled="editor.mutation.pending.value" @click="load">刷新守卫</el-button>
+  </div>
+  <p v-if="!owner" class="readonly-note">仅空间所有者（OWNER）可维护守卫配置。</p>
+  <AsyncState
+    :loading="editor.resource.loading.value"
+    :error="editor.resource.error.value"
+    @retry="load"
+  >
+    <section v-if="editor.resource.data.value" class="panel">
+      <el-form
+        label-position="top"
+        :disabled="!canWrite || editor.mutation.pending.value"
+        @submit.prevent="save"
+      >
+        <GuardBindingFields
+          v-for="(_, index) in rows"
+          :key="index"
+          v-model="rows[index]!"
+          :error="errors[index]"
+          @remove="rows.splice(index, 1)"
+        />
+        <p v-if="!rows.length" class="muted">
+          暂无守卫。声明中要求的每一项守卫都必须在这里配置可执行绑定。
+        </p>
+        <el-button v-if="canWrite" @click="add">添加守卫</el-button>
+        <p v-if="editor.draft.stale.value" class="error-text" role="alert">
+          表单已过期，输入已保留；请复制后刷新守卫再编辑。
+        </p>
+        <p v-if="editor.mutation.error.value" class="error-text" role="alert">
+          {{ editor.mutation.error.value }}
+        </p>
+        <div v-if="owner" class="row save-row">
+          <el-button
+            native-type="submit"
+            type="primary"
+            :disabled="!canWrite || editor.draft.stale.value"
+            :loading="editor.mutation.pending.value"
+          >
+            保存守卫草稿
+          </el-button>
+        </div>
+      </el-form>
+    </section>
+  </AsyncState>
+</template>
+<style scoped>
+.save-row {
+  margin-top: 20px;
+}
+</style>
+
+FILE: web/apps/onto-admin/src/features/p2\GuardBindingFields.vue
+<script setup lang="ts">
+/** 守卫仅允许固定授权规则或结构化源列绑定；没有脚本编辑入口。 */
+import type { GuardType } from '@onto/api-client'
+export interface GuardRow {
+  name: string
+  type: GuardType
+  kind: 'NONE' | 'PRINCIPAL_ATTRIBUTE' | 'FILTER'
+  attribute: string
+  table: string
+  column: string
+}
+const row = defineModel<GuardRow>({ required: true })
+defineProps<{ error?: string }>()
+defineEmits<{ remove: [] }>()
+</script>
+<template>
+  <article class="guard-entry">
+    <div class="form-columns">
+      <el-form-item label="守卫名称" data-field="guard-name" :error="error">
+        <el-input v-model="row.name" placeholder="例如 region" />
+      </el-form-item>
+      <el-form-item label="守卫类型">
+        <el-select v-model="row.type">
+          <el-option
+            v-for="type in ['STRING', 'INTEGER', 'DECIMAL', 'BOOLEAN']"
+            :key="type"
+            :value="type"
+            :label="type"
+          />
+        </el-select>
+      </el-form-item>
+    </div>
+    <el-form-item label="绑定方式" data-field="binding-kind">
+      <el-select v-model="row.kind">
+        <el-option value="NONE" label="未绑定（仅保存草稿）" />
+        <el-option value="PRINCIPAL_ATTRIBUTE" label="主体属性检查" />
+        <el-option value="FILTER" label="数据源列过滤" />
+      </el-select>
+    </el-form-item>
+    <el-form-item
+      v-if="row.kind === 'PRINCIPAL_ATTRIBUTE'"
+      label="可信主体属性名称"
+      data-field="principal-attribute"
+    >
+      <el-input v-model="row.attribute" placeholder="由空间授权维护，例如 region" />
+    </el-form-item>
+    <template v-else-if="row.kind === 'FILTER'">
+      <div class="form-columns">
+        <el-form-item label="源表" data-field="filter-table">
+          <el-input v-model="row.table" />
+        </el-form-item>
+        <el-form-item label="过滤列" data-field="filter-column">
+          <el-input v-model="row.column" />
+        </el-form-item>
+      </div>
+      <p class="muted">过滤运算：IN。模型执行阶段无法应用源过滤时，服务端将拒绝执行。</p>
+    </template>
+    <p v-else class="readonly-note">
+      未绑定守卫不能通过契约生成与执行。可保存草稿，补齐绑定后再验证。
+    </p>
+    <el-button type="danger" text @click="$emit('remove')">移除此守卫</el-button>
+  </article>
+</template>
+<style scoped>
+.guard-entry {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  min-width: 0;
+  margin-bottom: 16px;
+}
+</style>
+
+FILE: web/apps/onto-admin/src/features/p2\GrantsView.vue
+<script setup lang="ts">
+/** 本地身份目录与空间授权分别读取；用户标识只能来自 OWNER 可读的本地目录。 */
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import type { GrantUser, SpaceGrant, Space } from '@onto/api-client'
+import { useSession } from '../../stores/session'
+import { useDraftDocument } from './useDraftDocument'
+import { FieldError, objectField } from './fields'
+import AsyncState from '@onto/shared-ui/AsyncState.vue'
+const api = useSession().api
+const editor = useDraftDocument(async (id) => {
+  const [grants, users] = await Promise.all([
+    api.get<SpaceGrant[]>(`/spaces/${id}/grants`),
+    api.get<GrantUser[]>(`/spaces/${id}/grant-users`),
+  ])
+  return { grants, users }
+})
+const owner = computed(() => editor.workspace.space?.role === 'OWNER')
+const users = computed(() => editor.resource.data.value?.items.users || [])
+const grants = computed(() => editor.resource.data.value?.items.grants || [])
+const userId = ref(''),
+  form = reactive({ role: 'VIEWER' as SpaceGrant['role'], scope: 'null', attributes: '{}' })
+const errors = reactive<Record<string, string>>({})
+function select() {
+  const grant = grants.value.find((item) => item.userId === userId.value)
+  form.role = grant?.role ?? 'VIEWER'
+  form.scope = JSON.stringify(grant?.dataScope ?? null, null, 2)
+  form.attributes = JSON.stringify(grant?.attributes ?? {}, null, 2)
+  Object.keys(errors).forEach((key) => delete errors[key])
+}
+watch(userId, select)
+async function load() {
+  if (!owner.value) return
+  if (await editor.load()) {
+    userId.value = ''
+    select()
+  }
+}
+async function save() {
+  if (
+    !owner.value ||
+    !editor.workspace.canWrite ||
+    editor.draft.stale.value ||
+    editor.mutation.pending.value
+  )
+    return
+  Object.keys(errors).forEach((key) => delete errors[key])
+  try {
+    if (!users.value.some((item) => item.userId === userId.value))
+      throw new FieldError('user', '请选择已有本地用户。')
+    const dataScope =
+      form.scope.trim() === 'null' ? null : objectField(form.scope, 'scope', '数据范围')
+    const attributes = objectField(form.attributes, 'attributes', '主体属性')
+    const id = editor.workspace.space?.id
+    if (
+      id &&
+      (await editor.save((expectedDraftRev) =>
+        api.put<Space>(`/spaces/${id}/grants/${userId.value}`, {
+          expectedDraftRev,
+          role: form.role,
+          dataScope,
+          attributes,
+        }),
+      ))
+    )
+      await load()
+  } catch (cause) {
+    if (cause instanceof FieldError) errors[cause.field] = cause.message
+  }
+}
+onMounted(load)
+</script>
+<template>
+  <div class="page-heading">
+    <div>
+      <h1>主体授权</h1>
+      <p class="muted">为本地用户维护空间角色、数据范围与可信属性。</p>
+    </div>
+    <el-button v-if="owner" :disabled="editor.mutation.pending.value" @click="load">
+      刷新授权
+    </el-button>
+  </div>
+  <p v-if="!owner" class="readonly-note">仅空间所有者（OWNER）可查看和维护主体授权。</p>
+  <AsyncState
+    v-else
+    :loading="editor.resource.loading.value"
+    :error="editor.resource.error.value"
+    @retry="load"
+  >
+    <div v-if="editor.resource.data.value" class="stack">
+      <section class="panel overflow">
+        <h2>当前授权</h2>
+        <el-table :data="grants">
+          <el-table-column prop="displayName" label="用户" min-width="130" />
+          <el-table-column prop="username" label="登录名" min-width="130" />
+          <el-table-column prop="role" label="角色" width="100" />
+          <el-table-column label="维护" width="90">
+            <template #default="{ row }">
+              <el-button
+                link
+                type="primary"
+                :disabled="editor.mutation.pending.value || !editor.workspace.canWrite"
+                @click="userId = row.userId"
+              >
+                编辑
+              </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </section>
+      <section class="panel">
+        <h2>维护授权</h2>
+        <el-form
+          label-position="top"
+          :disabled="!editor.workspace.canWrite || editor.mutation.pending.value"
+          @submit.prevent="save"
+        >
+          <el-form-item label="本地用户" :error="errors.user">
+            <el-select v-model="userId" filterable placeholder="选择本地用户">
+              <el-option
+                v-for="user in users"
+                :key="user.userId"
+                :value="user.userId"
+                :label="`${user.displayName}（${user.username}）`"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="空间角色">
+            <el-select v-model="form.role">
+              <el-option
+                v-for="role in ['VIEWER', 'EDITOR', 'OWNER']"
+                :key="role"
+                :value="role"
+                :label="role"
+              />
+            </el-select>
+          </el-form-item>
+          <div class="form-columns">
+            <el-form-item label="数据范围（JSON 对象或 null）" :error="errors.scope">
+              <el-input v-model="form.scope" type="textarea" :rows="6" />
+            </el-form-item>
+            <el-form-item label="主体属性（JSON 对象）" :error="errors.attributes">
+              <el-input v-model="form.attributes" type="textarea" :rows="6" />
+            </el-form-item>
+          </div>
+          <p class="muted">
+            null
+            表示已授权用户不限数据范围；缺少空间授权仍会被拒绝。属性类型由服务器按守卫定义校验，执行请求不会提交这些属性。不能移除最后一个
+            OWNER。
+          </p>
+          <p v-if="editor.draft.stale.value" class="error-text" role="alert">
+            授权表单已过期，输入已保留。请复制后刷新授权再编辑。
+          </p>
+          <p v-if="editor.mutation.error.value" class="error-text" role="alert">
+            {{ editor.mutation.error.value }}
+          </p>
+          <el-button
+            native-type="submit"
+            type="primary"
+            :disabled="!userId || editor.draft.stale.value"
+            :loading="editor.mutation.pending.value"
+          >
+            保存主体授权
+          </el-button>
+        </el-form>
+      </section>
+    </div>
+  </AsyncState>
+</template>
+
+FILE: web/apps/onto-admin/src/features/p2\fields.ts
+import type { JsonObject } from '@onto/api-client'
+import { parseObject } from '../p1/inputs'
+
+/** 用户编辑错误只定位到具体字段，原始文本继续保留供修复或复制。 */
+export class FieldError extends Error {
+  constructor(
+    public readonly field: string,
+    message: string,
+  ) {
+    super(message)
+  }
+}
+export function objectField(text: string, field: string, label: string): JsonObject {
+  try {
+    return parseObject(text, label)
+  } catch (cause) {
+    throw new FieldError(field, cause instanceof Error ? cause.message : `${label}格式错误。`)
+  }
+}
+export function objectArrayField(text: string, field: string, label: string): JsonObject[] {
+  let value: unknown
+  try {
+    value = JSON.parse(text)
+  } catch {
+    throw new FieldError(field, `${label}须为有效的 JSON 数组。`)
+  }
+  if (
+    !Array.isArray(value) ||
+    value.some((item) => !item || typeof item !== 'object' || Array.isArray(item))
+  )
+    throw new FieldError(field, `${label}须为 JSON 数组，每项为对象。`)
+  return value as JsonObject[]
+}
+export function lines(text: string) {
+  return [
+    ...new Set(
+      text
+        .split(/\r?\n/)
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  ]
+}
+
+FILE: web/apps/onto-admin/src/features/p2\CandidateSupplyPanel.vue
+<script setup lang="ts">
+/** 供给只读取固定候选。每次读取核对候选标识和摘要，不以草稿或本地 contains 补结果。 */
+import type {
+  Candidate,
+  CandidateIdentity,
+  CandidateContracts,
+  ContextPack,
+  KnowledgeSearch,
+} from '@onto/api-client'
+import { ApiError } from '@onto/api-client'
+import { ref, watch } from 'vue'
+import { useSession } from '../../stores/session'
+import { useResource } from '../../composables/useResource'
+import AsyncState from '@onto/shared-ui/AsyncState.vue'
+import { verifyManifestPreview } from './candidateIdentity'
+const props = defineProps<{ candidate: Candidate }>(),
+  api = useSession().api
+const contracts = useResource<CandidateContracts | null>(null),
+  pack = useResource<ContextPack | null>(null),
+  search = useResource<KnowledgeSearch | null>(null)
+const query = ref('')
+function verify<T extends CandidateIdentity>(result: T, id: string, sha: string): T {
+  if (result.candidateId !== id || result.candidateSha256 !== sha)
+    throw new ApiError(
+      'CANDIDATE_HASH_MISMATCH',
+      '供给内容的候选标识或摘要不符，请重新读取候选。',
+      409,
+    )
+  return result
+}
+async function readContracts() {
+  const { id, sha256 } = props.candidate
+  await contracts.load(async () => {
+    const result = verify(
+      await api.get<CandidateContracts>(`/candidates/${id}/contracts`),
+      id,
+      sha256,
+    )
+    result.manifests.forEach((manifest) => verifyManifestPreview(manifest.ontology_meta))
+    return result
+  })
+}
+async function readPack() {
+  const { id, sha256 } = props.candidate
+  return pack.load(async () =>
+    verify(await api.get<ContextPack>(`/candidates/${id}/context-pack`), id, sha256),
+  )
+}
+async function runSearch() {
+  const { id, sha256 } = props.candidate,
+    text = query.value.trim()
+  if (!text) {
+    search.error.value = '请输入搜索词。'
+    return
+  }
+  await search.load(async () => {
+    // 来源信息按同一冻结包的 entryId 关联；候选检索接口只返回命中与真实分数。
+    if (!pack.data.value && !(await readPack()))
+      throw new Error('知识包读取失败，无法核对搜索来源。')
+    return verify(
+      await api.get<KnowledgeSearch>(
+        `/candidates/${id}/knowledge-search?q=${encodeURIComponent(text)}&limit=10`,
+      ),
+      id,
+      sha256,
+    )
+  })
+}
+function source(entryId: string) {
+  const item = pack.data.value?.termDictionary.find(
+    (item) => item.id === entryId || item.entryId === entryId,
+  )
+  return typeof item?.sourceRef === 'string' ? item.sourceRef : '冻结知识包未提供来源'
+}
+watch(
+  () => `${props.candidate.id}:${props.candidate.sha256}`,
+  () => {
+    contracts.reset()
+    pack.reset()
+    search.reset()
+    query.value = ''
+  },
+)
+</script>
+<template>
+  <section class="stack">
+    <div class="readonly-note">候选供给预览 · preview: true。此内容不能作为正式发布版本消费。</div>
+    <dl class="details-grid">
+      <dt>候选摘要</dt>
+      <dd class="mono">{{ candidate.sha256 }}</dd>
+    </dl>
+    <section class="panel stack">
+      <div class="row spread">
+        <h2>契约预览</h2>
+        <el-button :loading="contracts.loading.value" @click="readContracts">
+          读取契约预览
+        </el-button>
+      </div>
+      <AsyncState
+        :loading="contracts.loading.value"
+        :error="contracts.error.value"
+        @retry="readContracts"
+      >
+        <template v-if="contracts.data.value">
+          <p v-if="!contracts.data.value.manifests.length" class="muted">
+            此候选没有可生成的操作契约。
+          </p>
+          <details v-for="(manifest, index) in contracts.data.value.manifests" :key="index" open>
+            <summary>{{ manifest.tool_code || `操作 ${index + 1}` }} · manifest_preview</summary>
+            <pre class="supply-json">{{ JSON.stringify(manifest, null, 2) }}</pre>
+          </details>
+        </template>
+        <p v-else class="muted">
+          从冻结声明生成完整预览。任何操作声明不完整，服务端会返回字段错误。
+        </p>
+      </AsyncState>
+    </section>
+    <section class="panel stack">
+      <div class="row spread">
+        <h2>知识包</h2>
+        <el-button :loading="pack.loading.value" @click="readPack">读取知识包</el-button>
+      </div>
+      <AsyncState :loading="pack.loading.value" :error="pack.error.value" @retry="readPack">
+        <template v-if="pack.data.value">
+          <details
+            v-for="section in [
+              { key: 'conceptCards', label: '概念卡' },
+              { key: 'termDictionary', label: '术语词典' },
+              { key: 'relationSummaries', label: '关系摘要' },
+              { key: 'exampleQa', label: '示例问答' },
+            ] as const"
+            :key="section.key"
+            open
+          >
+            <summary>{{ section.label }} · {{ pack.data.value[section.key].length }}</summary>
+            <pre class="supply-json">{{
+              JSON.stringify(pack.data.value[section.key], null, 2)
+            }}</pre>
+          </details>
+        </template>
+      </AsyncState>
+      <el-form data-search="knowledge" label-position="top" @submit.prevent="runSearch">
+        <el-form-item label="搜索冻结知识">
+          <el-input v-model="query" placeholder="输入术语或别名" />
+        </el-form-item>
+        <el-button native-type="submit" type="primary" :loading="search.loading.value">
+          搜索
+        </el-button>
+      </el-form>
+      <AsyncState :loading="search.loading.value" :error="search.error.value" @retry="runSearch">
+        <p v-if="search.data.value && !search.data.value.hits.length" class="muted">
+          此候选中没有匹配知识。
+        </p>
+        <article
+          v-for="hit in search.data.value?.hits || []"
+          :key="hit.entryId"
+          class="knowledge-hit"
+        >
+          <div class="row spread">
+            <b>{{ hit.term }}</b>
+            <span class="pill">分数 {{ hit.score }}</span>
+          </div>
+          <p>{{ hit.definition }}</p>
+          <p class="muted">
+            匹配别名：{{ hit.matchedAlias || '—' }} · 来源：{{ source(hit.entryId) }}
+          </p>
+          <span class="mono muted">{{ hit.entryId }}</span>
+        </article>
+      </AsyncState>
+    </section>
+  </section>
+</template>
+<style scoped>
+.supply-json {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  max-width: 100%;
+  min-width: 0;
+  padding: 14px;
+  background: var(--canvas);
+  font:
+    12px/1.7 Consolas,
+    monospace;
+}
+details {
+  min-width: 0;
+}
+summary {
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.knowledge-hit {
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.knowledge-hit p {
+  margin: 10px 0;
+}
+</style>
+
+FILE: web/apps/onto-admin/src/features/p2\candidateIdentity.ts
+import { ApiError } from '@onto/api-client'
+function record(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+/** manifest 预览没有发布证据；外层 candidateSha256 才是其冻结内容的标识。 */
+export function verifyManifestPreview(meta: unknown) {
+  if (
+    !record(meta) ||
+    meta.preview !== true ||
+    meta.releaseId !== null ||
+    meta.version !== null ||
+    meta.contentDigest !== null ||
+    meta.spaceCode !== null
+  )
+    throw new ApiError('INVALID_PREVIEW_META', '候选预览元数据不符合约定，请重新生成契约。', 409)
+}
+/** 内部试调用使用实际候选摘要，但 releaseId/version 必须为空，不能伪装正式版本。 */
+export function verifyInvocationMeta(meta: unknown, sha: string) {
+  if (
+    !record(meta) ||
+    meta.preview !== true ||
+    meta.releaseId !== null ||
+    meta.version !== null ||
+    meta.contentDigest !== sha
+  )
+    throw new ApiError(
+      'CANDIDATE_HASH_MISMATCH',
+      '调用结果的候选摘要或 preview 元数据不符，请重新读取候选。',
+      409,
+    )
+}
+
+FILE: web/apps/onto-admin/src/features/p2\AssistantView.vue
+<script setup lang="ts">
+/** 操作清单仅供选择；编辑基线另从该操作声明的一致性读取建立。 */
+import { onMounted, ref, watch } from 'vue'
+import type { AssistantDeclaration, Operation, Space } from '@onto/api-client'
+import { useRoute } from 'vue-router'
+import { useSession } from '../../stores/session'
+import { useWorkspace } from '../../stores/workspace'
+import { useResource } from '../../composables/useResource'
+import { useDraftDocument } from './useDraftDocument'
+import AsyncState from '@onto/shared-ui/AsyncState.vue'
+import AssistantForm from './AssistantForm.vue'
+const api = useSession().api,
+  workspace = useWorkspace(),
+  route = useRoute()
+const operations = useResource<Operation[]>([]),
+  selected = ref('')
+const editor = useDraftDocument((spaceId) =>
+  api.get<AssistantDeclaration>(`/operations/${selected.value}/assistant?spaceId=${spaceId}`),
+)
+async function loadOperations() {
+  const id = workspace.space?.id
+  if (!id) return
+  await operations.load(() => api.get<Operation[]>(`/operations?spaceId=${id}`))
+}
+async function refresh() {
+  await loadOperations()
+  if (selected.value) await editor.load()
+}
+watch(selected, () => {
+  editor.resource.reset()
+  if (selected.value) void editor.load()
+})
+async function save(value: Omit<AssistantDeclaration, 'operationId'>) {
+  const id = workspace.space?.id,
+    operationId = selected.value
+  if (!id || !operationId) return
+  if (
+    await editor.save((expectedDraftRev) =>
+      api.put<Space>(`/operations/${operationId}/assistant`, {
+        ...value,
+        spaceId: id,
+        expectedDraftRev,
+      }),
+    )
+  )
+    await editor.load()
+}
+onMounted(async () => {
+  await loadOperations()
+  const requested = route?.query.operationId
+  if (typeof requested === 'string' && operations.data.value.some((item) => item.id === requested))
+    selected.value = requested
+})
+</script>
+<template>
+  <div class="page-heading">
+    <div>
+      <h1>助手声明</h1>
+      <p class="muted">为模型操作定义输入、输出、必需守卫与执行属性。</p>
+    </div>
+    <el-button :disabled="editor.mutation.pending.value" @click="refresh">刷新声明</el-button>
+  </div>
+  <section class="panel stack">
+    <AsyncState
+      :loading="operations.loading.value"
+      :error="operations.error.value"
+      @retry="loadOperations"
+    >
+      <el-form label-position="top">
+        <el-form-item label="草稿操作">
+          <el-select
+            v-model="selected"
+            :disabled="editor.mutation.pending.value"
+            placeholder="选择操作以维护声明"
+          >
+            <el-option
+              v-for="item in operations.data.value"
+              :key="item.id"
+              :value="item.id"
+              :label="`${item.name}（${item.code}）`"
+            />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <p v-if="!operations.data.value.length" class="muted">尚无操作。请先在模型操作页创建。</p>
+    </AsyncState>
+    <AsyncState
+      v-if="selected"
+      :loading="editor.resource.loading.value"
+      :error="editor.resource.error.value"
+      @retry="editor.load"
+    >
+      <AssistantForm
+        v-if="editor.resource.data.value"
+        :value="editor.resource.data.value.items"
+        :can-write="workspace.canWrite"
+        :pending="editor.mutation.pending.value"
+        :stale="editor.draft.stale.value"
+        :error="editor.mutation.error.value"
+        @save="save"
+      />
+    </AsyncState>
+  </section>
+</template>
+
+FILE: web/apps/onto-admin/src/features/p2\AssistantForm.vue
+<script setup lang="ts">
+/** 声明草稿允许不完整；此表单只校验结构，生成资格由冻结契约接口权威判断。 */
+import { reactive, watch } from 'vue'
+import type { AssistantDeclaration, AssistantTool } from '@onto/api-client'
+import AssistantBehaviorFields from './AssistantBehaviorFields.vue'
+import { FieldError, objectField, objectArrayField, lines } from './fields'
+const props = defineProps<{
+  value: AssistantDeclaration
+  canWrite: boolean
+  pending: boolean
+  stale: boolean
+  error: string
+}>()
+const emit = defineEmits<{ save: [value: Omit<AssistantDeclaration, 'operationId'>] }>()
+const tool = props.value.assistantTool
+const form = reactive({
+  name: tool?.name || '',
+  description: tool?.description || '',
+  input: JSON.stringify(props.value.inputSchema ?? { type: 'object', properties: {} }, null, 2),
+  output: JSON.stringify(props.value.outputSchema ?? { type: 'object', properties: {} }, null, 2),
+  guards: tool?.guard_attrs?.join('\n') || '',
+  info: tool?.info_attrs?.join('\n') || '',
+  examples: JSON.stringify(tool?.param_examples ?? [], null, 2),
+  exec: {
+    ...(tool?.exec ?? { readonly: true, side_effect: false, idempotent: true, cancellable: true }),
+  },
+  risk: (tool?.risk_level ?? 'READ_ONLY') as NonNullable<AssistantTool['risk_level']>,
+  semantics: JSON.stringify(tool?.error_semantics ?? [], null, 2),
+  returns: JSON.stringify(tool?.return_spec ?? {}, null, 2),
+})
+const errors = reactive<Record<string, string>>({})
+// 后端字段路径仍是权威原文；映射到表单位置以便修复，不改写成前端的成功提示。
+watch(
+  () => props.error,
+  (message) => {
+    const paths: Record<string, string[]> = {
+      input: ['inputSchema', 'input_schema'],
+      output: ['outputSchema', 'output_schema'],
+      examples: ['param_examples'],
+      guards: ['guard_attrs'],
+      semantics: ['error_semantics'],
+      returns: ['return_spec'],
+      name: ['assistantTool.name'],
+      description: ['assistantTool.description'],
+    }
+    for (const [field, names] of Object.entries(paths))
+      if (message && names.some((name) => message.includes(name))) errors[field] = message
+  },
+)
+function save() {
+  if (!props.canWrite || props.pending || props.stale) return
+  Object.keys(errors).forEach((key) => delete errors[key])
+  try {
+    const inputSchema = objectField(form.input, 'input', '输入 Schema')
+    const outputSchema = objectField(form.output, 'output', '输出 Schema')
+    const examples = objectArrayField(form.examples, 'examples', '参数示例')
+    const semantics = objectArrayField(form.semantics, 'semantics', '错误语义映射').map((item) => {
+      if (
+        typeof item.match !== 'string' ||
+        typeof item.semantic !== 'string' ||
+        !['PARAM_ERROR', 'NO_PERMISSION', 'QUOTA', 'RETRYABLE_FAILURE', 'RESULT_UNKNOWN'].includes(
+          item.semantic,
+        )
+      )
+        throw new FieldError('semantics', '每项需含 match 字符串与五类 semantic 枚举。')
+      return { match: item.match, semantic: item.semantic }
+    })
+    emit('save', {
+      inputSchema,
+      outputSchema,
+      assistantTool: {
+        name: form.name,
+        description: form.description,
+        guard_attrs: lines(form.guards),
+        info_attrs: lines(form.info),
+        param_examples: examples,
+        exec: { ...form.exec },
+        risk_level: form.risk,
+        error_semantics: semantics,
+        return_spec: objectField(form.returns, 'returns', '返回约定'),
+      },
+    })
+  } catch (cause) {
+    if (cause instanceof FieldError) errors[cause.field] = cause.message
+  }
+}
+</script>
+<template>
+  <el-form
+    data-editor="assistant"
+    label-position="top"
+    :disabled="!canWrite || pending"
+    @submit.prevent="save"
+  >
+    <div class="form-columns">
+      <el-form-item label="助手名称" :error="errors.name">
+        <el-input v-model="form.name" />
+      </el-form-item>
+      <el-form-item label="助手说明" :error="errors.description">
+        <el-input v-model="form.description" type="textarea" :rows="2" />
+      </el-form-item>
+    </div>
+    <div class="form-columns">
+      <el-form-item label="输入 Schema" :error="errors.input">
+        <el-input v-model="form.input" type="textarea" :rows="8" />
+      </el-form-item>
+      <el-form-item label="输出 Schema" :error="errors.output">
+        <el-input v-model="form.output" type="textarea" :rows="8" />
+      </el-form-item>
+    </div>
+    <AssistantBehaviorFields
+      v-model:guards="form.guards"
+      v-model:info="form.info"
+      v-model:examples="form.examples"
+      v-model:exec="form.exec"
+      v-model:risk="form.risk"
+      :errors="errors"
+    />
+    <div class="form-columns">
+      <el-form-item label="错误语义映射（JSON 数组）" :error="errors.semantics">
+        <el-input v-model="form.semantics" type="textarea" :rows="6" />
+      </el-form-item>
+      <el-form-item label="返回约定（JSON 对象）" :error="errors.returns">
+        <el-input v-model="form.returns" type="textarea" :rows="6" />
+      </el-form-item>
+    </div>
+    <p class="muted">
+      可保存未配齐的草稿。完整 Schema、参数示例、守卫绑定和返回约定需在候选契约生成时通过检查。
+    </p>
+    <p v-if="stale" class="error-text" role="alert">
+      此声明已过期，输入已保留。请复制后刷新声明，载入最新内容再编辑。
+    </p>
+    <p v-if="error" class="error-text" role="alert">{{ error }}</p>
+    <el-button
+      v-if="canWrite || stale"
+      native-type="submit"
+      type="primary"
+      :disabled="!canWrite || stale"
+      :loading="pending"
+    >
+      保存声明草稿
+    </el-button>
+  </el-form>
+</template>
+
+FILE: web/apps/onto-admin/src/features/p2\AssistantBehaviorFields.vue
+<script setup lang="ts">
+/** 必需守卫和说明属性分开编辑；执行属性保持布尔类型，不从风险等级反向猜测。 */
+import type { AssistantTool } from '@onto/api-client'
+defineProps<{ errors: Record<string, string> }>()
+const guards = defineModel<string>('guards', { required: true })
+const info = defineModel<string>('info', { required: true })
+const examples = defineModel<string>('examples', { required: true })
+const exec = defineModel<NonNullable<AssistantTool['exec']>>('exec', { required: true })
+const risk = defineModel<NonNullable<AssistantTool['risk_level']>>('risk', { required: true })
+</script>
+<template>
+  <div class="form-columns">
+    <el-form-item label="必需守卫属性" :error="errors.guards">
+      <el-input v-model="guards" type="textarea" :rows="3" placeholder="每行一个，例如 region" />
+    </el-form-item>
+    <el-form-item label="说明属性">
+      <el-input v-model="info" type="textarea" :rows="3" placeholder="每行一个，不参与权限检查" />
+    </el-form-item>
+  </div>
+  <el-form-item label="参数示例（JSON 数组）" :error="errors.examples">
+    <el-input v-model="examples" type="textarea" :rows="5" />
+  </el-form-item>
+  <el-form-item label="风险等级">
+    <el-select v-model="risk">
+      <el-option value="READ_ONLY" label="READ_ONLY · 只读" />
+      <el-option value="CONFIRM_REQUIRED" label="CONFIRM_REQUIRED · 需确认" />
+    </el-select>
+  </el-form-item>
+  <el-form-item label="执行属性">
+    <div class="row">
+      <el-checkbox v-model="exec.readonly">只读</el-checkbox>
+      <el-checkbox v-model="exec.side_effect">有副作用</el-checkbox>
+      <el-checkbox v-model="exec.idempotent">幂等</el-checkbox>
+      <el-checkbox v-model="exec.cancellable">可取消</el-checkbox>
+    </div>
+  </el-form-item>
+</template>
+
+FILE: web/packages/api-client/src/index.ts
+export * from './types'
+export * from './supply'
+export type { components, paths } from './generated'
+
+/** 所有 HTTP、信封与网络失败共用此错误，页面据此提供刷新或重新登录。 */
+export class ApiError extends Error {
+  constructor(
+    public readonly code: string,
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}
+export interface Envelope<T> {
+  code: string
+  message?: string
+  data: T
+  meta?: unknown
+}
+export class ApiClient {
+  constructor(
+    private readonly token: () => string | null,
+    private readonly expired: () => void,
+    private readonly fetcher: typeof fetch = fetch,
+  ) {}
+  /** 令牌仅在请求时读取内存；不接触 localStorage/sessionStorage。 */
+  async request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
+    return (await this.requestEnvelope<T>(path, method, body)).data
+  }
+  /** 内部候选调用需保留 preview 与摘要元数据，业务结果仍独立置于 data。 */
+  async requestEnvelope<T>(path: string, method = 'GET', body?: unknown): Promise<Envelope<T>> {
+    const headers = new Headers({ Accept: 'application/json' })
+    const token = this.token()
+    if (token) headers.set('Authorization', `Bearer ${token}`)
+    if (body !== undefined) headers.set('Content-Type', 'application/json')
+    let response: Response
+    try {
+      // 原生 fetch 按全局函数调用，避免实例代理改变浏览器要求的调用上下文。
+      const fetcher = this.fetcher
+      response = await fetcher(`/onto${path}`, {
+        method,
+        headers,
+        body: body === undefined ? undefined : JSON.stringify(body),
+      })
+    } catch {
+      throw new ApiError('NETWORK_ERROR', '无法连接服务，请检查网络后重试。', 0)
+    }
+    // 旧会话的迟到响应只能使旧请求失败，不能注销用户重新登录后的新会话。
+    if (response.status === 401 && token === this.token()) this.expired()
+    let envelope: Envelope<T>
+    try {
+      const parsed: unknown = await response.json()
+      if (
+        typeof parsed !== 'object' ||
+        parsed === null ||
+        !('code' in parsed) ||
+        typeof parsed.code !== 'string' ||
+        ('message' in parsed && typeof parsed.message !== 'string') ||
+        (parsed.code !== 'OK' && !('message' in parsed)) ||
+        !('data' in parsed)
+      )
+        throw new Error('Invalid envelope')
+      envelope = parsed as Envelope<T>
+    } catch {
+      throw new ApiError('INVALID_RESPONSE', '服务响应无法读取，请稍后重试。', response.status)
+    }
+    if (!response.ok || envelope.code !== 'OK')
+      throw new ApiError(
+        envelope.code || 'HTTP_ERROR',
+        envelope.message ||
+          (response.status === 403 ? '当前账号没有此操作权限。' : '操作失败，请重试。'),
+        response.status,
+      )
+    return envelope
+  }
+  get<T>(path: string) {
+    return this.request<T>(path)
+  }
+  post<T>(path: string, body: unknown) {
+    return this.request<T>(path, 'POST', body)
+  }
+  put<T>(path: string, body: unknown) {
+    return this.request<T>(path, 'PUT', body)
+  }
+  delete<T>(path: string) {
+    return this.request<T>(path, 'DELETE')
+  }
+}
+
+
+FILE: web/packages/api-client/src/index.ts
+export * from './types'
+export * from './supply'
+export type { components, paths } from './generated'
+
+/** 所有 HTTP、信封与网络失败共用此错误，页面据此提供刷新或重新登录。 */
+export class ApiError extends Error {
+  constructor(
+    public readonly code: string,
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}
+export interface Envelope<T> {
+  code: string
+  message?: string
+  data: T
+  meta?: unknown
+}
+export class ApiClient {
+  constructor(
+    private readonly token: () => string | null,
+    private readonly expired: () => void,
+    private readonly fetcher: typeof fetch = fetch,
+  ) {}
+  /** 令牌仅在请求时读取内存；不接触 localStorage/sessionStorage。 */
+  async request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
+    return (await this.requestEnvelope<T>(path, method, body)).data
+  }
+  /** 内部候选调用需保留 preview 与摘要元数据，业务结果仍独立置于 data。 */
+  async requestEnvelope<T>(path: string, method = 'GET', body?: unknown): Promise<Envelope<T>> {
+    const headers = new Headers({ Accept: 'application/json' })
+    const token = this.token()
+    if (token) headers.set('Authorization', `Bearer ${token}`)
+    if (body !== undefined) headers.set('Content-Type', 'application/json')
+    let response: Response
+    try {
+      // 原生 fetch 按全局函数调用，避免实例代理改变浏览器要求的调用上下文。
+      const fetcher = this.fetcher
+      response = await fetcher(`/onto${path}`, {
+        method,
+        headers,
+        body: body === undefined ? undefined : JSON.stringify(body),
+      })
+    } catch {
+      throw new ApiError('NETWORK_ERROR', '无法连接服务，请检查网络后重试。', 0)
+    }
+    // 旧会话的迟到响应只能使旧请求失败，不能注销用户重新登录后的新会话。
+    if (response.status === 401 && token === this.token()) this.expired()
+    let envelope: Envelope<T>
+    try {
+      const parsed: unknown = await response.json()
+      if (
+        typeof parsed !== 'object' ||
+        parsed === null ||
+        !('code' in parsed) ||
+        typeof parsed.code !== 'string' ||
+        ('message' in parsed && typeof parsed.message !== 'string') ||
+        (parsed.code !== 'OK' && !('message' in parsed)) ||
+        !('data' in parsed)
+      )
+        throw new Error('Invalid envelope')
+      envelope = parsed as Envelope<T>
+    } catch {
+      throw new ApiError('INVALID_RESPONSE', '服务响应无法读取，请稍后重试。', response.status)
+    }
+    if (!response.ok || envelope.code !== 'OK')
+      throw new ApiError(
+        envelope.code || 'HTTP_ERROR',
+        envelope.message ||
+          (response.status === 403 ? '当前账号没有此操作权限。' : '操作失败，请重试。'),
+        response.status,
+      )
+    return envelope
+  }
+  get<T>(path: string) {
+    return this.request<T>(path)
+  }
+  post<T>(path: string, body: unknown) {
+    return this.request<T>(path, 'POST', body)
+  }
+  put<T>(path: string, body: unknown) {
+    return this.request<T>(path, 'PUT', body)
+  }
+  delete<T>(path: string) {
+    return this.request<T>(path, 'DELETE')
+  }
+}
+
+FILE: web/packages/api-client/src/supply.ts
+/** P2 原始协议类型；assistantTool 内部 snake_case 不做字段翻译。 */
+export type JsonObject = Record<string, unknown>
+export interface AssistantTool {
+  name?: string
+  description?: string
+  guard_attrs?: string[]
+  info_attrs?: string[]
+  param_examples?: JsonObject[]
+  exec?: { readonly: boolean; side_effect: boolean; idempotent: boolean; cancellable: boolean }
+  risk_level?: 'READ_ONLY' | 'CONFIRM_REQUIRED'
+  error_semantics?: { match: string; semantic: string }[]
+  return_spec?: JsonObject
+}
+export interface AssistantDeclaration {
+  operationId: string
+  inputSchema: JsonObject | null
+  outputSchema: JsonObject | null
+  assistantTool: AssistantTool | null
+}
+export type GuardType = 'STRING' | 'INTEGER' | 'DECIMAL' | 'BOOLEAN'
+export interface GuardDefinition {
+  type: GuardType
+  authorization_rule?: { kind: 'PRINCIPAL_ATTRIBUTE'; attribute: string }
+  filter_binding?: { table: string; column: string; operator: 'IN' }
+}
+export interface Guards {
+  guardCfg: Record<string, GuardDefinition>
+}
+export interface GrantUser {
+  userId: string
+  username: string
+  displayName: string
+}
+export interface SpaceGrant extends GrantUser {
+  role: 'OWNER' | 'EDITOR' | 'VIEWER'
+  dataScope: JsonObject | null
+  attributes: JsonObject
+}
+export interface KnowledgeEntry {
+  id: string
+  spaceId: string
+  term: string
+  aliases: string[]
+  definition: string
+  conceptRef: string | null
+  sourceRef: string
+}
+export interface CandidateIdentity {
+  candidateId: string
+  candidateSha256: string
+}
+export interface CandidateContracts extends CandidateIdentity {
+  manifests: JsonObject[]
+}
+export interface ContextPack extends CandidateIdentity {
+  conceptCards: JsonObject[]
+  termDictionary: JsonObject[]
+  relationSummaries: JsonObject[]
+  exampleQa: JsonObject[]
+}
+export interface KnowledgeSearch extends CandidateIdentity {
+  hits: {
+    entryId: string
+    term: string
+    definition: string
+    score: number
+    matchedAlias: string | null
+  }[]
+}
+
+FILE: web/packages/api-client/src/types.ts
+import type { components } from './generated'
+
+/** 结构来自真实服务导出的 OpenAPI；业务契约进一步收紧必填、枚举及可空字段。 */
+type Schema<Key extends keyof components['schemas']> = Required<components['schemas'][Key]>
+export type User = Schema<'User'>
+export type LoginResult = Omit<Schema<'Login'>, 'user'> & { user: User }
+export type Space = Omit<Schema<'Space'>, 'status' | 'role'> & {
+  status: 'ACTIVE' | 'ARCHIVED'
+  role: 'OWNER' | 'EDITOR' | 'VIEWER'
+}
+export type OntClass = Omit<Schema<'OntClass'>, 'parentId'> & { parentId: string | null }
+export type RangeType = 'STRING' | 'INTEGER' | 'DECIMAL' | 'BOOLEAN' | 'DATE'
+export type Scalar = string | number | boolean
+export interface PropertyFacets {
+  unitCodebookId?: string
+  unitCode?: string
+  codebookId?: string
+  defaultValue?: Scalar
+  enumValues?: Scalar[]
+  minimum?: number
+  maximum?: number
+  primaryKey?: boolean
+}
+export type OntProperty = Omit<Schema<'OntProperty'>, 'rangeType'> & {
+  rangeType: RangeType
+  facets?: PropertyFacets
+}
+export type OperationKind = 'OBJECT_QUERY' | 'RELATION_QUERY' | 'RULE_CHECK' | 'SCORING'
+export type Operation = Omit<Schema<'Operation'>, 'kind'> & {
+  kind: OperationKind
+  strategyRef?: string | null
+  ruleIds?: string[]
+}
+/** P1 扩展类型由 contracts/p1-extension.md 约束，生成文档更新前显式维护新增结构。 */
+export interface Codebook {
+  id: string
+  spaceId: string
+  code: string
+  name: string
+  kind: 'UNIT' | 'VALUE'
+  entries: { code: string; label: string }[]
+}
+export interface Relation {
+  id: string
+  spaceId: string
+  name: string
+  fromClassId: string
+  toClassId: string
+  cardinality: 'ONE_TO_ONE' | 'ONE_TO_MANY' | 'MANY_TO_ONE' | 'MANY_TO_MANY'
+  inverseOf: string | null
+  transitive: boolean
+  symmetric: boolean
+  description: string
+  /** 服务端计算的推理子集标记，仅展示；关系写请求不允许客户端指定。 */
+  readonly subsetExceeded?: boolean
+}
+export interface Constraint {
+  id: string
+  spaceId: string
+  name: string
+  kind: 'RANGE' | 'CARDINALITY' | 'MUTEX' | 'DEPENDENCY'
+  targetType: 'CLASS' | 'PROPERTY' | 'RELATION'
+  targetRef: string
+  expr: Record<string, unknown>
+}
+export interface Rule {
+  id: string
+  spaceId: string
+  name: string
+  applicableClassId: string
+  kind: 'VALIDATION' | 'SCORING'
+  condition: string
+  action: Record<string, unknown>
+  scoring: Record<string, unknown> | null
+  severity: 'WARN' | 'ERROR'
+}
+export interface Strategy {
+  id: string
+  spaceId: string
+  name: string
+  policy: {
+    maxRows: number
+    timeoutMs: number
+    resultLimit: number
+    failureMode: 'FAIL'
+    readScope: Record<string, unknown> | null
+  }
+  boundOps: string[]
+}
+export interface Conflict {
+  kind: 'REFERENCE' | 'TYPE' | 'CONSTRAINT' | 'LOGIC'
+  message: string
+  entityIds: string[]
+}
+export interface Conflicts {
+  errors: Conflict[]
+  warnings: Conflict[]
+}
+export interface ImportIssue {
+  line: number
+  message: string
+  construct?: string
+}
+export interface ImportPreview {
+  id: string
+  status: 'PREVIEW' | 'FAILED'
+  targetDraftRev: number
+  added: number
+  updated: number
+  conflicts: ImportIssue[]
+  unsupported: ImportIssue[]
+  errors: ImportIssue[]
+}
+export interface TestCase {
+  id: string
+  spaceId: string
+  name: string
+  question: string
+  operationId: string
+  input: Record<string, unknown>
+  expected: Record<string, unknown>
+  matchMode: 'EXACT' | 'CONTAINS'
+  enabled: boolean
+  /** 旧用例缺省为 DIRECT；NL 由服务端匹配真实操作，operationId 仅作为期望断言。 */
+  mode?: 'DIRECT' | 'NL'
+}
+export interface CandidateCheck {
+  kind: string
+  conclusion: string
+  reason: string
+  message: string
+  details: Record<string, unknown>
+}
+export interface CandidateChecks {
+  candidateSha256: string
+  eligible: boolean
+  checks: CandidateCheck[]
+}
+export interface CandidateTests {
+  candidateSha256: string
+  passed: boolean
+  results: { caseId: string; name: string; passed: boolean; executionId: string; message: string }[]
+}
+export interface Waiver {
+  id: string
+  candidateSha256: string
+  kind: 'SUBSET_EXCEEDED'
+  reason: string
+  approver: string
+}
+/** 候选只可试执行，不能作为正式发布版本消费。 */
+export type Candidate = Omit<Schema<'Candidate'>, 'status'> & { status: 'TESTING' }
+/** 当前 springdoc 字符串可空标记不完整，以下按已批准契约明确 null 语义。 */
+export type Execution = Omit<
+  Schema<'Execution'>,
+  'subjectType' | 'status' | 'errorCode' | 'rows' | 'steps'
+> & {
+  subjectType: 'CANDIDATE'
+  status: 'SUCCEEDED' | 'FAILED'
+  errorCode: string | null
+  rows: Record<string, string | null>[]
+  steps: Schema<'Step'>[]
+}
+
+FILE: web/apps/onto-admin/src/router.ts
+import { createRouter, createWebHistory } from 'vue-router'
+import { useSession } from './stores/session'
+export const router = createRouter({
+  history: createWebHistory(),
+  routes: [
+    { path: '/login', component: () => import('./views/LoginView.vue') },
+    {
+      path: '/',
+      component: () => import('./layouts/WorkbenchLayout.vue'),
+      children: [
+        { path: '', redirect: '/spaces' },
+        { path: 'spaces', component: () => import('./views/SpacesView.vue') },
+        { path: 'spaces/:spaceId', redirect: (to) => `/spaces/${String(to.params.spaceId)}/model` },
+        { path: 'spaces/:spaceId/model', component: () => import('./views/ModelView.vue') },
+        {
+          path: 'spaces/:spaceId/codebooks',
+          component: () => import('./features/p1/CodebooksView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/relations',
+          component: () => import('./features/p1/RelationsView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/constraints',
+          component: () => import('./features/p1/ConstraintsView.vue'),
+        },
+        { path: 'spaces/:spaceId/rules', component: () => import('./features/p1/RulesView.vue') },
+        {
+          path: 'spaces/:spaceId/strategies',
+          component: () => import('./features/p1/StrategiesView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/imports',
+          component: () => import('./features/p1/ImportsView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/test-cases',
+          component: () => import('./features/p1/TestCasesView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/operations',
+          component: () => import('./views/OperationsView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/assistant',
+          component: () => import('./features/p2/AssistantView.vue'),
+        },
+        { path: 'spaces/:spaceId/guards', component: () => import('./features/p2/GuardsView.vue') },
+        { path: 'spaces/:spaceId/grants', component: () => import('./features/p2/GrantsView.vue') },
+        {
+          path: 'spaces/:spaceId/knowledge',
+          component: () => import('./features/p2/KnowledgeView.vue'),
+        },
+        { path: 'spaces/:spaceId/supply', component: () => import('./features/p2/SupplyView.vue') },
+        {
+          path: 'spaces/:spaceId/candidates',
+          component: () => import('./views/CandidatesView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/executions',
+          component: () => import('./views/ExecutionsView.vue'),
+        },
+      ],
+    },
+    { path: '/:pathMatch(.*)*', redirect: '/spaces' },
+  ],
+})
+router.beforeEach((to) => (!useSession().token && to.path !== '/login' ? '/login' : true))
+
+FILE: web/apps/onto-admin/src/layouts/WorkbenchLayout.vue
+<script setup lang="ts">
+/** 共享工作台导航与空间授权上下文；切空间先撤销旧上下文，序号隔离迟到结果及错误。 */
+import { computed, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useSession } from '../stores/session'
+import { useWorkspace } from '../stores/workspace'
+import { errorMessage } from '../composables/useResource'
+import { roleLabels } from '../composables/labels'
+import AsyncState from '@onto/shared-ui/AsyncState.vue'
+const route = useRoute(),
+  router = useRouter(),
+  session = useSession(),
+  workspace = useWorkspace()
+const loading = ref(false),
+  error = ref(''),
+  signingOut = ref(false)
+const spaceId = computed(() =>
+  typeof route.params.spaceId === 'string' ? route.params.spaceId : '',
+)
+let sequence = 0
+async function loadSpace() {
+  const ticket = ++sequence
+  error.value = ''
+  loading.value = !!spaceId.value
+  if (!spaceId.value) {
+    workspace.clear()
+    return
+  }
+  try {
+    await workspace.load(spaceId.value)
+  } catch (cause) {
+    if (ticket === sequence) error.value = errorMessage(cause)
+  } finally {
+    if (ticket === sequence) loading.value = false
+  }
+}
+watch(spaceId, loadSpace, { immediate: true })
+const tabs = [
+  { path: 'model', label: '对象与属性' },
+  { path: 'codebooks', label: '码表管理' },
+  { path: 'relations', label: '关系与逆关系' },
+  { path: 'constraints', label: '约束管理' },
+  { path: 'rules', label: '规则与评分' },
+  { path: 'strategies', label: '执行策略' },
+  { path: 'operations', label: '模型操作' },
+  { path: 'assistant', label: '助手声明' },
+  { path: 'knowledge', label: '知识管理' },
+  { path: 'guards', label: '空间守卫' },
+  { path: 'grants', label: '主体授权', ownerOnly: true },
+  { path: 'imports', label: 'TTL / OWL 导入导出' },
+  { path: 'test-cases', label: '用例管理' },
+  { path: 'candidates', label: '候选与试执行' },
+  { path: 'supply', label: '候选供给' },
+  { path: 'executions', label: '执行记录' },
+]
+async function logout() {
+  if (signingOut.value) return
+  signingOut.value = true
+  try {
+    await session.logout()
+  } catch {
+    /* 即使撤销请求失败，本地令牌也已在 finally 清理。 */
+  } finally {
+    signingOut.value = false
+    await router.replace('/login')
+  }
+}
+</script>
+<template>
+  <div class="workbench">
+    <aside class="navigation">
+      <router-link to="/spaces" class="brand">
+        <span class="brand-symbol">本</span>
+        <span>
+          领域本体
+          <small>建模工作台</small>
+        </span>
+      </router-link>
+      <div class="nav-label">工作空间</div>
+      <router-link to="/spaces" class="nav-item">空间管理</router-link>
+      <template v-if="spaceId">
+        <div class="nav-label">{{ workspace.space?.name || '当前空间' }}</div>
+        <router-link
+          v-for="tab in tabs.filter((tab) => !tab.ownerOnly || workspace.space?.role === 'OWNER')"
+          :key="tab.path"
+          :to="`/spaces/${spaceId}/${tab.path}`"
+          class="nav-item"
+        >
+          {{ tab.label }}
+        </router-link>
+      </template>
+      <div class="nav-foot">
+        模型查询工作台
+        <br />
+        候选版本仅供试执行
+      </div>
+    </aside>
+    <div class="work-area">
+      <header class="topbar">
+        <span class="muted">
+          {{ workspace.space?.name || '工作空间' }}
+          <template v-if="workspace.space">
+            /
+            <span class="mono">r{{ workspace.space.draftRev }}</span>
+            <span class="pill">{{ roleLabels[workspace.space.role] }}</span>
+          </template>
+        </span>
+        <div class="row">
+          <span class="muted">{{ session.user?.displayName }}</span>
+          <el-button text :loading="signingOut" @click="logout">退出登录</el-button>
+        </div>
+      </header>
+      <main class="main-content">
+        <div v-if="workspace.stale" class="readonly-note" role="alert">
+          草稿已被其他编辑更新，当前空间已暂停写入。请关闭编辑框，并使用页面的刷新按钮载入最新内容后重新编辑。
+        </div>
+        <AsyncState :loading="loading" :error="error" @retry="loadSpace">
+          <template v-if="workspace.space?.status === 'ARCHIVED'">
+            <div class="readonly-note">此空间已归档，可浏览已有模型、候选与执行记录。</div>
+          </template>
+          <template v-else-if="workspace.space?.role === 'VIEWER'">
+            <div class="readonly-note">你拥有查看权限，编辑与试执行需要空间编辑者授权。</div>
+          </template>
+          <router-view v-if="!spaceId || workspace.space" :key="spaceId" />
+        </AsyncState>
+      </main>
+    </div>
+  </div>
+</template>
+<style scoped>
+.workbench {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+}
+.navigation {
+  background: var(--nav);
+  color: #bed0e5;
+  padding: 28px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.brand {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  color: white;
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0 8px 34px;
+}
+.brand small {
+  display: block;
+  font-size: 11px;
+  color: #98b2d0;
+  letter-spacing: 2px;
+  margin-top: 5px;
+}
+.brand-symbol {
+  display: grid;
+  place-items: center;
+  border: 1px solid #6887b4;
+  border-radius: 6px;
+  width: 36px;
+  height: 40px;
+  font-size: 22px;
+}
+.nav-label {
+  font-size: 11px;
+  color: #8ea8c6;
+  padding: 20px 14px 8px;
+  overflow-wrap: anywhere;
+}
+.nav-item {
+  padding: 12px 14px;
+  border-radius: 6px;
+  color: #c4d2e4;
+  font-size: 14px;
+}
+.nav-item:hover {
+  background: #203c60;
+}
+.nav-item.router-link-active {
+  background: #284f80;
+  color: #fff;
+  box-shadow: inset 3px 0 #7ca7ff;
+}
+.nav-foot {
+  margin-top: auto;
+  padding: 40px 14px 0;
+  font-size: 11px;
+  line-height: 1.8;
+  color: #8ea8c6;
+}
+.work-area {
+  min-width: 0;
+}
+.topbar {
+  height: 66px;
+  background: #fff;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 32px;
+  gap: 12px;
+}
+.topbar .pill {
+  margin-left: 8px;
+}
+.main-content {
+  padding: 30px 32px;
+  max-width: 1600px;
+  margin: auto;
+}
+@media (max-width: 900px) {
+  .workbench {
+    grid-template-columns: 176px minmax(0, 1fr);
+  }
+  .main-content {
+    padding: 24px 18px;
+  }
+  .topbar {
+    padding: 0 18px;
+  }
+}
+@media (max-width: 650px) {
+  .workbench {
+    display: block;
+  }
+  .navigation {
+    padding: 14px;
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+  }
+  .brand {
+    font-size: 16px;
+    margin: 0 16px 0 0;
+  }
+  .brand-symbol {
+    width: 28px;
+    height: 32px;
+    font-size: 18px;
+  }
+  .brand small,
+  .nav-label,
+  .nav-foot {
+    display: none;
+  }
+  .nav-item {
+    font-size: 12px;
+    padding: 9px;
+  }
+  .topbar {
+    height: auto;
+    min-height: 58px;
+    flex-wrap: wrap;
+    padding: 10px 16px;
+  }
+  .main-content {
+    padding: 22px 12px;
+  }
+}
+</style>
+
+FILE: web/apps/onto-admin/src/features/p1/TestCasesView.vue
+<script setup lang="ts">
+/** 默认精确匹配；包含匹配是逐用例的显式选择。冻结后的用例只由候选执行接口读取。 */
+import { onMounted, reactive } from 'vue'
+import type { TestCase } from '@onto/api-client'
+import AsyncState from '@onto/shared-ui/AsyncState.vue'
+import { useDraftCollection } from './useDraftCollection'
+import { useReferences } from './useReferences'
+import { parseObject } from './inputs'
+import EditorActions from './EditorActions.vue'
+import EntityDetails from './EntityDetails.vue'
+const page = useDraftCollection<TestCase>('/test-cases'),
+  references = useReferences(['operations'])
+const form = reactive({
+  name: '',
+  question: '',
+  operationId: '',
+  input: '{}',
+  expected: '{}',
+  matchMode: 'EXACT' as TestCase['matchMode'],
+  enabled: true,
+  mode: 'DIRECT' as NonNullable<TestCase['mode']>,
+})
+async function load() {
+  await Promise.all([page.load(), references.load()])
+}
+function edit(item: TestCase | null) {
+  page.edit(item)
+  Object.assign(form, {
+    name: item?.name || '',
+    question: item?.question || '',
+    operationId: item?.operationId || '',
+    input: JSON.stringify(item?.input || {}, null, 2),
+    expected: JSON.stringify(item?.expected || {}, null, 2),
+    matchMode: item?.matchMode || 'EXACT',
+    enabled: item?.enabled ?? true,
+    mode: item?.mode || 'DIRECT',
+  })
+}
+async function save() {
+  try {
+    if (!form.name.trim() || !form.question.trim() || !form.operationId)
+      throw new Error('请填写名称、问题并选择预期命中操作。')
+    await page.save({
+      ...form,
+      input: parseObject(form.input, '用例输入'),
+      expected: parseObject(form.expected, '预期结果'),
+    })
+  } catch (cause) {
+    page.mutation.error.value = cause instanceof Error ? cause.message : '用例无法读取。'
+  }
+}
+onMounted(load)
+</script>
+<template>
+  <div class="page-heading">
+    <div>
+      <h1>用例管理</h1>
+      <p class="muted">定义问题、命中操作及确定性结果断言，随候选冻结后执行。</p>
+    </div>
+    <div class="row">
+      <el-button @click="load">刷新</el-button>
+      <el-button v-if="page.workspace.canWrite" type="primary" @click="edit(null)">
+        新建用例
+      </el-button>
+    </div>
+  </div>
+  <p v-if="references.error.value" class="error-text" role="alert">
+    操作读取失败：{{ references.error.value }}
+    <el-button text @click="references.load">重试</el-button>
+  </p>
+  <p v-if="page.mutation.error.value && !page.open.value" class="error-text" role="alert">
+    {{ page.mutation.error.value }}
+  </p>
+  <AsyncState
+    :loading="page.items.loading.value"
+    :error="page.items.error.value"
+    :empty="!page.items.data.value.length"
+    empty-text="暂无测试用例。添加问题与结果断言，然后冻结候选运行。"
+    @retry="load"
+  >
+    <section class="panel overflow">
+      <el-table :data="page.items.data.value">
+        <el-table-column type="expand">
+          <template #default="{ row }"><EntityDetails :item="row" /></template>
+        </el-table-column>
+        <el-table-column prop="name" label="名称" min-width="140" />
+        <el-table-column prop="question" label="问题" min-width="220" />
+        <el-table-column prop="matchMode" label="匹配" width="110" />
+        <el-table-column label="执行模式" width="110">
+          <template #default="{ row }">{{ row.mode || 'DIRECT' }}</template>
+        </el-table-column>
+        <el-table-column label="启用" width="80">
+          <template #default="{ row }">{{ row.enabled ? '是' : '否' }}</template>
+        </el-table-column>
+        <el-table-column v-if="page.workspace.canWrite" label="操作" width="130">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="edit(row)">编辑</el-button>
+            <el-button
+              link
+              type="danger"
+              :disabled="page.mutation.pending.value"
+              @click="page.remove(row)"
+            >
+              删除
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </section>
+  </AsyncState>
+  <el-dialog
+    destroy-on-close
+    v-model="page.open.value"
+    title="维护测试用例"
+    width="760px"
+    :close-on-click-modal="false"
+    :show-close="!page.mutation.pending.value"
+    :close-on-press-escape="!page.mutation.pending.value"
+  >
+    <el-form label-position="top" @submit.prevent="save">
+      <el-form-item label="名称" required><el-input v-model="form.name" /></el-form-item>
+      <el-form-item label="问题" required>
+        <el-input v-model="form.question" type="textarea" :rows="2" />
+      </el-form-item>
+      <el-form-item label="预期命中操作" required>
+        <el-select v-model="form.operationId" filterable>
+          <el-option
+            v-for="item in references.data.value.operations || []"
+            :key="item.id"
+            :value="item.id"
+            :label="item.name"
+          />
+        </el-select>
+      </el-form-item>
+      <div class="form-columns">
+        <el-form-item label="用例输入（JSON 对象）">
+          <el-input v-model="form.input" type="textarea" :rows="7" />
+        </el-form-item>
+        <el-form-item label="预期结果（JSON 对象）">
+          <el-input v-model="form.expected" type="textarea" :rows="7" />
+        </el-form-item>
+      </div>
+      <el-form-item label="结果匹配模式">
+        <el-select v-model="form.matchMode">
+          <el-option value="EXACT" label="精确匹配（默认）" />
+          <el-option value="CONTAINS" label="包含匹配（显式放宽）" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="执行模式">
+        <el-select v-model="form.mode">
+          <el-option value="DIRECT" label="DIRECT · 直接执行预期操作" />
+          <el-option value="NL" label="NL · 使用冻结知识确定性匹配操作" />
+        </el-select>
+      </el-form-item>
+      <p v-if="form.mode === 'NL'" class="muted">
+        服务端根据冻结词典、操作说明和参数示例匹配；存在歧义或实际命中与期望操作不同均判失败。
+      </p>
+      <el-checkbox v-model="form.enabled">启用此用例</el-checkbox>
+      <p class="muted">只有候选中已冻结且启用的用例会执行，当前草稿变更不改变旧候选。</p>
+      <EditorActions
+        :pending="page.mutation.pending.value"
+        :error="page.mutation.error.value"
+        :stale="page.draft.stale.value"
+        :can-write="page.workspace.canWrite && !references.error.value"
+        @cancel="page.open.value = false"
+      />
+    </el-form>
+  </el-dialog>
+</template>

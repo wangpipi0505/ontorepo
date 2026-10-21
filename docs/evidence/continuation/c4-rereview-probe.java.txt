@@ -1,0 +1,202 @@
+import cn.ontorepo.DesignerApplication;
+import cn.ontorepo.api.*;
+import cn.ontorepo.common.domain.*;
+import cn.ontorepo.common.infra.Db;
+import cn.ontorepo.contract.*;
+import cn.ontorepo.data.domain.*;
+import cn.ontorepo.knowledge.application.KnowledgeService;
+import cn.ontorepo.operation.application.*;
+import cn.ontorepo.space.application.*;
+import cn.ontorepo.trace.application.*;
+import cn.ontorepo.trace.infra.CanonicalPayload;
+import com.fasterxml.jackson.databind.*;
+import org.springframework.boot.*;
+import org.springframework.context.ConfigurableApplicationContext;
+import java.sql.*;
+import java.util.*;
+
+public class P2RereviewProbe {
+  static final ObjectMapper JSON=new ObjectMapper();
+  static Db db; static SpaceService spaces; static GuardService guards;
+  static CandidateService candidates; static CandidateTestService tests;
+  static AssistantService assistants; static TestCaseService cases;
+  static UUID owner=UUID.randomUUID(), space,op,caseId;
+  static void check(boolean result,String name) {if(!result) throw new AssertionError(name);}
+  static void out(String name,Object value) throws Exception {
+    System.out.println("REVIEW "+name+" "+JSON.writeValueAsString(value));
+  }
+  static long rev(){return ((Number)spaces.get(owner,space).get("draftRev")).longValue();}
+  static Map<String,Object> body(Object... pairs) {
+    var b=new LinkedHashMap<String,Object>();b.put("spaceId",space);b.put("expectedDraftRev",rev());
+    for(int i=0;i<pairs.length;i+=2)b.put(pairs[i].toString(),pairs[i+1]);return b;
+  }
+  static UUID freeze(){return Input.uuid(candidates.freeze(owner,space,rev()).get("id"));}
+  static String fail(Runnable r) {
+    try{r.run();return "RETURNED";}
+    catch(Problem e){return e.code;}
+    catch(ContractProblem e){return e.code();}
+    catch(DataProblem e){return e.code();}
+  }
+  static Map<String,Object> tool(String attr,Object example) {
+    var t=new LinkedHashMap<String,Object>();
+    t.put("name","列出对象");t.put("description","列出对象模型");
+    t.put("guard_attrs",List.of(attr));t.put("info_attrs",List.of());
+    t.put("param_examples",Collections.singletonList(example));
+    t.put("exec",Map.of("readonly",true,"side_effect",false,"idempotent",true,"cancellable",true));
+    t.put("risk_level","READ_ONLY");
+    t.put("error_semantics",List.of(Map.of("match","HTTP 403","semantic","NO_PERMISSION")));
+    t.put("return_spec",Map.of("modelSummary",Map.of("mode","TEMPLATE","template","结果"),
+      "structuredPath","$.data","fileRefPaths",List.of(),"cardTemplate","结果"));return t;
+  }
+  static void declare(String attr,Map<String,Object> schema,Object value) {
+    assistants.save(owner,op,body("inputSchema",schema,"outputSchema",Map.of("type","object"),
+      "assistantTool",tool(attr,value)));
+  }
+  static void guard(String attr) {
+    guards.saveGuards(owner,space,body("guardCfg",Map.of(attr,Map.of("type","STRING",
+      "authorization_rule",Map.of("kind","PRINCIPAL_ATTRIBUTE","attribute",attr)))));
+    grant(attr,"A");
+  }
+  static void grant(String attr,String allowed) {
+    guards.saveGrant(owner,space,owner,body("role","OWNER","attributes",Map.of(attr,"A"),
+      "dataScope",Map.of("attr",attr,"in",List.of(allowed))));
+  }
+  static void testCase(Object input,String mode,String question) {
+    cases.save(owner,caseId,body("name","独立复审","question",question,"operationId",op,
+      "input",input,"expected",Map.of("rows",List.of()),"enabled",true,"mode",mode));
+    if(caseId==null)caseId=Input.uuid(cases.list(owner,space).getFirst().get("id"));
+  }
+  static Object convert(String raw) throws Exception {
+    var converter=new org.springframework.http.converter.json.MappingJackson2HttpMessageConverter();
+    var message=new org.springframework.http.HttpInputMessage() {
+      public java.io.InputStream getBody(){return new java.io.ByteArrayInputStream(raw.getBytes(java.nio.charset.StandardCharsets.UTF_8));}
+      public org.springframework.http.HttpHeaders getHeaders(){var h=new org.springframework.http.HttpHeaders();
+        h.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);return h;}
+    };
+    return converter.read(JsonNode.class,message);
+  }
+  static String expectedDigest(ConfigurableApplicationContext ctx,UUID id,Object input) {
+    var p=new TreeMap<String,Object>();
+    p.put("candidateId",id.toString());p.put("candidateSha256",candidates.candidate(owner,id).get("sha256"));
+    p.put("operationId",op.toString());p.put("parameters",input);
+    return AuthService.digest(ctx.getBean(CanonicalPayload.class).encode(p));
+  }
+  record Root(String name,Map<String,Object> schema,Object value){}
+  public static void main(String[] args)throws Exception {
+    JSON.getFactory().configure(com.fasterxml.jackson.core.JsonGenerator.Feature.ESCAPE_NON_ASCII,true);
+    String url=System.getenv("ONTO_TEST_DB_URL");
+    if(!"jdbc:postgresql://127.0.0.1:15472/onto_test_p2".equals(url))throw new IllegalStateException("test DB required");
+    String schema="c4rereview_"+UUID.randomUUID().toString().replace("-","");
+    try(var c=DriverManager.getConnection(url,System.getenv("ONTO_DB_USER"),System.getenv("ONTO_DB_PASSWORD"))){
+      c.createStatement().execute("CREATE SCHEMA "+schema);
+    }
+    var app=new SpringApplication(DesignerApplication.class);app.setWebApplicationType(WebApplicationType.NONE);
+    try(var ctx=app.run("--spring.main.banner-mode=off","--logging.level.root=WARN",
+      "--spring.datasource.url="+url+"?currentSchema="+schema+"&ApplicationName=c4_rereview",
+      "--spring.flyway.default-schema="+schema,"--spring.flyway.schemas="+schema)) {
+      db=ctx.getBean(Db.class);spaces=ctx.getBean(SpaceService.class);guards=ctx.getBean(GuardService.class);
+      candidates=ctx.getBean(CandidateService.class);tests=ctx.getBean(CandidateTestService.class);
+      assistants=ctx.getBean(AssistantService.class);cases=ctx.getBean(TestCaseService.class);
+      out("database",db.one("select current_database() db,current_schema() schema"));
+      db.update("INSERT INTO local_user VALUES(?,?,?,?)",owner,"r"+owner,"review","test-only-no-login");
+      space=Input.uuid(spaces.create(owner,Map.of("code","r"+UUID.randomUUID().toString().replace("-",""),
+        "name","复审","namespaceUri","https://rereview.example/ns/")).get("id"));
+      var ops=ctx.getBean(OperationService.class);
+      ops.save(owner,null,body("code","listClasses","name","列出对象",
+        "queryTemplate","PREFIX owl:<http://www.w3.org/2002/07/owl#> SELECT ?class WHERE {?class a owl:Class}",
+        "maxRows",20,"timeoutMs",1000));
+      op=Input.uuid(ops.list(owner,space).getFirst().get("id"));
+
+      UUID legacy=freeze();
+      var legacyNull=candidates.trial(owner,legacy,op,null);
+      check("SUCCEEDED".equals(legacyNull.get("status")),"legacy null execution");
+      check(expectedDigest(ctx,legacy,Map.of()).equals(db.one("select input_digest from op_execution where id=?",
+        Input.uuid(legacyNull.get("id"))).get("inputDigest")),"legacy null normalized digest");
+      out("legacyNullCompatibility","SUCCEEDED; digest parameters={}");
+
+      guard("region");declare("region",Map.of("type","object"),Map.of());
+      var knowledge=ctx.getBean(KnowledgeService.class);
+      knowledge.save(owner,null,body("term","!!!","aliases",List.of("???"),"definition","符号","sourceRef","review:R1"));
+      knowledge.save(owner,null,body("term","对象","aliases",List.of("实体","!!!"),"definition","对象","sourceRef","review:R1-normal"));
+      testCase(Map.of(),"NL","完全陌生的问题");UUID punct=freeze();
+      var payload=candidates.payload(candidates.candidate(owner,punct));
+      var matcher=ctx.getBean(TermMatcher.class);
+      check(fail(()->matcher.select(payload,"完全陌生的问题")).equals("NL_OPERATION_NOT_FOUND"),"R1 no hit");
+      check(!Boolean.TRUE.equals(tests.tests(owner,punct).get("passed")),"R1 full EXACT must fail");
+      check(op.equals(matcher.select(payload,"有哪些实体")),"R1 normal alias");
+      var duplicated=new LinkedHashMap<>(payload);
+      var second=new LinkedHashMap<>(cn.ontorepo.knowledge.application.FrozenKnowledge.rows(payload,"operations").getFirst());
+      second.put("id",UUID.randomUUID().toString());second.put("code","other");
+      duplicated.put("operations",List.of(cn.ontorepo.knowledge.application.FrozenKnowledge.rows(payload,"operations").getFirst(),second));
+      check("NL_OPERATION_AMBIGUOUS".equals(fail(()->matcher.select(duplicated,"有哪些实体"))),"R1 ambiguity");
+      out("R1","punctuation no-hit + EXACT failure + normal alias + real ambiguity PASS");
+
+      var request=(jakarta.servlet.http.HttpServletRequest)java.lang.reflect.Proxy.newProxyInstance(
+        P2RereviewProbe.class.getClassLoader(),new Class[]{jakarta.servlet.http.HttpServletRequest.class},
+        (proxy,method,arguments)->method.getName().equals("getAttribute")?owner.toString():null);
+      List<Root> roots=Arrays.asList(
+        new Root("object",Map.of("type","object"),Map.of("x",1)),
+        new Root("array",Map.of("type","array","items",Map.of("type","string")),List.of("x")),
+        new Root("string",Map.of("type","string"),"x"),
+        new Root("number",Map.of("type","number"),42.5),
+        new Root("boolean",Map.of("type","boolean"),false),
+        new Root("null",Map.of("type","null"),null),
+        new Root("union",Map.of("oneOf",List.of(Map.of("type","object"),Map.of("type","array"))),List.of("x")));
+      for(var root:roots) {
+        declare("region",root.schema,root.value);testCase(root.value,"DIRECT","直接用例");UUID id=freeze();
+        var preview=JSON.valueToTree(ctx.getBean(CandidateSupplyService.class).contracts(owner,id)).path("manifests").get(0);
+        check(preview.path("input_schema").equals(JSON.valueToTree(root.schema)),"schema preserved "+root.name);
+        JsonNode node=(JsonNode)convert(JSON.writeValueAsString(root.value));
+        var service=ctx.getBean(SupplyController.class).invoke(request,id,"listClasses",node);
+        check("OK".equals(service.code()),"service "+root.name);
+        var trialBody=JSON.readValue("{\"operationId\":\""+op+"\",\"input\":"+JSON.writeValueAsString(root.value)+"}",ApiDtos.Trial.class);
+        check(trialBody.input()!=null,"explicit null must remain NullNode");
+        var trial=ctx.getBean(CandidateController.class).trial(request,id,trialBody).data();
+        check("SUCCEEDED".equals(trial.status()),"trial "+root.name);
+        check(expectedDigest(ctx,id,root.value).equals(db.one("select input_digest from op_execution where id=?",
+          UUID.fromString(trial.id())).get("inputDigest")),"preserved input digest "+root.name);
+        check(Boolean.TRUE.equals(tests.tests(owner,id).get("passed")),"local "+root.name);
+        out("R2-"+root.name,"converter + controllers + LOCAL_TEST + exact digest PASS");
+      }
+      var absent=JSON.readValue("{\"operationId\":\""+op+"\"}",ApiDtos.Trial.class);
+      var present=JSON.readValue("{\"operationId\":\""+op+"\",\"input\":null}",ApiDtos.Trial.class);
+      check(absent.input()==null && present.input()!=null && present.input().isNull(),"DTO missing/null distinction");
+      out("nullBoundary","missing Java null; explicit NullNode; declared null digest preserved PASS");
+
+      UUID last=null;
+      for(String name:List.of("_region","r".repeat(81),"r".repeat(128))) {
+        guard(name);declare(name,Map.of("type","object"),Map.of());last=freeze();
+        check("OK".equals(candidates.service(owner,last,"listClasses",Map.of()).get("code")),"R4 allowed");
+        grant(name,"B");UUID current=last;
+        check("DATA_SCOPE_DENIED".equals(fail(()->candidates.service(owner,current,"listClasses",Map.of()))),"R4 denied");
+        check(QueryPlanner.guardAttribute(name+"@records").equals(name),"qualified name");
+        check("INVALID_IDENTIFIER".equals(fail(()->QueryPlanner.guardAttribute(name+"@records;drop"))),"SQL suffix rejected");
+        out("R4-name-length-"+name.length(),"actual grant allow/deny + qualified attr + invalid SQL resource PASS");
+      }
+      check(!GuardAttributeName.valid("r".repeat(129)),"129 rejected");
+      check("INVALID_DATA_SCOPE".equals(fail(()->LabelScope.parse(JSON.valueToTree(
+        Map.of("attr","r".repeat(129),"in",List.of("A")))))),"scope129 rejected");
+
+      UUID corrupt=UUID.randomUUID();
+      db.update("INSERT INTO publish_candidate(id,space_id,draft_rev,sha256,payload,format_version,capability) "
+        +"SELECT ?,space_id,draft_rev,sha256,?,format_version,capability FROM publish_candidate WHERE id=?",
+        corrupt,new byte[]{0},last);
+      check("CANDIDATE_CORRUPT".equals(fail(()->candidates.service(owner,corrupt,"listClasses",Map.of()))),"R3 service409");
+      check("CANDIDATE_CORRUPT".equals(candidates.trial(owner,corrupt,op,Map.of()).get("errorCode")),"R3 trial");
+      var local=tests.tests(owner,corrupt);
+      check(!Boolean.TRUE.equals(local.get("passed")),"R3 local");
+      var facts=db.list("select caller,op_code,status,error_code,principal_id,input_digest,output_digest from op_execution where subject_id=? order by caller",corrupt);
+      check(facts.size()==3,"three corrupt facts");
+      check(db.jdbc.queryForObject("select count(*) from op_execution_step s join op_execution e on s.execution_id=e.id where e.subject_id=? and s.kind in ('MODEL_SELECT','RULE_EXECUTION')",Integer.class,corrupt)==0,"no executor evidence");
+      for(var fact:facts)check("FAILED".equals(fact.get("status"))&&owner.toString().equals(fact.get("principalId"))&&fact.get("inputDigest")!=null,"valid failed fact");
+      check(facts.stream().anyMatch(f->"SERVICE".equals(f.get("caller"))&&"listClasses".equals(f.get("opCode"))),"requested op recorded");
+      out("R3",facts);
+      out("ALL_ASSERTIONS","PASS");
+    } finally {
+      try(var c=DriverManager.getConnection(url,System.getenv("ONTO_DB_USER"),System.getenv("ONTO_DB_PASSWORD"))){
+        c.createStatement().execute("DROP SCHEMA "+schema+" CASCADE");
+      }
+      out("isolatedSchemaRemoved",schema);
+    }
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "checkedAt": "2026-10-21T02:49:24.041Z",
+  "spaceId": "ec18a7ea-1761-4a90-91b7-ce8fc29af4be",
+  "candidateId": "294c2e5c-2fe7-46ff-b3a0-1a912c0cdc71",
+  "releaseId": "3796a1f3-e36f-44b2-b3ed-3df5c0f5750a",
+  "versionNo": 1,
+  "bundleSha256": "92374cabef2f3292a2a8727cb105da612e718da9cc3cb0b91d072756c14275ba",
+  "manifestSha256": "bdd979e154b3a53e0a75dbac155307616a290a0908695eef87acb8c6be30efe3",
+  "endpointId": "f8f2768e-82f0-4480-9a43-2ddeba1261ac",
+  "deferEvents": false,
+  "events": [
+    {
+      "id": 11,
+      "type": "DEPRECATED",
+      "boundStatus": "DEPRECATED",
+      "status": "SENT"
+    },
+    {
+      "id": 10,
+      "type": "RELEASED",
+      "boundStatus": "READY",
+      "status": "SENT"
+    }
+  ],
+  "checks": [
+    {
+      "name": "冻结预分配标识与真实bundle且提交前无正式版本",
+      "status": "PASSED"
+    },
+    {
+      "name": "先运行冻结用例不跳过机器门禁且同候选仍可继续校验",
+      "status": "PASSED"
+    },
+    {
+      "name": "机器校验真实用例和OWNER复核建立同摘要五门禁",
+      "status": "PASSED"
+    },
+    {
+      "name": "正式制品全部归档就绪后才READY_TO_COMMIT",
+      "status": "PASSED"
+    },
+    {
+      "name": "并发重复提交只产生一个READY版本与原releaseId",
+      "status": "PASSED"
+    },
+    {
+      "name": "OWNER无端点授权也拒绝且失败无成功meta和版本头",
+      "status": "PASSED"
+    },
+    {
+      "name": "正式内部调用的meta与版本头来自实际发布版本",
+      "status": "PASSED"
+    },
+    {
+      "name": "API key映射本地主体并执行真实EXTERNAL事实",
+      "status": "PASSED"
+    },
+    {
+      "name": "编辑草稿不改变已发布查询或正式manifest摘要",
+      "status": "PASSED"
+    },
+    {
+      "name": "本地收件箱实际接收RELEASED且并发提交不重复建事件",
+      "status": "PASSED"
+    },
+    {
+      "name": "弃用幂等且消费立即拒绝并记录DEPRECATED通知",
+      "status": "PASSED"
+    }
+  ]
+}

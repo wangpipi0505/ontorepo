@@ -1,0 +1,18 @@
+{
+  "checkedAt": "2026-10-20T18:39:06.346Z",
+  "releaseId": "d3ff3e9b-1333-495c-93c8-a419a57d014b",
+  "checks": [
+    {
+      "name": "恢复后四类原制品重新校验通过",
+      "status": "PASSED"
+    },
+    {
+      "name": "恢复后调用原版本与原结果成功",
+      "status": "PASSED"
+    },
+    {
+      "name": "未伪造损坏状态或损坏告警",
+      "status": "PASSED"
+    }
+  ]
+}

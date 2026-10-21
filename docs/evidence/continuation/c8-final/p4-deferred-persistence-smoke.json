@@ -1,0 +1,27 @@
+{
+  "checkedAt": "2026-10-21T02:49:27.111Z",
+  "spaceId": "e6432872-51eb-44b9-91c4-c8b467c7a1eb",
+  "releaseId": "2b215f3e-10d0-4828-9e1c-65db3cfcc82b",
+  "checks": [
+    {
+      "name": "原版本身份摘要与弃用状态在重启后保持",
+      "status": "PASSED"
+    },
+    {
+      "name": "历史可浏览但两种正式消费路由及制品拉取仍拒绝",
+      "status": "PASSED"
+    },
+    {
+      "name": "原候选提交幂等且不复活已弃用版本",
+      "status": "PASSED"
+    },
+    {
+      "name": "原事件及真实收件凭据未重复生成",
+      "status": "PASSED"
+    },
+    {
+      "name": "正式调用事实与撤销凭据持久化",
+      "status": "PASSED"
+    }
+  ]
+}

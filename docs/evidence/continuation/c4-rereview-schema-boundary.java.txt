@@ -1,0 +1,63 @@
+import cn.ontorepo.contract.*;
+import cn.ontorepo.trace.application.SupplyService;
+import com.fasterxml.jackson.databind.*;
+import java.nio.file.*;
+import java.util.*;
+
+public class P2SchemaBoundaryProbe {
+  static final ObjectMapper JSON=new ObjectMapper();
+  static void check(boolean value,String label){if(!value)throw new AssertionError(label);}
+  static boolean accepts(JsonNode schema,JsonNode input){
+    try{JsonSchemaAssertions.validate(schema,input);return true;}
+    catch(ContractProblem e){return false;}
+  }
+  static void out(String label,Object value)throws Exception{
+    System.out.println("REVIEW "+label+" "+JSON.writeValueAsString(value));
+  }
+  public static void main(String[] args)throws Exception {
+    JSON.getFactory().configure(com.fasterxml.jackson.core.JsonGenerator.Feature.ESCAPE_NON_ASCII,true);
+    var original=JSON.readTree("""
+      {"$defs":{"root":{"oneOf":[
+        {"type":"object","required":["x"],"properties":{"x":{"type":"string"}}},
+        {"type":"array","items":{"type":"string"}}]}},
+       "$ref":"#/$defs/root","allOf":[{"minProperties":1}]}
+      """);
+    var originalSnapshot=original.deepCopy();
+    var supply=new SupplyService(null,"http://127.0.0.1:18182");
+    for(String kind:List.of("RULE_CHECK","SCORING")){
+      Map<String,Object> op=new HashMap<>();
+      op.put("code","validate");op.put("kind",kind);op.put("inputSchema",original);
+      op.put("assistantTool",Map.of());op.put("outputSchema",Map.of("type","object"));
+      op.put("maxRows",20);op.put("timeoutMs",1000);
+      var effective=supply.operation(Map.of(),op).path("input_schema");
+      check(effective.path("$ref").equals(original.path("$ref")),"root ref retained");
+      check(effective.path("$defs").equals(original.path("$defs")),"defs retained");
+      check(effective.path("allOf").size()==2,"original allOf retained and object appended");
+      check(accepts(effective,JSON.readTree("{\"x\":\"yes\"}")),"object localref success");
+      check(!accepts(effective,JSON.readTree("{}")),"original required still enforced");
+      check(!accepts(effective,JSON.readTree("{\"x\":3}")),"original property type still enforced");
+      check(!accepts(effective,JSON.readTree("[\"yes\"]")),"array excluded by executor root");
+      supply.input(op,Map.of("x","yes"));
+      boolean runtimeRejected=false;
+      try{supply.input(op,List.of("yes"));}catch(ContractProblem e){runtimeRejected=true;}
+      check(runtimeRejected,"runtime uses same object constraint");
+      check(original.equals(originalSnapshot),"frozen original not mutated");
+      out(kind,"original allOf/$defs/$ref preserved; valid object accepted; original violations and array rejected; no mutation PASS");
+    }
+    var api=JSON.readTree(Files.readString(Path.of(args[0])));
+    check(api.path("openapi").asText().startsWith("3.1"),"OpenAPI3.1");
+    var required=Set.of("object","array","string","number","boolean","null");
+    Map<String,JsonNode> inputs=new LinkedHashMap<>();
+    inputs.put("Trial",api.path("components").path("schemas").path("Trial").path("properties").path("input"));
+    inputs.put("TestCaseWrite",api.path("components").path("schemas").path("TestCaseWrite").path("properties").path("input"));
+    inputs.put("SERVICE",api.path("paths").path("/onto/internal/candidates/{id}/ops/{opCode}").path("post")
+      .path("requestBody").path("content").path("application/json").path("schema"));
+    for(var e:inputs.entrySet()){
+      check(!e.getValue().has("$ref"),e.getKey()+" not JsonNode ref");
+      Set<String> types=new HashSet<>();e.getValue().path("type").forEach(v->types.add(v.asText()));
+      check(types.equals(required),e.getKey()+" all six roots");
+      out("OpenAPI-"+e.getKey(),e.getValue());
+    }
+    out("ALL_ASSERTIONS","PASS");
+  }
+}

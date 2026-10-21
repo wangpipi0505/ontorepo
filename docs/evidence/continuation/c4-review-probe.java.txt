@@ -1,0 +1,175 @@
+import cn.ontorepo.DesignerApplication;
+import cn.ontorepo.common.domain.*;
+import cn.ontorepo.common.infra.Db;
+import cn.ontorepo.contract.*;
+import cn.ontorepo.knowledge.application.KnowledgeService;
+import cn.ontorepo.operation.application.*;
+import cn.ontorepo.space.application.*;
+import cn.ontorepo.trace.application.*;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.WebApplicationType;
+import org.springframework.context.ConfigurableApplicationContext;
+import java.sql.*;
+import java.util.*;
+import java.util.concurrent.*;
+
+public class P2ReviewProbe {
+  static final ObjectMapper JSON = new ObjectMapper();
+  static Db db;
+  static SpaceService spaces;
+  static CandidateService candidates;
+  static GuardService guards;
+  static UUID owner = UUID.randomUUID(), editor = UUID.randomUUID(), stranger = UUID.randomUUID();
+  static void out(String key, Object value) throws Exception {
+    System.out.println("PROBE " + key + " " + JSON.writeValueAsString(value));
+  }
+  static long rev(UUID s) { return ((Number) spaces.get(owner,s).get("draftRev")).longValue(); }
+  static Map<String,Object> draft(UUID s, Object... pairs) {
+    var map = new LinkedHashMap<String,Object>();
+    map.put("spaceId",s); map.put("expectedDraftRev",rev(s));
+    for(int i=0;i<pairs.length;i+=2) map.put(pairs[i].toString(),pairs[i+1]);
+    return map;
+  }
+  static Map<String,Object> tool() {
+    return Map.of("name","列出对象","description","列出对象模型",
+      "guard_attrs",List.of("region"),"info_attrs",List.of(),"param_examples",List.of(Map.of()),
+      "exec",Map.of("readonly",true,"side_effect",false,"idempotent",true,"cancellable",true),
+      "risk_level","READ_ONLY","error_semantics",List.of(Map.of("match","HTTP 403","semantic","NO_PERMISSION")),
+      "return_spec",Map.of("modelSummary",Map.of("mode","TEMPLATE","template","查询结果"),
+        "structuredPath","$.data","fileRefPaths",List.of(),"cardTemplate","查询结果"));
+  }
+  static String problem(Runnable r) {
+    try {r.run(); return "RETURNED";}
+    catch(Problem e) {return e.status+":"+e.code;}
+    catch(ContractProblem e) {return e.code()+":"+e.field()+":"+e.reason();}
+    catch(Exception e) {return e.getClass().getName()+":"+e.getMessage();}
+  }
+  public static void main(String[] args) throws Exception {
+    JSON.getFactory().configure(com.fasterxml.jackson.core.JsonGenerator.Feature.ESCAPE_NON_ASCII,true);
+    String url = System.getenv("ONTO_TEST_DB_URL");
+    if (!"jdbc:postgresql://127.0.0.1:15472/onto_test_p2".equals(url))
+      throw new IllegalStateException("isolated test DB required");
+    String schema="c4review_"+UUID.randomUUID().toString().replace("-","");
+    try(Connection setup=DriverManager.getConnection(url,System.getenv("ONTO_DB_USER"),System.getenv("ONTO_DB_PASSWORD"))) {
+      setup.createStatement().execute("CREATE SCHEMA "+schema);
+    }
+    out("schema",schema);
+    var app=new SpringApplication(DesignerApplication.class);
+    app.setWebApplicationType(WebApplicationType.NONE);
+    try(ConfigurableApplicationContext ctx=app.run(
+      "--spring.main.banner-mode=off","--logging.level.root=WARN",
+      "--spring.datasource.url="+url+"?currentSchema="+schema+"&ApplicationName=c4_review",
+      "--spring.flyway.default-schema="+schema,"--spring.flyway.schemas="+schema)) {
+      db=ctx.getBean(Db.class); spaces=ctx.getBean(SpaceService.class);
+      candidates=ctx.getBean(CandidateService.class); guards=ctx.getBean(GuardService.class);
+      out("connectedDatabase",db.one("select current_database() db,current_schema() schema"));
+      for(UUID u:List.of(owner,editor,stranger))
+        db.update("INSERT INTO local_user VALUES(?,?,?,?)",u,"r"+u,"review","test-only-no-login");
+      UUID space=Input.uuid(spaces.create(owner,Map.of("code","r"+UUID.randomUUID().toString().replace("-",""),
+        "name","独立审查","namespaceUri","https://review.example/ns/")).get("id"));
+      var ops=ctx.getBean(OperationService.class);
+      ops.save(owner,null,draft(space,"code","listClasses","name","列出对象",
+        "queryTemplate","PREFIX owl:<http://www.w3.org/2002/07/owl#> SELECT ?class WHERE {?class a owl:Class}",
+        "maxRows",20,"timeoutMs",1000));
+      UUID op=Input.uuid(ops.list(owner,space).getFirst().get("id"));
+      guards.saveGuards(owner,space,draft(space,"guardCfg",Map.of("region",Map.of("type","STRING",
+        "authorization_rule",Map.of("kind","PRINCIPAL_ATTRIBUTE","attribute","region")))));
+      guards.saveGrant(owner,space,owner,draft(space,"role","OWNER","attributes",Map.of("region","华东")));
+      guards.saveGrant(owner,space,editor,draft(space,"role","EDITOR","attributes",Map.of("region","华东")));
+      ctx.getBean(AssistantService.class).save(owner,op,draft(space,
+        "inputSchema",Map.of("type","object","properties",Map.of(),"additionalProperties",false),
+        "outputSchema",Map.of("type","object","required",List.of("columns","rows"),"properties",
+          Map.of("columns",Map.of("type","array","items",Map.of("type","string")),
+                 "rows",Map.of("type","array","items",Map.of("type","object")))),
+        "assistantTool",tool()));
+      ctx.getBean(TestCaseService.class).save(owner,null,draft(space,"name","NL未命中反例",
+        "question","完全陌生的问题","operationId",op,"input",Map.of(),
+        "expected",Map.of("rows",List.of()),"enabled",true,"mode","NL"));
+      UUID candidate=Input.uuid(candidates.freeze(owner,space,rev(space)).get("id"));
+      var manifests=ctx.getBean(CandidateSupplyService.class).contracts(owner,candidate);
+      var manifest=JSON.valueToTree(manifests).path("manifests").get(0);
+      var serviceResult=candidates.service(owner,candidate,"listClasses",Map.of());
+      out("serviceSuccess",serviceResult);
+      out("responseAgainstPreviewSchema",problem(()->JsonSchemaAssertions.validate(
+        manifest.path("output_schema"),JSON.valueToTree(serviceResult))));
+      long factsBefore=db.jdbc.queryForObject("select count(*) from op_execution",Long.class);
+      out("missingGrantService",problem(()->candidates.service(stranger,candidate,"listClasses",Map.of())));
+      out("missingGrantFactDelta",db.jdbc.queryForObject("select count(*) from op_execution",Long.class)-factsBefore);
+      var matcher=ctx.getBean(TermMatcher.class);
+      String question="完全陌生的问题";
+      out("nlWithoutPunctuationKnowledge",problem(()->matcher.select(candidates.payload(candidates.candidate(owner,candidate)),question)));
+      out("nlTestWithoutPunctuationKnowledge",ctx.getBean(CandidateTestService.class).tests(owner,candidate));
+      ctx.getBean(KnowledgeService.class).save(owner,null,draft(space,
+        "term","!!!","aliases",List.of(),"definition","无语义符号","sourceRef","review:punctuation"));
+      UUID punctCandidate=Input.uuid(candidates.freeze(owner,space,rev(space)).get("id"));
+      out("nlWithPunctuationKnowledge",matcher.select(candidates.payload(candidates.candidate(owner,punctCandidate)),question));
+      out("nlSelectedOperation",op);
+      out("nlTestWithPunctuationKnowledge",ctx.getBean(CandidateTestService.class).tests(owner,punctCandidate));
+
+      // Hold the same space row that grant writes lock, then demote the editor.
+      // The review call can see the committed EDITOR role before blocking on this lock.
+      var exec=Executors.newSingleThreadExecutor();
+      try(Connection blocker=DriverManager.getConnection(url+"?currentSchema="+schema+"&ApplicationName=c4_blocker",
+          System.getenv("ONTO_DB_USER"),System.getenv("ONTO_DB_PASSWORD"))) {
+        blocker.setAutoCommit(false);
+        int pid;
+        try(var r=blocker.createStatement().executeQuery("select pg_backend_pid()")){r.next();pid=r.getInt(1);}
+        try(var s=blocker.prepareStatement("select id from ontology_space where id=? for update")) {
+          s.setObject(1,space);s.executeQuery().close();
+        }
+        try(var s=blocker.prepareStatement("update space_grant set role='VIEWER' where space_id=? and user_id=?")) {
+          s.setObject(1,space);s.setObject(2,editor);s.executeUpdate();
+        }
+        var future=exec.submit(()->ctx.getBean(CandidateCheckService.class).checks(editor,candidate));
+        boolean waiting=false;
+        for(int n=0;n<100&&!waiting;n++) {
+          waiting=Boolean.TRUE.equals(db.jdbc.queryForObject(
+            "select exists(select 1 from pg_stat_activity where ? = any(pg_blocking_pids(pid)))",Boolean.class,pid));
+          if(!waiting) Thread.sleep(25);
+        }
+        out("checkWasBlockedBeforeDemotionCommit",waiting);
+        blocker.commit();
+        out("roleAfterDemotion",spaces.role(editor,space));
+        try {out("checkAfterDemotion",future.get(20,TimeUnit.SECONDS));}
+        catch(Exception e){out("checkAfterDemotionException",e.getClass().getName()+":"+e.getMessage());}
+        out("checkRowsAfterDemotion",db.jdbc.queryForObject("select count(*) from candidate_check",Long.class));
+      } finally {exec.shutdownNow();}
+      var arrayTool=new LinkedHashMap<String,Object>(tool());
+      arrayTool.put("param_examples",List.of(List.of("x")));
+      ctx.getBean(AssistantService.class).save(owner,op,draft(space,
+        "inputSchema",Map.of("type","array","items",Map.of("type","string")),
+        "outputSchema",Map.of("type","object"),"assistantTool",arrayTool));
+      UUID arrayCandidate=Input.uuid(candidates.freeze(owner,space,rev(space)).get("id"));
+      var arrayManifest=JSON.valueToTree(ctx.getBean(CandidateSupplyService.class).contracts(owner,arrayCandidate))
+        .path("manifests").get(0);
+      out("arrayInputManifestSchema",arrayManifest.path("input_schema"));
+      out("arrayInputSchemaValidation",problem(()->JsonSchemaAssertions.validate(
+        arrayManifest.path("input_schema"),JSON.valueToTree(List.of("x")))));
+      var converter=new org.springframework.http.converter.json.MappingJackson2HttpMessageConverter();
+      var inputMessage=new org.springframework.http.HttpInputMessage() {
+        public java.io.InputStream getBody() {return new java.io.ByteArrayInputStream("[\"x\"]".getBytes(java.nio.charset.StandardCharsets.UTF_8));}
+        public org.springframework.http.HttpHeaders getHeaders() {
+          var headers=new org.springframework.http.HttpHeaders(); headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON); return headers;
+        }
+      };
+      try {out("arrayInputHttpConverter",converter.read(Map.class,inputMessage));}
+      catch(Exception e){out("arrayInputHttpConverter",e.getClass().getName());}
+      UUID corrupt=UUID.randomUUID();
+      db.update("INSERT INTO publish_candidate(id,space_id,draft_rev,sha256,payload,format_version,capability) "
+        +"SELECT ?,space_id,draft_rev,sha256,?,format_version,capability FROM publish_candidate WHERE id=?",
+        corrupt,new byte[]{0},arrayCandidate);
+      long beforeCorrupt=db.jdbc.queryForObject("select count(*) from op_execution",Long.class);
+      out("corruptService",problem(()->candidates.service(owner,corrupt,"listClasses",Map.of())));
+      out("corruptServiceFactDelta",db.jdbc.queryForObject("select count(*) from op_execution",Long.class)-beforeCorrupt);
+      out("corruptTrial",candidates.trial(owner,corrupt,op,Map.of()));
+      out("corruptTrialFactDelta",db.jdbc.queryForObject("select count(*) from op_execution",Long.class)-beforeCorrupt);
+    } finally {
+      // Only the fresh schema created above is removed; existing shared test data is untouched.
+      try(Connection clean=DriverManager.getConnection(url,System.getenv("ONTO_DB_USER"),System.getenv("ONTO_DB_PASSWORD"))) {
+        clean.createStatement().execute("DROP SCHEMA "+schema+" CASCADE");
+      }
+      out("isolatedSchemaRemoved",schema);
+    }
+  }
+}

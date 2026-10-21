@@ -1,0 +1,23 @@
+{
+  "name": "ontorepo-web",
+  "private": true,
+  "packageManager": "pnpm@11.21.0",
+  "scripts": {
+    "dev": "pnpm --filter @onto/admin dev",
+    "test": "vitest run --config apps/onto-admin/vitest.config.ts",
+    "typecheck": "vue-tsc --noEmit -p apps/onto-admin/tsconfig.json",
+    "build": "pnpm --filter @onto/admin build",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "api:generate": "openapi-typescript ../contracts/openapi.json -o packages/api-client/src/generated.ts && prettier --write packages/api-client/src/generated.ts"
+  },
+  "devDependencies": {
+    "@vue/test-utils": "2.4.6",
+    "jsdom": "26.1.0",
+    "openapi-typescript": "7.13.0",
+    "prettier": "3.8.3",
+    "typescript": "~5.9.3",
+    "vitest": "^3.2.4",
+    "vue-tsc": "^3.1.1"
+  }
+}

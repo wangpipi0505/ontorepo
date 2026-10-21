@@ -1,0 +1,31 @@
+{
+  "checkedAt": "2026-10-20T18:20:50.682Z",
+  "section": "8.8",
+  "checks": [
+    {
+      "sample": 1,
+      "parse": "PASSED",
+      "fixtureAlignment": "PASSED",
+      "sourceSha256": "42a9aed27d6fde52b9bc4ce9e61b58abda49794b79875b172cbe42164a10bb8c"
+    },
+    {
+      "sample": 2,
+      "parse": "PASSED",
+      "fixtureAlignment": "PASSED",
+      "sourceSha256": "9e1d16a632f2c114881f65a6c13613812f050e6d9924507523eb6fb37d95ccb4"
+    },
+    {
+      "sample": 3,
+      "parse": "PASSED",
+      "fixtureAlignment": "PASSED",
+      "sourceSha256": "2aa8ff961a0e0ee4f7368c5777ca434dd83ae23e28bb975c126d92b9f0173ec3"
+    },
+    {
+      "sample": 4,
+      "parse": "PASSED",
+      "fixtureAlignment": "PASSED",
+      "sourceSha256": "02a7b8ec1a00284068751e83dd0469da1ef8a8b57e3c3f3cfb68fdaac6294c78"
+    }
+  ],
+  "semanticValidation": "onto-contract ContractTest.fourSamplesParseAndEveryContractStageIsValidated；见最新 reactor 测试结果"
+}

@@ -1,0 +1,67 @@
+{
+  "checkedAt": "2026-10-20T17:56:43.290Z",
+  "spaceId": "e6432872-51eb-44b9-91c4-c8b467c7a1eb",
+  "candidateId": "1072c14c-73d9-48ab-8ecd-721a2ea76719",
+  "releaseId": "2b215f3e-10d0-4828-9e1c-65db3cfcc82b",
+  "versionNo": 1,
+  "bundleSha256": "4d2c60322509a26ca0730ec94a0adda004b4f4cbc0ef2a68d0cae6842160c7e2",
+  "manifestSha256": "26ca84802c6de0cae1806210e6e45bf07b13c8f2711560be9687c20f96f85d91",
+  "endpointId": "49567f6f-24f0-467f-8720-825795777514",
+  "deferEvents": true,
+  "events": [
+    {
+      "id": 3,
+      "type": "DEPRECATED",
+      "boundStatus": "DEPRECATED",
+      "status": "PENDING"
+    },
+    {
+      "id": 2,
+      "type": "RELEASED",
+      "boundStatus": "READY",
+      "status": "PENDING"
+    }
+  ],
+  "checks": [
+    {
+      "name": "冻结预分配标识与真实bundle且提交前无正式版本",
+      "status": "PASSED"
+    },
+    {
+      "name": "机器校验真实用例和OWNER复核建立同摘要五门禁",
+      "status": "PASSED"
+    },
+    {
+      "name": "正式制品全部归档就绪后才READY_TO_COMMIT",
+      "status": "PASSED"
+    },
+    {
+      "name": "并发重复提交只产生一个READY版本与原releaseId",
+      "status": "PASSED"
+    },
+    {
+      "name": "OWNER无端点授权也拒绝且失败无成功meta和版本头",
+      "status": "PASSED"
+    },
+    {
+      "name": "正式内部调用的meta与版本头来自实际发布版本",
+      "status": "PASSED"
+    },
+    {
+      "name": "API key映射本地主体并执行真实EXTERNAL事实",
+      "status": "PASSED"
+    },
+    {
+      "name": "编辑草稿不改变已发布查询或正式manifest摘要",
+      "status": "PASSED"
+    },
+    {
+      "name": "relay停用时RELEASED持久积压且没有伪造接收",
+      "status": "PASSED"
+    },
+    {
+      "name": "弃用幂等且消费立即拒绝并记录DEPRECATED通知",
+      "status": "PASSED"
+    }
+  ]
+}

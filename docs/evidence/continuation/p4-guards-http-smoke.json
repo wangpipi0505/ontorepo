@@ -1,0 +1,35 @@
+{
+  "checkedAt": "2026-10-20T18:21:28.588Z",
+  "spaceId": "2accc368-44aa-458c-8d1a-7be60f5ae8b8",
+  "candidateId": "8b214371-9e04-4ba1-b361-ad49f0af73b0",
+  "operationId": "15e6322c-9a69-40f4-9a83-8d1aa2523efd",
+  "candidateSha256": "ad58fd862f6042e0b76dccfa8abf31807cea5247cd200701161790b6eb99ca7d",
+  "sourceRequests": 0,
+  "checks": [
+    {
+      "entry": "TRIAL",
+      "httpStatus": 400,
+      "code": "GUARD_ATTR_UNRESOLVED",
+      "denied": true,
+      "sourceRequests": 0,
+      "status": "PASSED"
+    },
+    {
+      "entry": "SERVICE",
+      "httpStatus": 400,
+      "code": "GUARD_ATTR_UNRESOLVED",
+      "denied": true,
+      "sourceRequests": 0,
+      "status": "PASSED"
+    },
+    {
+      "entry": "LOCAL_TEST",
+      "httpStatus": 409,
+      "code": "CANDIDATE_TERMINAL",
+      "testRunPassed": null,
+      "blockedBeforeTests": true,
+      "sourceRequests": 0,
+      "status": "PASSED"
+    }
+  ]
+}

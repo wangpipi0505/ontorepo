@@ -1,0 +1,65 @@
+{
+  "recordedAt": "2026-10-20T20:53:14.4554295+08:00",
+  "source": "onto-designer-api/target/surefire-reports/TEST-*.xml",
+  "database": "PostgreSQL 16.15 / onto_test",
+  "suites": [
+    {
+      "name": "cn.ontorepo.BoundaryTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": "",
+      "cases": [
+        "anonymousCannotReadSpaces"
+      ]
+    },
+    {
+      "name": "cn.ontorepo.QueryPolicyTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": "",
+      "cases": [
+        "clampsResultLimit",
+        "rejectsExternalCapabilities(String)[1]",
+        "rejectsExternalCapabilities(String)[2]",
+        "rejectsExternalCapabilities(String)[3]",
+        "rejectsExternalCapabilities(String)[4]",
+        "rejectsExternalCapabilities(String)[5]",
+        "rejectsExternalCapabilities(String)[6]"
+      ]
+    },
+    {
+      "name": "cn.ontorepo.WorkflowTest",
+      "tests": 14,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": "",
+      "cases": [
+        "frozenModelAndOperationSurviveDraftChangesWithStableDigest",
+        "corruptionFailsClosedAndPersistsExecutionAudit",
+        "openapiDescribesRealRequestAndResponseDtos",
+        "loginTokenIsHashedRevocableAndExpired",
+        "auditFailureRollsBackModelAndRevision",
+        "invisibleAndViewerCannotMutateOrExecute",
+        "fractionalAndStringRevisionCannotBeSilentlyCoerced",
+        "missingRequiredQueryArgumentsReturn400",
+        "archiveIsOwnerOnlyAndPreventsLaterWritesAndTrials",
+        "executionFactHasPrincipalAndDigests",
+        "propertyCrudChecksOwnerAndPreventsClassDeletion",
+        "siblingUniquenessCyclesAndCrossSpaceAreRejectedAtomically",
+        "concurrentSpaceUpdatesMustNotLoseRevisions",
+        "concurrentWritersHaveOneWinner"
+      ]
+    }
+  ],
+  "totals": {
+    "tests": 22.0,
+    "failures": 0.0,
+    "errors": 0.0,
+    "skipped": 0.0
+  }
+}

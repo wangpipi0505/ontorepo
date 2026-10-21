@@ -1,0 +1,8 @@
+{
+  "prefix" : "acceptance/fb11a649-0cf0-4d2c-a19f-b5e8a4e8513d/",
+  "purpose" : "本工程P3真实MinIO Parquet验收样例",
+  "size" : 980,
+  "resource" : "acceptance/fb11a649-0cf0-4d2c-a19f-b5e8a4e8513d/tasks.parquet",
+  "sha256" : "80d1d196df7ef0df931df4a3f786459eb3ffa8f42752db6f478b857b2c2a615a",
+  "rows" : 3
+}

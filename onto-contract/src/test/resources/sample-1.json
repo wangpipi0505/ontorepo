@@ -1,0 +1,9 @@
+{"name":"查询任务使用的算法","description":"按任务标识返回其使用的算法对象及关系证据",
+ "guard_attrs":["region","tenant_label"],
+ "info_attrs":["biz_domain"],
+ "param_examples":[{"taskId":"T-1001"}],
+ "exec":{"readonly":true,"side_effect":false,"idempotent":true,"cancellable":true},
+ "risk_level":"READ_ONLY",
+ "error_semantics":[{"match":"HTTP 403","semantic":"NO_PERMISSION"},{"match":"HTTP 404","semantic":"PARAM_ERROR"}],
+ "return_spec":{"modelSummary":{"mode":"TEMPLATE","template":"任务 ${taskId} 使用算法 ${stdCode}"},
+                "structuredPath":"$.data","fileRefPaths":[],"cardTemplate":"算法 ${stdCode}"}}

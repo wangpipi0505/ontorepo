@@ -1,0 +1,60 @@
+{
+  "timestamp": "2026-10-20T16:05:33.705Z",
+  "checks": [
+    {
+      "name": "匿名管理读取拒绝",
+      "status": 401
+    },
+    {
+      "name": "tasks.csv真实解析仅生成定位PENDING",
+      "count": 5,
+      "status": "PASSED"
+    },
+    {
+      "name": "tasks.json真实解析仅生成定位PENDING",
+      "count": 6,
+      "status": "PASSED"
+    },
+    {
+      "name": "tasks.xlsx真实解析仅生成定位PENDING",
+      "count": 6,
+      "status": "PASSED"
+    },
+    {
+      "name": "domain.txt真实解析仅生成定位PENDING",
+      "count": 20,
+      "status": "PASSED"
+    },
+    {
+      "name": "domain.pdf真实解析仅生成定位PENDING",
+      "count": 5,
+      "status": "PASSED"
+    },
+    {
+      "name": "domain.docx真实解析仅生成定位PENDING",
+      "count": 18,
+      "status": "PASSED"
+    },
+    {
+      "name": "缺依赖确认拒绝且无模型写入",
+      "status": 400,
+      "code": "SUGGESTION_DEPENDENCY_UNRESOLVED"
+    },
+    {
+      "name": "逆序批量依赖接受且重复确认拒绝",
+      "status": 409,
+      "code": "SUGGESTION_ALREADY_DECIDED"
+    },
+    {
+      "name": "纯文本冒充DOCX拒绝",
+      "status": 400
+    },
+    {
+      "name": "超过256个Office条目仍被接受",
+      "extraDirectoryEntries": 300,
+      "status": 200,
+      "code": "OK"
+    }
+  ],
+  "spaceId": "d1d14c64-6ec2-4c29-afe4-f0aa7063efa0"
+}

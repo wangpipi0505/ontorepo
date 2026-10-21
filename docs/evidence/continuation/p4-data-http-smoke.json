@@ -1,0 +1,199 @@
+{
+  "checkedAt": "2026-10-20T18:06:47.206Z",
+  "spaceId": "ee9d5319-28f3-44e9-a118-2f12b68d7b33",
+  "spaceCode": "release-data-mvgzw0iw",
+  "candidateId": "6328ef30-e22e-43d7-b2a5-ff30afe77df0",
+  "releaseId": "d3ff3e9b-1333-495c-93c8-a419a57d014b",
+  "bundleSha256": "1cd1885ce5c35c4b80e49da1c993214ce1a66cfc44655ab75b87f5f87ed39ed2",
+  "versionNo": 1,
+  "secondReleaseId": "849a8d10-3767-47b7-abf5-4722331943e8",
+  "secondCandidateId": "06572b3f-5433-4c6c-a9bf-0cce1dfb19a7",
+  "secondBundleSha256": "2a11a4e7c2f5426e606985dcc294db6fcb79ad8e8c3fa66940aaee78ade5eae4",
+  "secondVersionNo": 2,
+  "endpointId": "114e3d96-a6e6-4f79-a4ed-c961a6c48d09",
+  "operationId": "9c0d700b-f4c6-4543-b7d4-576e2e0b9d1e",
+  "opCode": "published_tasks",
+  "sourceId": "8a0a2b83-c52e-4369-b01b-5c2e76670378",
+  "snapshotId": "b5e0169a-bac3-47ec-904b-61638636a71d",
+  "fileId": "b81936b7-2385-4284-9528-0e25061ef6b4",
+  "snapshotSha256": "83c97126168785ecb5b8f15a1d2cf380d8f594c90e7625e0ec5f086bd2f2ac7f",
+  "executionId": "78c9b44f-c400-41f0-8ab2-1f6c5007360c",
+  "evidence": [
+    {
+      "id": 311,
+      "type": "AUTHORIZATION_CONTEXT",
+      "ref": null,
+      "sha256": "8e27d3e5d8d0aed53b0bd6e4adc816f8fa76d01e0bcb803529b601bc6cf05ecf",
+      "detail": {
+        "sha256": "8e27d3e5d8d0aed53b0bd6e4adc816f8fa76d01e0bcb803529b601bc6cf05ecf"
+      }
+    },
+    {
+      "id": 312,
+      "type": "SOURCE_RECORD",
+      "ref": {
+        "sourceId": "8a0a2b83-c52e-4369-b01b-5c2e76670378",
+        "resource": "b81936b7-2385-4284-9528-0e25061ef6b4.csv",
+        "key": {
+          "line": 5
+        }
+      },
+      "sha256": null,
+      "detail": {
+        "sourceId": "8a0a2b83-c52e-4369-b01b-5c2e76670378",
+        "resource": "b81936b7-2385-4284-9528-0e25061ef6b4.csv",
+        "key": {
+          "line": 5
+        }
+      }
+    },
+    {
+      "id": 313,
+      "type": "META_SNAPSHOT",
+      "ref": "b5e0169a-bac3-47ec-904b-61638636a71d",
+      "sha256": "83c97126168785ecb5b8f15a1d2cf380d8f594c90e7625e0ec5f086bd2f2ac7f",
+      "detail": {
+        "id": "b5e0169a-bac3-47ec-904b-61638636a71d",
+        "sha256": "83c97126168785ecb5b8f15a1d2cf380d8f594c90e7625e0ec5f086bd2f2ac7f",
+        "snapshot": {
+          "id": "b5e0169a-bac3-47ec-904b-61638636a71d",
+          "datasourceId": "8a0a2b83-c52e-4369-b01b-5c2e76670378",
+          "sha256": "83c97126168785ecb5b8f15a1d2cf380d8f594c90e7625e0ec5f086bd2f2ac7f",
+          "capturedAt": "2026-10-20T18:06:41.979119Z"
+        }
+      }
+    },
+    {
+      "id": 314,
+      "type": "MAPPING_SNAPSHOT",
+      "ref": null,
+      "sha256": "27b0bf26d0a78a0feec7ad88df73f7a58c82752b8fdf4f7c09f150bcdec47150",
+      "detail": {
+        "sha256": "27b0bf26d0a78a0feec7ad88df73f7a58c82752b8fdf4f7c09f150bcdec47150",
+        "objectMappingIds": [
+          "8182d118-fa15-4ea9-8bb2-d69f04c1798a"
+        ]
+      }
+    },
+    {
+      "id": 315,
+      "type": "SERVICE_VER",
+      "ref": "9c0d700b-f4c6-4543-b7d4-576e2e0b9d1e",
+      "sha256": "fd09bcd8f5a31d8eaa8bb337dc88d63bf2604c205d035894d822f59725da7816",
+      "detail": {
+        "releaseId": "d3ff3e9b-1333-495c-93c8-a419a57d014b",
+        "serviceId": "9c0d700b-f4c6-4543-b7d4-576e2e0b9d1e",
+        "opCode": "published_tasks",
+        "bundleSha256": "1cd1885ce5c35c4b80e49da1c993214ce1a66cfc44655ab75b87f5f87ed39ed2",
+        "sha256": "fd09bcd8f5a31d8eaa8bb337dc88d63bf2604c205d035894d822f59725da7816"
+      }
+    },
+    {
+      "id": 316,
+      "type": "ONTOLOGY_VERSION",
+      "ref": "d3ff3e9b-1333-495c-93c8-a419a57d014b",
+      "sha256": "1cd1885ce5c35c4b80e49da1c993214ce1a66cfc44655ab75b87f5f87ed39ed2",
+      "detail": {
+        "subjectType": "RELEASE",
+        "subjectId": "d3ff3e9b-1333-495c-93c8-a419a57d014b",
+        "sha256": "1cd1885ce5c35c4b80e49da1c993214ce1a66cfc44655ab75b87f5f87ed39ed2"
+      }
+    }
+  ],
+  "authorization": [
+    {
+      "kind": "AUTHENTICATION",
+      "order": 1,
+      "detail": "服务端已认证本地主体",
+      "passed": true
+    },
+    {
+      "kind": "ENTRY_AUTHORIZATION",
+      "order": 2,
+      "detail": "显式端点授予存在且未撤销/过期",
+      "passed": true
+    },
+    {
+      "kind": "FROZEN_GUARD_INTEGRITY",
+      "order": 3,
+      "detail": "冻结守卫定义、类型及执行绑定完整",
+      "passed": true
+    },
+    {
+      "kind": "SPACE_READ",
+      "order": 4,
+      "detail": "当前空间读取授权存在",
+      "passed": true
+    },
+    {
+      "kind": "SCOPE_INTERSECTION",
+      "order": 5,
+      "detail": "策略、端点、空间范围求交与冻结源白名单验证通过",
+      "passed": true
+    },
+    {
+      "kind": "LABEL_FILTER",
+      "order": 6,
+      "detail": "已由统一冻结执行器强制非空标签与范围过滤",
+      "passed": true
+    }
+  ],
+  "events": [
+    {
+      "id": 6,
+      "releaseId": "849a8d10-3767-47b7-abf5-4722331943e8",
+      "type": "RELEASED",
+      "boundStatus": "READY",
+      "createdAt": "2026-10-20T18:06:46.323404Z"
+    },
+    {
+      "id": 5,
+      "releaseId": "d3ff3e9b-1333-495c-93c8-a419a57d014b",
+      "type": "RELEASED",
+      "boundStatus": "READY",
+      "createdAt": "2026-10-20T18:06:44.763524Z"
+    }
+  ],
+  "expectedRows": [
+    {
+      "objectId": "task:T-A",
+      "classId": "c5f5f52f-46cb-44bf-bf93-1bb6dafc5cbd",
+      "8ccc4ee9-0fcc-4f9e-9692-41dee7ba2fd2": "T-A",
+      "468bebd1-803d-4d52-9574-8f8ee4149db8": 2
+    }
+  ],
+  "checks": [
+    {
+      "name": "正式实例端点缺授权时OWNER也拒绝",
+      "status": "PASSED"
+    },
+    {
+      "name": "正式路由执行冻结CSV转换且只返回端点范围A",
+      "status": "PASSED"
+    },
+    {
+      "name": "端点NULL不限仍受冻结策略和非空标签约束",
+      "status": "PASSED"
+    },
+    {
+      "name": "端点B与空间A的交集不能扩大任一范围",
+      "status": "PASSED"
+    },
+    {
+      "name": "过期和撤销端点授权均拒绝且无成功meta",
+      "status": "PASSED"
+    },
+    {
+      "name": "执行trace保留真实来源快照映射版本及六步授权",
+      "status": "PASSED"
+    },
+    {
+      "name": "版本差异定位属性且旧版本仍使用原冻结结果",
+      "status": "PASSED"
+    },
+    {
+      "name": "恢复旧版重建草稿且旧执行版本制品保持不变",
+      "status": "PASSED"
+    }
+  ]
+}

@@ -1,0 +1,446 @@
+{
+  "recordedAt": "2026-10-20T20:57:24.1719082+08:00",
+  "scope": "Git 非忽略的新工程文件；不含运行数据、依赖、构建产物和本清单",
+  "files": [
+    {
+      "path": ".editorconfig",
+      "sha256": "39317c55b523bf3c7f75e58e02bb67d7bbd63aacb3436966293f2a92650544f1"
+    },
+    {
+      "path": ".gitignore",
+      "sha256": "8029d8c3ff54e36b7c83dbcd9ab663d1a1c756e8aada24754c4d3019593a6e5e"
+    },
+    {
+      "path": "AGENTS.md",
+      "sha256": "1e469e77e9f14438e0f14bf88965e499109b3ddaa9f8c83f6b8418b54dfed140"
+    },
+    {
+      "path": "README.md",
+      "sha256": "c79829561a356517b98756987d44adff984b6f4b28d29d1c3d7a4591ee152a59"
+    },
+    {
+      "path": "contracts/design-baseline.json",
+      "sha256": "fb2570b4cceb5e514893d42e20c1f99de41ef781ac6e8558e6392202a77658e5"
+    },
+    {
+      "path": "contracts/openapi.json",
+      "sha256": "c705e7714ab22441ae6cef2faa5912972565214de3ed4075bdff7dd17019bacf"
+    },
+    {
+      "path": "contracts/p1-api.md",
+      "sha256": "7ce8f3ba03b547e263ae2da673eb28cf2ea11532f810fa9da906eb73d0ff7320"
+    },
+    {
+      "path": "deploy/Browser-Login.ps1",
+      "sha256": "cea6cd440444387ae7b58f0bd9d2bd4bd53bd47dda7a4c432728ff749281bf46"
+    },
+    {
+      "path": "deploy/Check-Persistence.mjs",
+      "sha256": "716785061c87325c1dd3b9c6636d1c49a8b8721baa3f13205619ef2e770c82b5"
+    },
+    {
+      "path": "deploy/Environment.ps1",
+      "sha256": "a765705dc6000a67fe60bc7708769efd94dfc397d79ccfb443f56abdde0cc153"
+    },
+    {
+      "path": "deploy/Export-OpenApi.mjs",
+      "sha256": "6646b92adba1c0eb4dfc1f8befd22be0071107b68c4b866d3526ead173c63cfe"
+    },
+    {
+      "path": "deploy/Initialize-Local.ps1",
+      "sha256": "5c3fcd38661ea9f75546d971473b499a61141c37fb380bc7f08c13e0398b013d"
+    },
+    {
+      "path": "deploy/Smoke-Api.mjs",
+      "sha256": "a58ff7d9aa3cdaa9d985a9a74101072b69b1a9f81db053a5b8861ef455b14a1c"
+    },
+    {
+      "path": "deploy/Start-Local.ps1",
+      "sha256": "8305f46725062221e474665ecb2ef1198255f1f1c2e4c51e167d40dd125bae55"
+    },
+    {
+      "path": "deploy/Stop-Local.ps1",
+      "sha256": "37d63452bc051ebff30d2157f936a600a1cd0b332c9d62ac5b366574a7973617"
+    },
+    {
+      "path": "deploy/Test-Local.ps1",
+      "sha256": "fb620c6125eaa190de698f600d90399ce35749127cb93828a7fbe9b3ae4d2936"
+    },
+    {
+      "path": "docs/evidence/api-smoke.json",
+      "sha256": "4db1d042782a5190d3c709a252a434e6e53dba5d74d7537528362b7b87c394ca"
+    },
+    {
+      "path": "docs/evidence/backend-tests.json",
+      "sha256": "bb9df26c098d9deebd7abf1b4f35ab01122646cc716ae7c54951761a6f67b6c9"
+    },
+    {
+      "path": "docs/evidence/browser-smoke.json",
+      "sha256": "2870a34cfd085ae1a62f8ce0b36384bb6352a31e961c6a37c70bbc8ae639bc6e"
+    },
+    {
+      "path": "docs/evidence/p1-first-slice-20261020.md",
+      "sha256": "aa79accbc3473d94283a24a94a164f7baf0f12c602888d7ee010385b7c92c486"
+    },
+    {
+      "path": "docs/evidence/persistence-smoke.json",
+      "sha256": "04350daef99547277d0095ee45810dba8e8c7808a6297ee147e81036ed68acf3"
+    },
+    {
+      "path": "docs/evidence/screenshots/candidate-desktop.png",
+      "sha256": "34a9e12f1392222fffbad158d8966355e66a3b5ff532da884d0fd195b6df1dfe"
+    },
+    {
+      "path": "docs/evidence/screenshots/candidate-mobile.png",
+      "sha256": "a257f8fca06332be0a0f98a4e2c30544484417d7315eb2b1d68e26f437336f80"
+    },
+    {
+      "path": "docs/evidence/screenshots/execution-desktop.png",
+      "sha256": "ad57795202a76938c4bc87cf6cc50474d20587a17226e6050cd6a91bcf2c4653"
+    },
+    {
+      "path": "docs/evidence/screenshots/model-desktop.png",
+      "sha256": "e26e5f42cc9afcd8af70b4ed9ff335328ae28ad7c5be9a37c27cce68b5838b68"
+    },
+    {
+      "path": "docs/evidence/screenshots/model-mobile.png",
+      "sha256": "59f10e613eff62c795d51182829bbd1c8e46220f5c88dd0f1454440e19bdf279"
+    },
+    {
+      "path": "docs/evidence/screenshots/property-mobile.png",
+      "sha256": "122260e8d16ebc48727553828d78ce7a95d0393fbc6ecdb27c6b33448c019e15"
+    },
+    {
+      "path": "docs/implementation-plan.md",
+      "sha256": "42caa6326e59e044c0f2ea3e590ef8132488f9095080e6f7669b124acbb5c0dc"
+    },
+    {
+      "path": "onto-common/pom.xml",
+      "sha256": "abf25559e74b30282056973706687cca1a22a419b7b10cf7919c10e16514162b"
+    },
+    {
+      "path": "onto-common/src/main/java/cn/ontorepo/common/domain/Input.java",
+      "sha256": "7cd02fe486a93fac7633ddf7e8e0bd8e31f158fb8683af60120193cb326d693b"
+    },
+    {
+      "path": "onto-common/src/main/java/cn/ontorepo/common/domain/Problem.java",
+      "sha256": "8e82e6fff92edff8261c37205fa1773d08be73caa378af6fe2f214afa9e86f65"
+    },
+    {
+      "path": "onto-common/src/main/java/cn/ontorepo/common/infra/Db.java",
+      "sha256": "46e7fab9395531dc716dd64fa096d09a02cc03ea31f65eb472010251c68f0661"
+    },
+    {
+      "path": "onto-designer-api/pom.xml",
+      "sha256": "1a9069d6428d37ea8255a994f8912fabbe2edd63c9583c8a5e5d33e0dd8e98ad"
+    },
+    {
+      "path": "onto-designer-api/src/main/java/cn/ontorepo/DesignerApplication.java",
+      "sha256": "d8176652d7d3e368ed6aa7245fc08d1b7b7d73e0221e786906a50be88b60b0b5"
+    },
+    {
+      "path": "onto-designer-api/src/main/java/cn/ontorepo/api/ApiDtos.java",
+      "sha256": "c26879116e2c0b06b68a82bc0f66e5c1543593d90ab83b14a31f2398bda8e37a"
+    },
+    {
+      "path": "onto-designer-api/src/main/java/cn/ontorepo/api/AuthController.java",
+      "sha256": "d780f9115cd767d8f182cef8e09105f2274b11e694cdf8f306dab24a1e325bad"
+    },
+    {
+      "path": "onto-designer-api/src/main/java/cn/ontorepo/api/CandidateController.java",
+      "sha256": "d7d49b834dc6ff74cbfc7ab377723ff5732a41c8f6ebab2cef4edc058ca574cf"
+    },
+    {
+      "path": "onto-designer-api/src/main/java/cn/ontorepo/api/Errors.java",
+      "sha256": "673e0ad459d43d2900d145d1ba432a48674cc88c05eb303aa8982b06c9bf615a"
+    },
+    {
+      "path": "onto-designer-api/src/main/java/cn/ontorepo/api/ModelController.java",
+      "sha256": "5b6ffb54e453ca92a6105a332d57544cce60d9fea8736b8a5f525d730f2e59d7"
+    },
+    {
+      "path": "onto-designer-api/src/main/java/cn/ontorepo/api/OperationController.java",
+      "sha256": "3c8cfa8845287f18d2d76e01007193c6086546ab7559b531725b5eccde1142d0"
+    },
+    {
+      "path": "onto-designer-api/src/main/java/cn/ontorepo/api/SpaceController.java",
+      "sha256": "718b6ebde6fcf316bf596e71ca55e8f6267506af286966ad091ae7816a657c9b"
+    },
+    {
+      "path": "onto-designer-api/src/main/java/cn/ontorepo/api/Transport.java",
+      "sha256": "f5b3456bf0611b6a9c1979bd5d1921afbb5f9f4b681bb8fa2ead9a6559b2d986"
+    },
+    {
+      "path": "onto-designer-api/src/main/java/cn/ontorepo/api/WebBoundary.java",
+      "sha256": "135e418b0e08ce20a3122600deca1d5bb7b8c21cc0879378f7c6596242fc7153"
+    },
+    {
+      "path": "onto-designer-api/src/main/resources/application.properties",
+      "sha256": "f4de519cb3f10bc6598c44f08d8cf594082407f275892b746afdf57e66215e3e"
+    },
+    {
+      "path": "onto-designer-api/src/main/resources/db/migration/V1__initial.sql",
+      "sha256": "0721b8d510c004be77cbe55d6452b81eec4bc0eb0fb69674f37d5bee360b2b26"
+    },
+    {
+      "path": "onto-designer-api/src/main/resources/db/migration/V2__align_trace_facts.sql",
+      "sha256": "7e3b2d12281f8c0dfd1f7b1756c3c1175f174e11e0c2efdf72eee0937a62b3f0"
+    },
+    {
+      "path": "onto-designer-api/src/test/java/cn/ontorepo/BoundaryTest.java",
+      "sha256": "d1fa22147ad3ddce18ec47febf163a41e1810bbc06b96a01155aea78f7b50dc8"
+    },
+    {
+      "path": "onto-designer-api/src/test/java/cn/ontorepo/QueryPolicyTest.java",
+      "sha256": "829400a37d9822824f22339159ce3d0e5f98375d8d1335cb8fc3d6ec3a0e78a0"
+    },
+    {
+      "path": "onto-designer-api/src/test/java/cn/ontorepo/WorkflowTest.java",
+      "sha256": "c556c2c9961dfc3385b628383acb9f22e031152f10fcfdaaaff77362875585d0"
+    },
+    {
+      "path": "onto-model/pom.xml",
+      "sha256": "e7dfd3cca1f8e75950103cc75dd59c8a3625519fcb12ff16f4f587acd38848b4"
+    },
+    {
+      "path": "onto-model/src/main/java/cn/ontorepo/model/application/ModelService.java",
+      "sha256": "62e19cb7ff164e85f3fbdd84c3d23742204a0a4c09f2953943efe88f5b9684af"
+    },
+    {
+      "path": "onto-operation/pom.xml",
+      "sha256": "b5b8b0579ce6330ebec72c8fb23167e63c8805f9165ebdc90c3990c441701e47"
+    },
+    {
+      "path": "onto-operation/src/main/java/cn/ontorepo/operation/application/OperationService.java",
+      "sha256": "124837f0c3eb2e249da74feb9fb4856314d771f22b255bb8b42cb4a1608fe5da"
+    },
+    {
+      "path": "onto-operation/src/main/java/cn/ontorepo/operation/domain/QueryPolicy.java",
+      "sha256": "3e49490b07b0898d0562c80ac2a5bbb5d4edfd8b6c3439326a20e3927f318ef9"
+    },
+    {
+      "path": "onto-space/pom.xml",
+      "sha256": "d299e822c0f3ff159a8fb442dfc12ee0a548dddb2435b98e57f54726828286cc"
+    },
+    {
+      "path": "onto-space/src/main/java/cn/ontorepo/space/application/AuthService.java",
+      "sha256": "9fe8f459b421c131c4f72eabd0ab09d5f2c55c83ec21d7018ce942cf21c0d305"
+    },
+    {
+      "path": "onto-space/src/main/java/cn/ontorepo/space/application/SpaceService.java",
+      "sha256": "5996a44bd06baa82f22860b48285a02e1cdeae87ef657d0376b5c1074ce6fdbf"
+    },
+    {
+      "path": "onto-trace/pom.xml",
+      "sha256": "dfd36df6b18b45b2d17f4b1719b72f3316742ef5a4d5ed6ec4107fc9294aad5e"
+    },
+    {
+      "path": "onto-trace/src/main/java/cn/ontorepo/trace/application/CandidateService.java",
+      "sha256": "74a105034b60f91edc1cddd7078c20f08b4ee463723890ae0c033e503f28919a"
+    },
+    {
+      "path": "onto-trace/src/main/java/cn/ontorepo/trace/infra/CanonicalPayload.java",
+      "sha256": "7db8189d57dc6d40d3d3c2edf35400d33a0fcabc636a22994105f13f8de19375"
+    },
+    {
+      "path": "pom.xml",
+      "sha256": "23918aed6752f65f008db949c3d3ead69e57bb9b212f1e2731ff969efdcd593a"
+    },
+    {
+      "path": "web/.prettierignore",
+      "sha256": "ce72477edb71c6484c8f3d1e69c1058563eaa75612071f1e0153c6d5c60731e0"
+    },
+    {
+      "path": "web/.prettierrc.json",
+      "sha256": "1cf418b9337c9d47d2d78ab6a6a74a9ba822060c95a2af963acc8c9110a995b7"
+    },
+    {
+      "path": "web/apps/onto-admin/index.html",
+      "sha256": "3a9f31dc7f6050e4d62a750a1070bb08d29228f43505295748c1c241d0d97a48"
+    },
+    {
+      "path": "web/apps/onto-admin/package.json",
+      "sha256": "2e71d575f15ae35061e91d6ec87f23b449971f96ddf6825a87d02b332e2f6096"
+    },
+    {
+      "path": "web/apps/onto-admin/src/App.vue",
+      "sha256": "f1ae30cba7a6e6614f666dcfcc5b933d8c76d2af03c8ccb3ebaf378f123bcc34"
+    },
+    {
+      "path": "web/apps/onto-admin/src/components/ClassDialog.vue",
+      "sha256": "9607e42eead3d495d6c90b3c20959ea630d0c14121c2b3ebb8ebc722fc4c370d"
+    },
+    {
+      "path": "web/apps/onto-admin/src/components/ExecutionResult.vue",
+      "sha256": "0d4b95e45fb20ebf57211d73a2a8c4a0cfbd6a0f855e9c203dc748234fbb23f8"
+    },
+    {
+      "path": "web/apps/onto-admin/src/components/OperationDialog.vue",
+      "sha256": "c29978501089045d503e5f72aa31addcf8cd8e39c68c8fdffa0bd092203a545a"
+    },
+    {
+      "path": "web/apps/onto-admin/src/components/PropertyDialog.vue",
+      "sha256": "519453f748e6a3d67321a07f86e2c9db5b17034579b1cc066c4b9374ec669583"
+    },
+    {
+      "path": "web/apps/onto-admin/src/components/PropertyPanel.vue",
+      "sha256": "1deae9d7b87bfae216481198211a851d9dc01cfb641661eca5b7c42853734c17"
+    },
+    {
+      "path": "web/apps/onto-admin/src/components/SpaceDialog.vue",
+      "sha256": "5c89b2ac312b4d06cbc75cddaea2ad25f957bfc4d7fec397cd25afeb8518b052"
+    },
+    {
+      "path": "web/apps/onto-admin/src/components/forms.test.ts",
+      "sha256": "03650db71086bc41207b3742c459173e4c91070dd5ed2c4726722ede662fbb73"
+    },
+    {
+      "path": "web/apps/onto-admin/src/composables/classTree.ts",
+      "sha256": "de21490bb1a1ec251362b4737ca10185722d66d68aa47a3b80105bde1e0c52a3"
+    },
+    {
+      "path": "web/apps/onto-admin/src/composables/labels.ts",
+      "sha256": "eef715827a430c430972758b1ae909db60bd8b0afec2d0a9ac1730e6174811dd"
+    },
+    {
+      "path": "web/apps/onto-admin/src/composables/queryTemplates.ts",
+      "sha256": "8fa7bba851f884ae9bf7681f0434d66c4c1fcaec36e00caf06c1895825a87600"
+    },
+    {
+      "path": "web/apps/onto-admin/src/composables/readDraftSnapshot.test.ts",
+      "sha256": "09901ef39d2e681b353e86b24facfc0bc0f45b657d16ddcc5d9a7dc13f163890"
+    },
+    {
+      "path": "web/apps/onto-admin/src/composables/readDraftSnapshot.ts",
+      "sha256": "6ddb16acdad0b0365efb28b3a38b29d2c6e2bd1595ac45e2e4f8afc670139fa3"
+    },
+    {
+      "path": "web/apps/onto-admin/src/composables/useDraftRevision.test.ts",
+      "sha256": "29fd5811f39edd562d9c294a1951ae6b286b66141908c36e33520b16909664fb"
+    },
+    {
+      "path": "web/apps/onto-admin/src/composables/useDraftRevision.ts",
+      "sha256": "98ea71b2bc775bedb7a60a16ae4a9d215f32bf22e851590c833b64d086a99375"
+    },
+    {
+      "path": "web/apps/onto-admin/src/composables/useMutation.ts",
+      "sha256": "bad90ca27c8a0be7ecf0d85e425dfe76663db41a7504a98d34ae5beea973e5af"
+    },
+    {
+      "path": "web/apps/onto-admin/src/composables/useResource.test.ts",
+      "sha256": "2bf53b48ff022bab6b98fb3ef6f243ecee722ee9ad89482a32c2064b1995ceb3"
+    },
+    {
+      "path": "web/apps/onto-admin/src/composables/useResource.ts",
+      "sha256": "f3eac58eb90c7996b4c76c0be5a8148fde6eba2c545e9ee8260702b748dc3a84"
+    },
+    {
+      "path": "web/apps/onto-admin/src/layouts/WorkbenchLayout.vue",
+      "sha256": "9862f0add0250deafb38556830fd674b743e51156e01ecd9ad5a6ae3b04181ac"
+    },
+    {
+      "path": "web/apps/onto-admin/src/main.ts",
+      "sha256": "8d00f0d471184962ba7aba448050c990faebe4ac0685bab1fa77012fdfaa873f"
+    },
+    {
+      "path": "web/apps/onto-admin/src/router.ts",
+      "sha256": "61f534707714a8056cb2817a3c661be82a4ffde3d7cad317c4ed0b9d1ae345ed"
+    },
+    {
+      "path": "web/apps/onto-admin/src/stores/session.ts",
+      "sha256": "2ed70d53b46e4e2f36f04fe26a6e0bcc3089df92a9ec55c0eac6e4e0d2c553dd"
+    },
+    {
+      "path": "web/apps/onto-admin/src/stores/workspace.test.ts",
+      "sha256": "05b7ab684de5f09d491872d833646a10e1422d369b758bddd36016546f37a787"
+    },
+    {
+      "path": "web/apps/onto-admin/src/stores/workspace.ts",
+      "sha256": "36a8796e41ee277207e75bdd174eb98aab92d546960500e50305d4e01b0df1cb"
+    },
+    {
+      "path": "web/apps/onto-admin/src/views/CandidatesView.vue",
+      "sha256": "371e2646fcdb2f32f80421405ace80698636706c9fd2d58cff326dce980621b8"
+    },
+    {
+      "path": "web/apps/onto-admin/src/views/ExecutionsView.vue",
+      "sha256": "6eb343ae1a1654412d9879732292bf112f9aec7ec1901a2cf9600ebc0faeaa6f"
+    },
+    {
+      "path": "web/apps/onto-admin/src/views/LoginView.vue",
+      "sha256": "9fdc886224d0594a0797d60787ec4169e5c8b6667302846ff1ecfc8f857dd5fd"
+    },
+    {
+      "path": "web/apps/onto-admin/src/views/ModelView.vue",
+      "sha256": "0204907eeffc767f1f99c42267ed39d4e193639a1d3d32ba7858147142d91d46"
+    },
+    {
+      "path": "web/apps/onto-admin/src/views/OperationsView.vue",
+      "sha256": "5627e7f6defb18f3414b7cf7fe63457c449166c2a8016946fb52394057752870"
+    },
+    {
+      "path": "web/apps/onto-admin/src/views/SpacesView.vue",
+      "sha256": "4bbe66b5fa4d89bb1c231922e86666d0f15ee1ff4d90976e5805bb41d05e33ea"
+    },
+    {
+      "path": "web/apps/onto-admin/tsconfig.json",
+      "sha256": "b3b92b1748f8c810091333c43d038b75938d8c9ad8faae8f0c0d24747013a3f3"
+    },
+    {
+      "path": "web/apps/onto-admin/vite.config.ts",
+      "sha256": "f9a27803d13d0d25c6d99566d408afd0e34ba83bd3b1f72e64528174437c3a38"
+    },
+    {
+      "path": "web/apps/onto-admin/vitest.config.ts",
+      "sha256": "8a83142dbfd98231b3ff999827cc737e532157ffd1dcab5a6778249fe0162320"
+    },
+    {
+      "path": "web/evidence.md",
+      "sha256": "6d424cbd1db69d7f1145813a01e82b8111115fbc83878756422642a97c6f79ee"
+    },
+    {
+      "path": "web/package.json",
+      "sha256": "067ca722bed9c0fcbd83436ddc5ddf623d006a09b179c830bd4828ca1e72ec00"
+    },
+    {
+      "path": "web/packages/api-client/package.json",
+      "sha256": "53f7d98790f844c25657d03aae7e60c38b2a076edda34aa90d486fc3d3c5e090"
+    },
+    {
+      "path": "web/packages/api-client/src/generated.ts",
+      "sha256": "41034a913ba1c151c10b41a4f7fb2531e9ee473de12fe29506aecfdf7658c600"
+    },
+    {
+      "path": "web/packages/api-client/src/index.ts",
+      "sha256": "7ddcb5228a89abb846fa6a133e7c1ab4d723e1ce970aadc65608ca6c15605b7c"
+    },
+    {
+      "path": "web/packages/api-client/src/types.ts",
+      "sha256": "3d00e83de9c41c4f739b737e5469822f7a6b38078f6b18a3838f0b0ece353efb"
+    },
+    {
+      "path": "web/packages/shared-ui/package.json",
+      "sha256": "f4dae9258125b4fb3ffaac0a46775cc5f8f68ebe129d326d448eee5c8c0d1f14"
+    },
+    {
+      "path": "web/packages/shared-ui/src/AsyncState.vue",
+      "sha256": "053d4e5fb276bd934275e18b90bb8662749f289e89f17dd1f8406a2386613737"
+    },
+    {
+      "path": "web/packages/shared-ui/src/tokens.css",
+      "sha256": "99f78fc8f740b54e100d6d4a21431613d8424b05d3b3216af90eb2f03247fd8f"
+    },
+    {
+      "path": "web/pnpm-lock.yaml",
+      "sha256": "740fd02ba9edf04c2d32f3faaccc3fcc9560c149a4aa489622b300aaaeb91799"
+    },
+    {
+      "path": "web/pnpm-workspace.yaml",
+      "sha256": "21417825f8ee4ea58653e65ffb9149afd6c2c1d3cf197eb09e9a275c20200250"
+    },
+    {
+      "path": "web/tests/critical.test.ts",
+      "sha256": "89749e00f4152e3878db69866d0a68d2ff59b78d0b1871f20924f635da05e6cd"
+    }
+  ]
+}

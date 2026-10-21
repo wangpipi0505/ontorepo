@@ -1,0 +1,616 @@
++++ G:\207\项目\算法重组工具\代码\ontorepo\onto-contract\src\main\java\cn\ontorepo\contract\ContractFields.java
+package cn.ontorepo.contract;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import java.net.URI;
+import java.util.HashSet;
+import java.util.Set;
+
+/** 消费契约的严格字段读取；缺失和类型错误分开，禁止 Jackson 宽松转换掩盖错误。 */
+final class ContractFields {
+    private ContractFields() {}
+
+    static JsonNode required(JsonNode object, String key) {
+        JsonNode value = object.path(key);
+        if (value.isMissingNode() || value.isNull()) throw problem("MISSING_FIELD", key);
+        return value;
+    }
+
+    static String text(JsonNode object, String key) {
+        JsonNode value = required(object, key);
+        if (!value.isTextual() || value.textValue().isBlank()) throw problem("TYPE_MISMATCH", key);
+        return value.textValue();
+    }
+
+    static JsonNode object(JsonNode parent, String key) {
+        JsonNode value = required(parent, key);
+        if (!value.isObject()) throw problem("TYPE_MISMATCH", key);
+        return value;
+    }
+
+    static boolean bool(JsonNode parent, String key) {
+        JsonNode value = required(parent, key);
+        if (!value.isBoolean()) throw problem("TYPE_MISMATCH", key);
+        return value.booleanValue();
+    }
+
+    static int positiveInt(JsonNode parent, String key) {
+        JsonNode value = required(parent, key);
+        if (!value.isIntegralNumber() || !value.canConvertToInt() || value.intValue() <= 0)
+            throw problem("TYPE_MISMATCH", key);
+        return value.intValue();
+    }
+
+    static Set<String> strings(JsonNode value, String field, boolean nonEmpty) {
+        if (!value.isArray() || (nonEmpty && value.isEmpty())) throw problem("TYPE_MISMATCH", field);
+        Set<String> found = new HashSet<>();
+        for (JsonNode item : value) {
+            if (!item.isTextual() || item.textValue().isBlank() || !found.add(item.textValue()))
+                throw problem("TYPE_MISMATCH", field);
+        }
+        return found;
+    }
+
+    static String enumeration(JsonNode parent, String field, Set<String> values) {
+        String value = text(parent, field);
+        if (!values.contains(value)) throw new ContractProblem("INVALID_ENUM", field, value);
+        return value;
+    }
+
+    static String httpUrl(String value) {
+        try {
+            URI uri = URI.create(value);
+            if (!Set.of("http", "https").contains(uri.getScheme()) || uri.getHost() == null
+                    || uri.getUserInfo() != null || uri.getFragment() != null)
+                throw problem("INVALID_URL", "endpoint");
+            return value;
+        } catch (IllegalArgumentException e) {
+            throw problem("INVALID_URL", "endpoint");
+        }
+    }
+
+    static ContractProblem problem(String code, String field) {
+        return new ContractProblem(code, field, code);
+    }
+}
+
++++ G:\207\项目\算法重组工具\代码\ontorepo\onto-contract\src\main\java\cn\ontorepo\contract\ContractGenerator.java
+package cn.ontorepo.contract;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+
+/** 候选阶段编译完整契约，提交前只填预分配四元组与正式路由，保证门禁所见内容不被重生成。 */
+public final class ContractGenerator {
+    private static final ObjectMapper JSON = new ObjectMapper();
+
+    /** 参数、Schema、守卫执行绑定全部有效后才返回可用于 CONTRACT 门禁的预览。 */
+    public ObjectNode preview(JsonNode operation, JsonNode guardCfg, String baseUrl,
+                              String spaceCode, String candidateId) {
+        GuardValidator.validate(operation, guardCfg);
+        JsonNode assistant = ContractFields.object(operation, "assistant_tool");
+        JsonNode input = ContractFields.object(operation, "input_schema");
+        JsonNode output = ContractFields.object(operation, "output_schema");
+        JsonSchemaAssertions.validateSchema(input);
+        JsonSchemaAssertions.validateSchema(output);
+        JsonNode examples = assistant.path("param_examples");
+        if (!examples.isArray() || examples.isEmpty())
+            throw new ContractProblem("MISSING_PARAM_EXAMPLES", operation.path("code").asText(), "MISSING_PARAM_EXAMPLES");
+        for (JsonNode example : examples) JsonSchemaAssertions.validate(input, example);
+        ObjectNode manifest = JSON.createObjectNode();
+        manifest.put("tool_code", ContractFields.text(operation, "code"));
+        manifest.put("name", ContractFields.text(assistant, "name"));
+        manifest.put("description", ContractFields.text(assistant, "description"));
+        manifest.put("invocation_kind", "SYNC").put("adapter_type", "HTTP").put("category", "ontology_service");
+        manifest.put("endpoint", base(baseUrl) + "/onto/internal/candidates/" + segment(candidateId)
+                + "/ops/" + segment(manifest.path("tool_code").textValue()));
+        manifest.put("http_method", "POST");
+        manifest.set("input_schema", input.deepCopy());
+        manifest.set("output_schema", envelope(output));
+        manifest.set("guard_attrs", assistant.path("guard_attrs").deepCopy());
+        JsonNode sourceExec = ContractFields.object(assistant, "exec");
+        JsonNode policy = ContractFields.object(operation, "policy");
+        var exec = manifest.putObject("exec_attrs");
+        exec.put("readonly_flag", ContractFields.bool(sourceExec, "readonly"));
+        for (String field : new String[]{"side_effect", "idempotent", "cancellable"})
+            exec.put(field, ContractFields.bool(sourceExec, field));
+        exec.put("timeout_ms", ContractFields.positiveInt(policy, "timeout_ms"));
+        exec.put("max_rows", ContractFields.positiveInt(policy, "max_rows"));
+        manifest.put("risk_level", ContractFields.text(assistant, "risk_level"));
+        manifest.set("error_semantics", ContractFields.required(assistant, "error_semantics").deepCopy());
+        ObjectNode returns = (ObjectNode) ContractFields.object(assistant, "return_spec").deepCopy();
+        returns.put("ontologyMetaPath", "$.meta");
+        manifest.set("return_spec", returns);
+        var meta = manifest.putObject("ontology_meta");
+        for (String field : new String[]{"spaceCode", "releaseId", "version", "contentDigest"}) meta.putNull(field);
+        meta.put("preview", true);
+        ContractValidator.validateBody(manifest);
+        return manifest;
+    }
+
+    /** 正式化不修改原预览，预分配标识非法时不得生成可归档的正式 manifest。 */
+    public ObjectNode formalize(JsonNode preview, String baseUrl, String spaceCode,
+                                String releaseId, String version, String sha256) {
+        if (!preview.path("ontology_meta").path("preview").asBoolean(false))
+            throw ContractFields.problem("PREVIEW_REQUIRED", "ontology_meta");
+        ContractValidator.validateBody(preview);
+        ObjectNode result = (ObjectNode) preview.deepCopy();
+        var meta = result.putObject("ontology_meta");
+        meta.put("spaceCode", spaceCode).put("releaseId", releaseId).put("version", version).put("contentDigest", sha256);
+        result.put("endpoint", base(baseUrl) + "/onto/r/" + segment(spaceCode) + "/releases/"
+                + segment(releaseId) + "/ops/" + segment(ContractFields.text(result, "tool_code")));
+        ContractValidator.validateImport(result);
+        return result;
+    }
+
+    /** 业务 Schema 放入 data；消费侧必须针对原始响应校验，meta 不能是可选字段。 */
+    private ObjectNode envelope(JsonNode output) {
+        ObjectNode envelope = JSON.createObjectNode().put("type", "object");
+        envelope.putArray("required").add("code").add("data").add("meta");
+        var props = envelope.putObject("properties");
+        props.putObject("code").put("const", "OK");
+        JsonNode business = output.deepCopy();
+        relocatePointers(business);
+        props.set("data", business);
+        var meta = props.putObject("meta").put("type", "object");
+        meta.putArray("required").add("spaceCode").add("releaseId").add("version").add("contentDigest");
+        var fields = meta.putObject("properties");
+        for (String key : new String[]{"spaceCode", "releaseId", "version"})
+            fields.putObject(key).put("type", "string");
+        fields.putObject("contentDigest").put("type", "string").put("pattern", "^[0-9a-f]{64}$");
+        return envelope;
+    }
+
+    /**
+     * 业务 Schema 包入 data 后，原本指向业务根的 JSON Pointer 也必须迁移。
+     * 只调整本地指针的作用域，不改变业务约束；命名锚点继续按原名解析。
+     */
+    private void relocatePointers(JsonNode node) {
+        if (node instanceof ObjectNode object) {
+            for (String key : new String[]{"$ref", "$dynamicRef"}) {
+                JsonNode ref = object.path(key);
+                if (ref.isTextual() && (ref.textValue().equals("#") || ref.textValue().startsWith("#/")))
+                    object.put(key, "#/properties/data" + ref.textValue().substring(1));
+            }
+            object.elements().forEachRemaining(this::relocatePointers);
+        } else if (node.isArray()) {
+            node.elements().forEachRemaining(this::relocatePointers);
+        }
+    }
+
+    private String base(String url) {
+        ContractFields.httpUrl(url);
+        if (url.contains("?")) throw ContractFields.problem("INVALID_URL", "baseUrl");
+        return url.replaceAll("/+$", "");
+    }
+
+    private String segment(String value) {
+        if (value == null || value.isBlank()) throw ContractFields.problem("MISSING_FIELD", "route");
+        return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
+    }
+}
+
++++ G:\207\项目\算法重组工具\代码\ontorepo\onto-contract\src\main\java\cn\ontorepo\contract\ContractProblem.java
+package cn.ontorepo.contract;
+
+/** 契约校验的稳定错误信息；调用层负责映射 HTTP，不把库内部异常暴露给用户。 */
+public final class ContractProblem extends RuntimeException {
+    private final String code;
+    private final String field;
+    private final String reason;
+
+    public ContractProblem(String code, String field, String reason) {
+        super("契约校验失败：" + field + "（" + reason + "）");
+        this.code = code;
+        this.field = field;
+        this.reason = reason;
+    }
+
+    public String code() { return code; }
+    public String field() { return field; }
+    public String reason() { return reason; }
+}
+
++++ G:\207\项目\算法重组工具\代码\ontorepo\onto-contract\src\main\java\cn\ontorepo\contract\ContractValidator.java
+package cn.ontorepo.contract;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import java.util.Set;
+
+/** 消费侧导入断言和生成侧共用的字段验证；正式版本必须有完整、非预览的四元组。 */
+public final class ContractValidator {
+    private ContractValidator() {}
+
+    public static void validateImport(JsonNode manifest) {
+        JsonNode meta = ContractFields.object(manifest, "ontology_meta");
+        if (meta.path("preview").asBoolean(false))
+            throw ContractFields.problem("PREVIEW_NOT_RELEASE", "ontology_meta");
+        validateBody(manifest);
+        for (String field : new String[]{"spaceCode", "releaseId", "version", "contentDigest"})
+            ContractFields.text(meta, field);
+        if (!meta.path("contentDigest").textValue().matches("[0-9a-f]{64}"))
+            throw ContractFields.problem("TYPE_MISMATCH", "contentDigest");
+    }
+
+    static void validateBody(JsonNode manifest) {
+        for (String field : new String[]{"tool_code", "name", "description", "category"})
+            ContractFields.text(manifest, field);
+        ContractFields.enumeration(manifest, "invocation_kind", Set.of("SYNC", "SUBMIT_QUERY", "CALLBACK"));
+        ContractFields.enumeration(manifest, "adapter_type", Set.of("HTTP", "MCP", "ALGORITHM"));
+        ContractFields.httpUrl(ContractFields.text(manifest, "endpoint"));
+        ContractFields.enumeration(manifest, "http_method", Set.of("POST"));
+        JsonSchemaAssertions.validateSchema(ContractFields.object(manifest, "input_schema"));
+        JsonSchemaAssertions.validateSchema(ContractFields.object(manifest, "output_schema"));
+        ContractFields.strings(ContractFields.required(manifest, "guard_attrs"), "guard_attrs", true);
+        JsonNode exec = ContractFields.object(manifest, "exec_attrs");
+        boolean readonly = ContractFields.bool(exec, "readonly_flag");
+        boolean sideEffect = ContractFields.bool(exec, "side_effect");
+        ContractFields.bool(exec, "idempotent");
+        ContractFields.bool(exec, "cancellable");
+        ContractFields.positiveInt(exec, "timeout_ms");
+        ContractFields.positiveInt(exec, "max_rows");
+        String risk = ContractFields.enumeration(manifest, "risk_level", Set.of("READ_ONLY", "CONFIRM_REQUIRED"));
+        if ((!readonly || sideEffect) && risk.equals("READ_ONLY"))
+            throw ContractFields.problem("RISK_DOWNGRADE", "risk_level");
+        JsonNode semantics = ContractFields.required(manifest, "error_semantics");
+        if (!semantics.isArray()) throw ContractFields.problem("TYPE_MISMATCH", "error_semantics");
+        for (JsonNode entry : semantics) {
+            ContractFields.text(entry, "match");
+            ContractFields.enumeration(entry, "semantic",
+                    Set.of("PARAM_ERROR", "NO_PERMISSION", "QUOTA", "RETRYABLE_FAILURE", "RESULT_UNKNOWN"));
+        }
+        JsonNode returns = ContractFields.object(manifest, "return_spec");
+        if (!"$.data".equals(ContractFields.text(returns, "structuredPath"))
+                || !"$.meta".equals(ContractFields.text(returns, "ontologyMetaPath")))
+            throw ContractFields.problem("INVALID_RETURN_PATH", "return_spec");
+        ContractFields.object(returns, "modelSummary");
+        ContractFields.strings(ContractFields.required(returns, "fileRefPaths"), "fileRefPaths", false);
+        ContractFields.text(returns, "cardTemplate");
+    }
+}
+
++++ G:\207\项目\算法重组工具\代码\ontorepo\onto-contract\src\main\java\cn\ontorepo\contract\GuardValidator.java
+package cn.ontorepo.contract;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import java.util.Set;
+
+/** 逐项复核完整守卫集合；缺定义或缺执行绑定均阻断，不存在仅声明安全豁免。 */
+public final class GuardValidator {
+    private static final Set<String> TYPES = Set.of("STRING", "INTEGER", "DECIMAL", "BOOLEAN");
+    private GuardValidator() {}
+
+    public static void validate(JsonNode operation, JsonNode guardCfg) {
+        String code = ContractFields.text(operation, "code");
+        JsonNode guards = operation.path("assistant_tool").path("guard_attrs");
+        if (guards.isMissingNode() || guards.isNull() || (guards.isArray() && guards.isEmpty()))
+            throw new ContractProblem("MISSING_GUARD_ATTRS", code, "MISSING_GUARD_ATTRS");
+        var names = ContractFields.strings(guards, "guard_attrs", true);
+        for (String name : names) {
+            JsonNode definition = guardCfg.path(name);
+            if (!definition.isObject()) unresolved(code, name, "UNDEFINED");
+            if (!TYPES.contains(definition.path("type").asText())) unresolved(code, name, "UNSUPPORTED_TYPE");
+            if (!filterBinding(definition.path("filter_binding"))
+                    && !authorizationRule(definition.path("authorization_rule")))
+                unresolved(code, name, "NO_FILTER_BINDING");
+        }
+    }
+
+    /** 仅接受可由查询翻译器参数化执行的表列和运算符，任意字符串不算绑定。 */
+    private static boolean filterBinding(JsonNode binding) {
+        return binding.isObject() && identifier(binding.path("table").asText())
+                && identifier(binding.path("column").asText())
+                && Set.of("IN", "EQ").contains(binding.path("operator").asText());
+    }
+
+    /** 授权规则必须指向受认证身份属性，不能让调用参数替代主体身份。 */
+    private static boolean authorizationRule(JsonNode rule) {
+        return rule.isObject() && "PRINCIPAL_ATTRIBUTE".equals(rule.path("kind").asText())
+                && identifier(rule.path("attribute").asText());
+    }
+
+    public static boolean identifier(String value) {
+        return value.matches("[A-Za-z_][A-Za-z0-9_]{0,127}");
+    }
+
+    private static void unresolved(String op, String attr, String reason) {
+        throw new ContractProblem("GUARD_ATTR_UNRESOLVED", op + "." + attr, reason);
+    }
+}
+
++++ G:\207\项目\算法重组工具\代码\ontorepo\onto-contract\src\main\java\cn\ontorepo\contract\JsonSchemaAssertions.java
+package cn.ontorepo.contract;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.networknt.schema.InputFormat;
+import com.networknt.schema.SchemaLocation;
+import com.networknt.schema.SchemaRegistry;
+import com.networknt.schema.SchemaRegistryConfig;
+import com.networknt.schema.SpecificationVersion;
+
+/** 使用 Draft 2020-12 标准校验 Schema 和实例；外部引用在交给校验器之前拒绝。 */
+public final class JsonSchemaAssertions {
+    private static final String DIALECT = "https://json-schema.org/draft/2020-12/schema";
+    private static final SchemaRegistry REGISTRY = SchemaRegistry.withDefaultDialect(
+            SpecificationVersion.DRAFT_2020_12,
+            builder -> builder.schemaRegistryConfig(SchemaRegistryConfig.builder()
+                    .typeLoose(false).formatAssertionsEnabled(true).build()));
+
+    private JsonSchemaAssertions() {}
+
+    /** 先验证 Schema 本身，防止错误类型或未知方言被误当作无约束的 schema。 */
+    public static void validateSchema(JsonNode schema) {
+        if (schema == null || (!schema.isObject() && !schema.isBoolean()))
+            throw ContractFields.problem("INVALID_SCHEMA", "schema");
+        if (schema.toString().length() > 262144) throw ContractFields.problem("SCHEMA_TOO_LARGE", "schema");
+        inspect(schema, 0);
+        try {
+            var errors = REGISTRY.getSchema(SchemaLocation.of(DIALECT))
+                    .validate(schema.toString(), InputFormat.JSON);
+            if (!errors.isEmpty()) throw new ContractProblem("INVALID_SCHEMA", "schema", errors.getFirst().getMessage());
+        } catch (ContractProblem e) {
+            throw e;
+        } catch (RuntimeException e) {
+            throw ContractFields.problem("INVALID_SCHEMA", "schema");
+        }
+    }
+
+    /** 不对输入作标量强制转换，包含 additionalProperties、组合关键字和本地 $defs 的完整断言。 */
+    public static void validate(JsonNode schema, JsonNode instance) {
+        validateSchema(schema);
+        if (instance == null || instance.toString().length() > 1048576)
+            throw ContractFields.problem("INVALID_INSTANCE", "instance");
+        try {
+            var errors = REGISTRY.getSchema(schema.toString(), InputFormat.JSON)
+                    .validate(instance.toString(), InputFormat.JSON);
+            if (!errors.isEmpty())
+                throw new ContractProblem("SCHEMA_VALIDATION_FAILED", "instance", errors.getFirst().getMessage());
+        } catch (ContractProblem e) {
+            throw e;
+        } catch (RuntimeException e) {
+            throw ContractFields.problem("INVALID_SCHEMA", "schema");
+        }
+    }
+
+    /** 只允许文档内引用；$id 不能偷偷改变嵌套引用基址，方言固定为本工具声明的版本。 */
+    private static void inspect(JsonNode node, int depth) {
+        if (depth > 64) throw ContractFields.problem("SCHEMA_TOO_DEEP", "schema");
+        if (node.isObject()) {
+            node.fields().forEachRemaining(entry -> {
+                String key = entry.getKey();
+                JsonNode value = entry.getValue();
+                if ((key.equals("$ref") || key.equals("$dynamicRef"))
+                        && (!value.isTextual() || !value.textValue().startsWith("#")))
+                    throw ContractFields.problem("EXTERNAL_SCHEMA_REF", key);
+                if (key.equals("$schema") && (!value.isTextual() || !DIALECT.equals(value.textValue())))
+                    throw ContractFields.problem("UNSUPPORTED_DIALECT", key);
+                if (key.equals("$id") && depth > 0)
+                    throw ContractFields.problem("NESTED_SCHEMA_ID", key);
+                inspect(value, depth + 1);
+            });
+        } else if (node.isArray()) {
+            for (JsonNode value : node) inspect(value, depth + 1);
+        }
+    }
+}
+
++++ G:\207\项目\算法重组工具\代码\ontorepo\onto-contract\src\test\java\cn\ontorepo\contract\ContractTest.java
+package cn.ontorepo.contract;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import static org.junit.jupiter.api.Assertions.*;
+
+/** 原详设四段样例是互相制约的契约夹具；不能把能解析 JSON 等同于逐项通过。 */
+class ContractTest {
+    private static final ObjectMapper JSON = new ObjectMapper();
+
+    private JsonNode fixture(int index) throws Exception {
+        try (var input = getClass().getResourceAsStream("/sample-" + index + ".json")) {
+            assertNotNull(input);
+            return JSON.readTree(input);
+        }
+    }
+
+    private ObjectNode operation() throws Exception {
+        var manifest = fixture(2);
+        var op = JSON.createObjectNode().put("code", "task_used_algorithms");
+        op.set("assistant_tool", fixture(1));
+        op.set("input_schema", manifest.path("input_schema"));
+        op.set("output_schema", manifest.at("/output_schema/properties/data"));
+        op.set("policy", JSON.readTree("{\"timeout_ms\":5000,\"max_rows\":200}"));
+        return op;
+    }
+
+    private ObjectNode guards() throws Exception {
+        return (ObjectNode) JSON.readTree("""
+            {"region":{"type":"STRING","filter_binding":{"table":"task_table","column":"region_col","operator":"IN"}},
+             "tenant_label":{"type":"STRING","filter_binding":{"table":"task_table","column":"tenant_col","operator":"EQ"}}}
+            """);
+    }
+
+    @Test void fourSamplesParseAndEveryContractStageIsValidated() throws Exception {
+        var op = operation();
+        var manifest = fixture(2);
+        var response = fixture(3);
+        var imported = fixture(4).path("skillVersion");
+        GuardValidator.validate(op, guards());
+        for (var example : fixture(1).path("param_examples"))
+            JsonSchemaAssertions.validate(manifest.path("input_schema"), example);
+        JsonSchemaAssertions.validate(manifest.path("output_schema"), response);
+        JsonSchemaAssertions.validate(op.path("output_schema"), response.path("data"));
+        assertEquals(manifest.path("ontology_meta"), response.path("meta"));
+        assertEquals(manifest.path("output_schema"), imported.path("outputSchema"));
+        assertEquals(manifest.path("guard_attrs"), imported.path("guardAttrs"));
+        assertEquals(manifest.path("return_spec"), imported.path("returnSpec"));
+        assertEquals(5000, imported.path("timeoutMs").intValue());
+        assertEquals("SYNC", imported.path("invocationKind").textValue());
+        assertEquals("HTTP", imported.path("adapterType").textValue());
+        ContractValidator.validateImport(manifest);
+        var copy = op.deepCopy();
+        var preview = new ContractGenerator().preview(op, guards(), "https://onto.example.com", "sp_001", "candidate_1");
+        for (String field : new String[]{"spaceCode", "releaseId", "version", "contentDigest"})
+            assertTrue(preview.path("ontology_meta").path(field).isNull(), field);
+        var formal = new ContractGenerator().formalize(preview, "https://onto.example.com", "sp_001", "rel_001", "3",
+                manifest.at("/ontology_meta/contentDigest").textValue());
+        assertEquals(manifest, formal);
+        assertEquals(copy, op, "生成过程不得修改传入声明");
+        assertTrue(preview.path("ontology_meta").path("preview").booleanValue());
+    }
+
+    @Test void successWithoutMetaFailsWholeEnvelopeSchema() throws Exception {
+        ObjectNode response = (ObjectNode) fixture(3);
+        response.remove("meta");
+        assertThrows(ContractProblem.class, () -> JsonSchemaAssertions.validate(fixture(2).path("output_schema"), response));
+    }
+
+    @Test void missingTenantBindingAndUnknownGuardNeverPass() throws Exception {
+        var config = guards();
+        ((ObjectNode) config.path("tenant_label")).remove("filter_binding");
+        var error = assertThrows(ContractProblem.class, () -> GuardValidator.validate(operation(), config));
+        assertEquals("GUARD_ATTR_UNRESOLVED", error.code());
+        assertEquals("NO_FILTER_BINDING", error.reason());
+        config.remove("tenant_label");
+        assertEquals("UNDEFINED", assertThrows(ContractProblem.class, () -> GuardValidator.validate(operation(), config)).reason());
+    }
+
+    @Test void emptyGuardsAndMissingExamplesFailWithExactErrors() throws Exception {
+        var op = operation();
+        ((ObjectNode) op.path("assistant_tool")).remove("guard_attrs");
+        assertEquals("MISSING_GUARD_ATTRS", assertThrows(ContractProblem.class, () -> GuardValidator.validate(op, guards())).code());
+        var noExample = operation();
+        ((ObjectNode) noExample.path("assistant_tool")).remove("param_examples");
+        assertEquals("MISSING_PARAM_EXAMPLES", assertThrows(ContractProblem.class, () ->
+            new ContractGenerator().preview(noExample, guards(), "https://onto.example.com", "sp", "c")).code());
+    }
+
+    @Test void parameterExamplesUseActualSchema() throws Exception {
+        var op = operation();
+        ((ObjectNode) op.path("assistant_tool")).set("param_examples", JSON.readTree("[{\"taskId\":123}]"));
+        assertThrows(ContractProblem.class, () -> new ContractGenerator().preview(op, guards(), "https://onto.example.com", "sp", "c"));
+    }
+
+    @Test void unsupportedEnumMissingFieldsAndWrongTypesAreRejected() throws Exception {
+        ObjectNode m = (ObjectNode) fixture(2);
+        m.put("invocation_kind", "HTTP");
+        assertEquals("INVALID_ENUM", assertThrows(ContractProblem.class, () -> ContractValidator.validateImport(m)).code());
+        m.put("invocation_kind", "SYNC"); m.remove("adapter_type");
+        assertEquals("MISSING_FIELD", assertThrows(ContractProblem.class, () -> ContractValidator.validateImport(m)).code());
+        m.put("adapter_type", "HTTP");
+        ((ObjectNode) m.path("exec_attrs")).put("timeout_ms", 1.5);
+        assertEquals("TYPE_MISMATCH", assertThrows(ContractProblem.class, () -> ContractValidator.validateImport(m)).code());
+        ((ObjectNode) m.path("exec_attrs")).put("timeout_ms", 5000);
+        m.put("guard_attrs", "region");
+        assertEquals("TYPE_MISMATCH", assertThrows(ContractProblem.class, () -> ContractValidator.validateImport(m)).code());
+    }
+
+    @Test void previewCannotBeConsumedAsReleaseAndRisksCannotBeDowngraded() throws Exception {
+        var op = operation();
+        var preview = new ContractGenerator().preview(op, guards(), "https://onto.example.com", "sp", "c");
+        assertEquals("PREVIEW_NOT_RELEASE", assertThrows(ContractProblem.class, () -> ContractValidator.validateImport(preview)).code());
+        ((ObjectNode) op.at("/assistant_tool/exec")).put("readonly", false);
+        assertEquals("RISK_DOWNGRADE", assertThrows(ContractProblem.class, () ->
+            new ContractGenerator().preview(op, guards(), "https://onto.example.com", "sp", "c")).code());
+    }
+
+    @ParameterizedTest @ValueSource(strings={"https://external.invalid/schema", "file:///secret/schema", "classpath:private.json"})
+    void schemasNeverRetrieveExternalReferences(String ref) throws Exception {
+        var schema = JSON.createObjectNode().put("$ref", ref);
+        assertEquals("EXTERNAL_SCHEMA_REF", assertThrows(ContractProblem.class, () -> JsonSchemaAssertions.validate(schema, JSON.createObjectNode())).code());
+    }
+
+    @Test void localDefsAndAdditionalPropertiesReallyValidate() throws Exception {
+        var schema = JSON.readTree("""
+            {"type":"object","required":["id"],"additionalProperties":false,
+             "$defs":{"identifier":{"type":"string","pattern":"^T-[0-9]+$"}},
+             "properties":{"id":{"$ref":"#/$defs/identifier"}}}
+            """);
+        JsonSchemaAssertions.validate(schema, JSON.readTree("{\"id\":\"T-1\"}"));
+        assertThrows(ContractProblem.class, () -> JsonSchemaAssertions.validate(schema, JSON.readTree("{\"id\":\"bad\"}")));
+        assertThrows(ContractProblem.class, () -> JsonSchemaAssertions.validate(schema, JSON.readTree("{\"id\":\"T-1\",\"extra\":true}")));
+    }
+
+    @Test void wrappingBusinessSchemaPreservesLocalReferenceMeaning() throws Exception {
+        var op = operation();
+        op.set("output_schema", JSON.readTree("""
+            {"type":"object","required":["stdCode"],"$defs":{"code":{"type":"string","pattern":"^ALG-[0-9]+$"}},
+             "properties":{"stdCode":{"$ref":"#/$defs/code"}}}
+            """));
+        var preview = new ContractGenerator().preview(op, guards(), "https://onto.example.com", "sp", "c");
+        JsonSchemaAssertions.validate(preview.path("output_schema"), fixture(3));
+        ObjectNode wrong = (ObjectNode) fixture(3);
+        ((ObjectNode) wrong.path("data")).put("stdCode", "bad");
+        assertThrows(ContractProblem.class, () -> JsonSchemaAssertions.validate(preview.path("output_schema"), wrong));
+    }
+}
+
++++ G:\207\项目\算法重组工具\代码\ontorepo\onto-contract\src\test\resources\sample-1.json
+{"name":"查询任务使用的算法","description":"按任务标识返回其使用的算法对象及关系证据",
+ "guard_attrs":["region","tenant_label"],
+ "info_attrs":["biz_domain"],
+ "param_examples":[{"taskId":"T-1001"}],
+ "exec":{"readonly":true,"side_effect":false,"idempotent":true,"cancellable":true},
+ "risk_level":"READ_ONLY",
+ "error_semantics":[{"match":"HTTP 403","semantic":"NO_PERMISSION"},{"match":"HTTP 404","semantic":"PARAM_ERROR"}],
+ "return_spec":{"modelSummary":{"mode":"TEMPLATE","template":"任务 ${taskId} 使用算法 ${stdCode}"},
+                "structuredPath":"$.data","fileRefPaths":[],"cardTemplate":"算法 ${stdCode}"}}
+
++++ G:\207\项目\算法重组工具\代码\ontorepo\onto-contract\src\test\resources\sample-2.json
+{"tool_code":"task_used_algorithms","name":"查询任务使用的算法",
+ "description":"按任务标识返回其使用的算法对象及关系证据",
+ "invocation_kind":"SYNC","adapter_type":"HTTP","category":"ontology_service",
+ "endpoint":"https://onto.example.com/onto/r/sp_001/releases/rel_001/ops/task_used_algorithms",
+ "http_method":"POST",
+ "input_schema":{"type":"object","required":["taskId"],"properties":{"taskId":{"type":"string","maxLength":64}}},
+ "output_schema":{"type":"object","required":["code","data","meta"],
+   "properties":{"code":{"const":"OK"},
+     "data":{"type":"object","required":["stdCode"],
+             "properties":{"stdCode":{"type":"string"},"algoName":{"type":"string"},"evidence":{"type":"object"}}},
+     "meta":{"type":"object","required":["spaceCode","releaseId","version","contentDigest"],
+             "properties":{"spaceCode":{"type":"string"},"releaseId":{"type":"string"},
+                           "version":{"type":"string"},"contentDigest":{"type":"string","pattern":"^[0-9a-f]{64}$"}}}}},
+ "guard_attrs":["region","tenant_label"],
+ "exec_attrs":{"readonly_flag":true,"side_effect":false,"idempotent":true,"cancellable":true,"timeout_ms":5000,"max_rows":200},
+ "risk_level":"READ_ONLY",
+ "error_semantics":[{"match":"HTTP 403","semantic":"NO_PERMISSION"},{"match":"HTTP 404","semantic":"PARAM_ERROR"}],
+ "return_spec":{"modelSummary":{"mode":"TEMPLATE","template":"任务 ${taskId} 使用算法 ${stdCode}"},
+                "structuredPath":"$.data","fileRefPaths":[],"cardTemplate":"算法 ${stdCode}","ontologyMetaPath":"$.meta"},
+ "ontology_meta":{"spaceCode":"sp_001","releaseId":"rel_001","version":"3","contentDigest":"9f2c8a6d4e1b7c3f5a9d0e2b4c6f8a1d3e5f7b9c1d3f5a7b9c1e3f5a7b9d0e2b"}}
+
++++ G:\207\项目\算法重组工具\代码\ontorepo\onto-contract\src\test\resources\sample-3.json
+{"code":"OK",
+ "data":{"stdCode":"ALG-001","algoName":"示例算法A","evidence":{"source":"task_table#1001","mappingSnapshot":"ms_009"}},
+ "meta":{"spaceCode":"sp_001","releaseId":"rel_001","version":"3","contentDigest":"9f2c8a6d4e1b7c3f5a9d0e2b4c6f8a1d3e5f7b9c1d3f5a7b9c1e3f5a7b9d0e2b"}}
+
++++ G:\207\项目\算法重组工具\代码\ontorepo\onto-contract\src\test\resources\sample-4.json
+{"result":"ACCEPTED","skillVersion":{
+  "skillId":"SK-210","versionNo":1,"status":"DRAFT",
+  "invocationKind":"SYNC","adapterType":"HTTP","category":"ontology_service",
+  "endpoint":"https://onto.example.com/onto/r/sp_001/releases/rel_001/ops/task_used_algorithms",
+  "httpMethod":"POST","authRef":null,
+  "timeoutMs":5000,"concurrencyLimit":10,"outputMaxBytes":1048576,
+  "inputSchema":{"type":"object","required":["taskId"],"properties":{"taskId":{"type":"string","maxLength":64}}},
+  "outputSchema":{"type":"object","required":["code","data","meta"],
+    "properties":{"code":{"const":"OK"},
+      "data":{"type":"object","required":["stdCode"],
+              "properties":{"stdCode":{"type":"string"},"algoName":{"type":"string"},"evidence":{"type":"object"}}},
+      "meta":{"type":"object","required":["spaceCode","releaseId","version","contentDigest"],
+              "properties":{"spaceCode":{"type":"string"},"releaseId":{"type":"string"},
+                            "version":{"type":"string"},"contentDigest":{"type":"string","pattern":"^[0-9a-f]{64}$"}}}}},
+  "guardAttrs":["region","tenant_label"],
+  "readonlyFlag":true,"sideEffect":false,"idempotent":true,"cancellable":true,
+  "riskLevel":"READ_ONLY",
+  "errorSemantics":[{"match":"HTTP 403","semantic":"NO_PERMISSION"},{"match":"HTTP 404","semantic":"PARAM_ERROR"}],
+  "returnSpec":{"modelSummary":{"mode":"TEMPLATE","template":"任务 ${taskId} 使用算法 ${stdCode}"},
+                "structuredPath":"$.data","fileRefPaths":[],"cardTemplate":"算法 ${stdCode}","ontologyMetaPath":"$.meta"},
+  "ontologyMetaExpectation":{"spaceCode":"sp_001","releaseId":"rel_001","version":"3",
+                             "contentDigest":"9f2c8a6d4e1b7c3f5a9d0e2b4c6f8a1d3e5f7b9c1d3f5a7b9c1e3f5a7b9d0e2b"},
+  "defaultsApplied":{"timeoutMs":"manifest 覆盖缺省 30000→5000","concurrencyLimit":"缺省 10","outputMaxBytes":"缺省 1048576"}}}
+

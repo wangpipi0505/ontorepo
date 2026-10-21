@@ -1,0 +1,41 @@
+{
+  "recordedAt": "2026-10-21T02:02:54.187Z",
+  "runtimeSha256": "50CF88E132B5C1D4D69C030A402858BE95975AE54A99567C34EE54890A027ECE",
+  "runId": "mvhgwea5",
+  "spaceId": "612ef8fe-3145-46fa-8ddf-575cc4aa58ae",
+  "userId": "5a66e32c-de82-4dcd-9481-e4dd61c35e6b",
+  "checks": [
+    {
+      "name": "部署引导账号获得显式系统管理权限",
+      "status": "PASSED"
+    },
+    {
+      "name": "自定义多角色权限取并集且系统目录默认拒绝",
+      "status": "PASSED"
+    },
+    {
+      "name": "功能权限不自动授予空间可见性",
+      "status": "PASSED"
+    },
+    {
+      "name": "空间EDITOR仍需功能写权限，矩阵和编码路径均不得绕过",
+      "status": "PASSED"
+    },
+    {
+      "name": "角色停用对已有会话立即生效且修订冲突不覆盖配置",
+      "status": "PASSED"
+    },
+    {
+      "name": "密码重置撤销旧会话并拒绝旧密码",
+      "status": "PASSED"
+    },
+    {
+      "name": "账号停用撤销当前会话，管理审计不含凭据",
+      "status": "PASSED"
+    },
+    {
+      "name": "无引用自定义角色可删除且未知权限被拒绝",
+      "status": "PASSED"
+    }
+  ]
+}

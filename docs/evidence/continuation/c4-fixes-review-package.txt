@@ -1,0 +1,2978 @@
+# C4 修复当前源码审查包（非 Git diff）
+
+## onto-contract/src/main/java/cn/ontorepo/contract/GuardAttributeName.java
+package cn.ontorepo.contract;
+
+/** 守卫、主体属性与授权范围共用名称边界；保留既有首下划线和128字符冻结语义。 */
+public final class GuardAttributeName {
+    private GuardAttributeName() {}
+
+    public static boolean valid(String value) {
+        return value != null && value.matches("[A-Za-z_][A-Za-z0-9_]{0,127}");
+    }
+}
+
+
+## onto-contract/src/main/java/cn/ontorepo/contract/GuardValidator.java
+package cn.ontorepo.contract;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import java.util.Set;
+
+/** 逐项复核完整守卫集合；缺定义或缺执行绑定均阻断，不存在仅声明安全豁免。 */
+public final class GuardValidator {
+    private static final Set<String> TYPES = Set.of("STRING", "INTEGER", "DECIMAL", "BOOLEAN");
+    private GuardValidator() {}
+
+    public static void validate(JsonNode operation, JsonNode guardCfg) {
+        String code = ContractFields.text(operation, "code");
+        JsonNode guards = operation.path("assistant_tool").path("guard_attrs");
+        if (guards.isMissingNode() || guards.isNull() || (guards.isArray() && guards.isEmpty()))
+            throw new ContractProblem("MISSING_GUARD_ATTRS", code, "MISSING_GUARD_ATTRS");
+        var names = ContractFields.strings(guards, "guard_attrs", true);
+        for (String name : names) {
+            JsonNode definition = guardCfg.path(name);
+            if (!definition.isObject()) unresolved(code, name, "UNDEFINED");
+            if (!TYPES.contains(definition.path("type").asText())) unresolved(code, name, "UNSUPPORTED_TYPE");
+            if (!filterBinding(definition.path("filter_binding"))
+                    && !authorizationRule(definition.path("authorization_rule")))
+                unresolved(code, name, "NO_FILTER_BINDING");
+        }
+    }
+
+    /** 仅接受可由查询翻译器参数化执行的表列和运算符，任意字符串不算绑定。 */
+    private static boolean filterBinding(JsonNode binding) {
+        return binding.isObject() && textualIdentifier(binding.path("table"))
+                && textualIdentifier(binding.path("column"))
+                && binding.path("operator").isTextual()
+                && Set.of("IN", "EQ").contains(binding.path("operator").textValue());
+    }
+
+    /** 授权规则必须指向受认证身份属性，不能让调用参数替代主体身份。 */
+    private static boolean authorizationRule(JsonNode rule) {
+        return rule.isObject() && "PRINCIPAL_ATTRIBUTE".equals(rule.path("kind").textValue())
+                && rule.path("attribute").isTextual()
+                && GuardAttributeName.valid(rule.path("attribute").textValue());
+    }
+
+    /** 标识符必须来自 JSON 字符串，禁止 asText 将布尔值伪装成合法名称。 */
+    private static boolean textualIdentifier(JsonNode value) {
+        return value.isTextual() && identifier(value.textValue());
+    }
+
+    /** 数据源表列标识符规则；属性命名独立由GuardAttributeName维护，不能顺带扩张SQL名称。 */
+    public static boolean identifier(String value) {
+        return value != null && value.matches("[A-Za-z_][A-Za-z0-9_]{0,127}");
+    }
+
+    private static void unresolved(String op, String attr, String reason) {
+        throw new ContractProblem("GUARD_ATTR_UNRESOLVED", op + "." + attr, reason);
+    }
+}
+
+
+## onto-data/pom.xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+    <modelVersion>4.0.0</modelVersion>
+    <parent><groupId>cn.ontorepo</groupId><artifactId>ontorepo</artifactId><version>0.1.0</version></parent>
+    <artifactId>onto-data</artifactId>
+    <dependencies>
+        <dependency><groupId>cn.ontorepo</groupId><artifactId>onto-contract</artifactId><version>${project.version}</version></dependency>
+        <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId></dependency>
+        <dependency><groupId>com.clickhouse</groupId><artifactId>clickhouse-jdbc</artifactId><version>0.9.8</version><classifier>all</classifier></dependency>
+        <dependency><groupId>io.minio</groupId><artifactId>minio</artifactId><version>9.0.3</version></dependency>
+        <dependency><groupId>com.squareup.okhttp3</groupId><artifactId>okhttp-jvm</artifactId><version>5.3.2</version></dependency>
+        <dependency><groupId>org.apache.parquet</groupId><artifactId>parquet-hadoop</artifactId><version>1.15.2</version></dependency>
+        <dependency><groupId>org.apache.parquet</groupId><artifactId>parquet-column</artifactId><version>1.15.2</version></dependency>
+        <dependency><groupId>org.apache.hadoop</groupId><artifactId>hadoop-common</artifactId><version>3.4.1</version></dependency>
+        <dependency><groupId>org.apache.hadoop</groupId><artifactId>hadoop-mapreduce-client-core</artifactId><version>3.4.1</version><exclusions><exclusion><groupId>*</groupId><artifactId>*</artifactId></exclusion></exclusions></dependency>
+        <dependency><groupId>org.apache.commons</groupId><artifactId>commons-csv</artifactId><version>1.14.0</version></dependency>
+        <dependency><groupId>org.apache.poi</groupId><artifactId>poi-ooxml</artifactId><version>5.4.1</version></dependency>
+        <dependency><groupId>org.mongodb</groupId><artifactId>mongodb-driver-sync</artifactId><version>5.5.1</version></dependency>
+        <dependency><groupId>redis.clients</groupId><artifactId>jedis</artifactId><version>6.0.0</version></dependency>
+        <dependency><groupId>org.apache.cassandra</groupId><artifactId>java-driver-core</artifactId><version>4.18.1</version></dependency>
+        <dependency><groupId>org.neo4j.driver</groupId><artifactId>neo4j-java-driver</artifactId><version>5.28.5</version></dependency>
+        <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId></dependency>
+        <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
+    </dependencies>
+</project>
+
+
+## onto-data/src/main/java/cn/ontorepo/data/domain/LabelScope.java
+package cn.ontorepo.data.domain;
+
+import cn.ontorepo.contract.GuardAttributeName;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.DecimalNode;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+/**
+ * 授权标签范围的不可变交集，不负责判断授权记录是否存在。
+ *
+ * <p>调用者必须先验证入口授权记录；记录存在且范围 null 才代表不限。 策略、端点、空间按属性逐项求交，任何层不能扩大另一层；同一空间范围应用两次保持等价。
+ * 缺少分类标签始终拒绝，即使所有范围均为不限，也不能把未分类对象当作公共数据。
+ */
+public record LabelScope(Map<String, Set<JsonNode>> clauses) {
+  public LabelScope {
+    if (clauses == null || clauses.size() > 64) throw invalid();
+    Map<String, Set<JsonNode>> copy = new LinkedHashMap<>();
+    clauses.forEach(
+        (attribute, values) -> {
+          if (attribute == null
+              || !GuardAttributeName.valid(attribute)
+              || values == null
+              || values.size() > 1000) throw invalid();
+          Set<JsonNode> normalized = new LinkedHashSet<>();
+          for (JsonNode value : values) {
+            if (!classified(value)) throw invalid();
+            normalized.add(normalize(value));
+          }
+          copy.put(attribute, Set.copyOf(normalized));
+        });
+    clauses = Map.copyOf(copy);
+  }
+
+  public static LabelScope unrestricted() {
+    return new LabelScope(Map.of());
+  }
+
+  /** 仅允许明确的集合或集合合取，不接受原始 SQL、通配符和任意表达式。 */
+  public static LabelScope parse(JsonNode source) {
+    return parse(source, 0);
+  }
+
+  private static LabelScope parse(JsonNode source, int depth) {
+    if (source == null || source.isNull()) return unrestricted();
+    if (!source.isObject() || depth > 16) throw invalid();
+    if (source.size() == 1 && source.has("all")) {
+      JsonNode all = source.get("all");
+      if (!all.isArray() || all.isEmpty() || all.size() > 64) throw invalid();
+      LabelScope combined = unrestricted();
+      for (JsonNode child : all) {
+        if (!child.isObject()) throw invalid();
+        combined = intersect(combined, parse(child, depth + 1));
+      }
+      return combined;
+    }
+    JsonNode attr = source.get("attr"), values = source.get("in");
+    if (source.size() != 2
+        || attr == null
+        || !attr.isTextual()
+        || !GuardAttributeName.valid(attr.textValue())
+        || values == null
+        || !values.isArray()
+        || values.size() > 1000) throw invalid();
+    Set<JsonNode> allowed = new LinkedHashSet<>();
+    for (JsonNode value : values) {
+      if (!classified(value)) throw invalid();
+      allowed.add(normalize(value));
+    }
+    return new LabelScope(Map.of(attr.textValue(), allowed));
+  }
+
+  public static LabelScope intersect(LabelScope... scopes) {
+    Map<String, Set<JsonNode>> result = new LinkedHashMap<>();
+    for (LabelScope scope : scopes) {
+      if (scope == null) throw invalid();
+      for (var entry : scope.clauses.entrySet()) {
+        Set<JsonNode> existing = result.get(entry.getKey());
+        if (existing == null) result.put(entry.getKey(), new LinkedHashSet<>(entry.getValue()));
+        else existing.retainAll(entry.getValue());
+      }
+    }
+    return new LabelScope(result);
+  }
+
+  /** SQL 计划器将空交集编译为恒假谓词，不能在空列表时省略 WHERE。 */
+  public boolean deniesAll() {
+    return clauses.values().stream().anyMatch(Set::isEmpty);
+  }
+
+  /** 只判断当前属性；整条记录必须对全部必需 guard_attrs 逐项调用。 */
+  public boolean allows(String attribute, JsonNode label) {
+    if (deniesAll() || !classified(label)) return false;
+    Set<JsonNode> allowed = clauses.get(attribute);
+    return allowed == null || allowed.contains(normalize(label));
+  }
+
+  /** 返回参数化计划所需的只读集合；不得将其中字符串拼接到 SQL。 */
+  public Map<String, List<JsonNode>> parameters() {
+    Map<String, List<JsonNode>> result = new LinkedHashMap<>();
+    clauses.forEach((attribute, values) -> result.put(attribute, List.copyOf(values)));
+    return Map.copyOf(result);
+  }
+
+  private static JsonNode normalize(JsonNode value) {
+    return value.isNumber()
+        ? DecimalNode.valueOf(value.decimalValue().stripTrailingZeros())
+        : value;
+  }
+
+  private static boolean classified(JsonNode value) {
+    return value != null
+        && (value.isBoolean()
+            || value.isNumber()
+            || value.isTextual()
+                && !value.textValue().isBlank()
+                && value.textValue().length() <= 1000);
+  }
+
+  private static DataProblem invalid() {
+    return new DataProblem("INVALID_DATA_SCOPE", "数据范围必须为明确的属性值集合或集合合取");
+  }
+}
+
+
+## onto-data/src/main/java/cn/ontorepo/data/domain/QueryPlanner.java
+package cn.ontorepo.data.domain;
+
+import cn.ontorepo.contract.GuardAttributeName;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import java.util.*;
+import java.util.stream.Collectors;
+
+/** 全部源表和列先校验，标签参数化并在 LIMIT 前执行。 */
+public final class QueryPlanner {
+  public record SqlPlan(
+      String sql,
+      List<Object> parameters,
+      int limit,
+      int timeoutMs,
+      List<String> projection,
+      Map<String, List<String>> keys) {}
+
+  public static void identifier(String name) {
+    if (name == null
+        || !name.matches("[A-Za-z_][A-Za-z0-9_]{0,79}(\\.[A-Za-z_][A-Za-z0-9_]{0,79}){0,2}"))
+      throw problem("INVALID_IDENTIFIER");
+  }
+
+  public static DataProblem problem(String code) {
+    return new DataProblem(code, "数据源查询不满足访问边界或能力约束");
+  }
+
+  public static Object scalar(JsonNode n) {
+    if (n == null || n.isNull() || n.isContainerNode()) throw problem("INVALID_FILTER");
+    if (n.isNumber()) return n.decimalValue();
+    if (n.isBoolean()) return n.booleanValue();
+    return n.textValue();
+  }
+
+  public SqlPlan plan(SourceSpec source, QuerySpec q, SourceMetadata metadata) {
+    if (!q.options().isEmpty()) throw problem("UNSUPPORTED_OPTION");
+    Map<String, SourceMetadata.Resource> resources =
+        metadata.resources().stream()
+            .collect(Collectors.toMap(SourceMetadata.Resource::name, r -> r));
+    Set<String> used = new LinkedHashSet<>();
+    used.add(q.resource());
+    q.joins().forEach(j -> used.add(j.resource()));
+    for (String r : used) {
+      identifier(r);
+      if (!source.accessScope().contains(r)) throw problem("SCOPE_EXCEEDED");
+      if (!resources.containsKey(r)) throw problem("RESOURCE_NOT_FOUND");
+    }
+    Set<String> columns = new HashSet<>();
+    used.forEach(
+        r ->
+            resources
+                .get(r)
+                .fields()
+                .forEach(
+                    f -> {
+                      identifier(f.name());
+                      columns.add(r + "." + f.name());
+                    }));
+    java.util.function.Function<String, String> col =
+        c -> {
+          identifier(c);
+          if (!columns.contains(c)) throw problem("UNKNOWN_COLUMN");
+          return quote(c);
+        };
+    if (q.guardBindings().isEmpty()
+        || !q.guardBindings().keySet().stream()
+            .map(QueryPlanner::guardAttribute)
+            .collect(Collectors.toSet())
+            .containsAll(q.scope().clauses().keySet())) throw problem("GUARD_ATTR_UNRESOLVED");
+    // JOIN 每一端都需分类标签；不能通过已授权任务关联出未分类算法。
+    for (String resource : used)
+      if (q.guardBindings().values().stream().noneMatch(c -> c.startsWith(resource + ".")))
+        throw problem("GUARD_ATTR_UNRESOLVED");
+    List<Object> params = new ArrayList<>();
+    List<String> where = new ArrayList<>();
+    for (var e : q.guardBindings().entrySet()) {
+      String c = col.apply(e.getValue());
+      where.add(c + " IS NOT NULL");
+      var field =
+          resources.get(e.getValue().substring(0, e.getValue().lastIndexOf('.'))).fields().stream()
+              .filter(
+                  f -> f.name().equals(e.getValue().substring(e.getValue().lastIndexOf('.') + 1)))
+              .findFirst()
+              .orElseThrow();
+      if (field.type().toUpperCase(Locale.ROOT).matches(".*(CHAR|TEXT|STRING).*"))
+        where.add(classifiedText(source, c));
+      var values = q.scope().parameters().get(guardAttribute(e.getKey()));
+      if (values != null) in(c, values, where, params);
+    }
+    for (var f : q.filters()) {
+      String c = col.apply(f.column());
+      if (f.operator() == null || f.values().size() > 1000) throw problem("INVALID_FILTER");
+      if (f.operator() == QuerySpec.Operator.IN) in(c, f.values(), where, params);
+      else {
+        if (f.values().size() != 1) throw problem("INVALID_FILTER");
+        where.add(
+            c
+                + " "
+                + switch (f.operator()) {
+                  case EQ -> "=";
+                  case GT -> ">";
+                  case GE -> ">=";
+                  case LT -> "<";
+                  case LE -> "<=";
+                  default -> throw problem("INVALID_FILTER");
+                }
+                + " ?");
+        params.add(scalar(f.values().getFirst()));
+      }
+    }
+    String select = q.projection().stream().map(col).collect(Collectors.joining(","));
+    Map<String, List<String>> keys = new LinkedHashMap<>();
+    int keyIndex = 0;
+    for (String r : used) {
+      if (resources.get(r).primaryKey().isEmpty()) throw problem("SOURCE_KEY_REQUIRED");
+      keys.put(r, resources.get(r).primaryKey());
+      for (String key : resources.get(r).primaryKey())
+        select += "," + col.apply(r + "." + key) + " AS \"__e" + (keyIndex++) + "\"";
+    }
+    StringBuilder sql =
+        new StringBuilder("SELECT ").append(select).append(" FROM ").append(quote(q.resource()));
+    Set<String> joined = new HashSet<>();
+    joined.add(q.resource());
+    for (var j : q.joins()) {
+      String l = j.leftColumn(), r = j.rightColumn();
+      if (!r.startsWith(j.resource() + ".")
+          || joined.stream().noneMatch(x -> l.startsWith(x + "."))
+          || !joined.add(j.resource())) throw problem("INVALID_JOIN");
+      sql.append(" JOIN ")
+          .append(quote(j.resource()))
+          .append(" ON ")
+          .append(col.apply(l))
+          .append(" = ")
+          .append(col.apply(r));
+    }
+    sql.append(" WHERE ").append(String.join(" AND ", where)).append(" LIMIT ?");
+    params.add(q.limit());
+    return new SqlPlan(
+        sql.toString(),
+        List.copyOf(params),
+        q.limit(),
+        q.timeoutMs(),
+        q.projection(),
+        Collections.unmodifiableMap(new LinkedHashMap<>(keys)));
+  }
+
+  private static void in(
+      String col, List<JsonNode> values, List<String> where, List<Object> params) {
+    if (values.isEmpty()) {
+      where.add("1=0");
+      return;
+    }
+    where.add(col + " IN (" + String.join(",", Collections.nCopies(values.size(), "?")) + ")");
+    values.forEach(v -> params.add(scalar(v)));
+  }
+
+  public static String quote(String value) {
+    identifier(value);
+    return Arrays.stream(value.split("\\."))
+        .map(x -> "\"" + x + "\"")
+        .collect(Collectors.joining("."));
+  }
+
+  /** 空白集合从当前JDK规则取得，避免SQL默认TRIM仅删除普通空格。没有调用者输入进入字面量。 */
+  private static String classifiedText(SourceSpec source, String column) {
+    String dialect = source.connection().path("dialect").asText();
+    StringBuilder escaped = new StringBuilder(), pattern = new StringBuilder("[");
+    for (int point : BlankCharacters.POINTS) {
+      escaped
+          .append('\\')
+          .append(
+              point <= 0xffff
+                  ? String.format(Locale.ROOT, "%04x", point)
+                  : String.format(Locale.ROOT, "+%06x", point));
+      pattern.append("\\\\x{").append(Integer.toHexString(point)).append('}');
+    }
+    pattern.append(']');
+    return switch (dialect) {
+      case "postgresql" -> "BTRIM(" + column + ", U&'" + escaped + "') <> ''";
+      case "clickhouse" -> "replaceRegexpAll(" + column + ", '" + pattern + "', '') <> ''";
+      default -> throw problem("UNSUPPORTED_DIALECT");
+    };
+  }
+
+  private static final class BlankCharacters {
+    static final int[] POINTS =
+        java.util.stream.IntStream.rangeClosed(0, Character.MAX_CODE_POINT)
+            .filter(Character::isWhitespace)
+            .toArray();
+  }
+
+  /** 同一属性在 JOIN 多表绑定时使用 attr@resource，仍应用同一属性范围。 */
+  public static String guardAttribute(String binding) {
+    String[] parts = binding.split("@", -1);
+    if (parts.length > 2 || !GuardAttributeName.valid(parts[0]))
+      throw problem("GUARD_ATTR_UNRESOLVED");
+    if (parts.length == 2) identifier(parts[1]);
+    return parts[0];
+  }
+}
+
+
+## onto-data/src/test/java/cn/ontorepo/data/domain/QueryPlannerTest.java
+package cn.ontorepo.data.domain;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.*;
+import org.junit.jupiter.api.Test;
+
+class QueryPlannerTest {
+  private final ObjectMapper json = new ObjectMapper();
+  private final SourceSpec source =
+      new SourceSpec(
+          "s",
+          "RELATIONAL",
+          json.createObjectNode().put("dialect", "postgresql"),
+          Set.of("public.tasks", "public.algorithms"));
+  private final SourceMetadata metadata =
+      new SourceMetadata(
+          List.of(
+              new SourceMetadata.Resource(
+                  "public.tasks",
+                  List.of(
+                      new SourceMetadata.Field("id", "INTEGER", false),
+                      new SourceMetadata.Field("region", "VARCHAR", true),
+                      new SourceMetadata.Field("algo", "INTEGER", false)),
+                  List.of("id"),
+                  List.of(),
+                  List.of()),
+              new SourceMetadata.Resource(
+                  "public.algorithms",
+                  List.of(
+                      new SourceMetadata.Field("id", "INTEGER", false),
+                      new SourceMetadata.Field("region", "VARCHAR", true)),
+                  List.of("id"),
+                  List.of(),
+                  List.of())));
+
+  QuerySpec query(LabelScope scope, Map<String, String> guards) {
+    return new QuerySpec(
+        "public.tasks",
+        List.of("public.tasks.id"),
+        List.of(),
+        List.of(),
+        10000,
+        90000,
+        Map.of(),
+        scope,
+        guards);
+  }
+
+  @Test
+  void historicalAttributeNamesKeepQualifiedBindingsAndSourceIdentifierBoundaries() {
+    for(String attribute:List.of("_region","r".repeat(128))){
+      var scope=LabelScope.parse(json.valueToTree(Map.of("attr",attribute,"in",List.of("A"))));
+      var plan=assertDoesNotThrow(()->new QueryPlanner().plan(source,query(scope,Map.of(attribute+"@public.tasks","public.tasks.region")),metadata));
+      assertEquals(List.of("A",500),plan.parameters());
+      assertTrue(plan.sql().contains("IS NOT NULL"));
+      assertThrows(DataProblem.class,()->new QueryPlanner().plan(source,query(scope,Map.of(attribute+"@public.tasks;DROP","public.tasks.region")),metadata));
+    }
+  }
+
+  @Test
+  void bindsLabelsAndCapsExecution() throws Exception {
+    var scope = LabelScope.parse(json.readTree("{\"attr\":\"region\",\"in\":[\"A' OR 1=1 --\"]}"));
+    var plan =
+        new QueryPlanner()
+            .plan(source, query(scope, Map.of("region", "public.tasks.region")), metadata);
+    assertFalse(plan.sql().contains("OR 1=1"));
+    assertTrue(plan.sql().contains("IS NOT NULL"));
+    assertEquals("A' OR 1=1 --", plan.parameters().getFirst());
+    assertEquals(500, plan.limit());
+    assertEquals(10000, plan.timeoutMs());
+  }
+
+  @Test
+  void emptyIntersectionIsFalseAndMissingGuardFails() {
+    var scope = new LabelScope(Map.of("region", Set.of()));
+    assertTrue(
+        new QueryPlanner()
+            .plan(source, query(scope, Map.of("region", "public.tasks.region")), metadata)
+            .sql()
+            .contains("1=0"));
+    assertThrows(
+        DataProblem.class, () -> new QueryPlanner().plan(source, query(scope, Map.of()), metadata));
+    assertThrows(
+        DataProblem.class,
+        () ->
+            new QueryPlanner().plan(source, query(LabelScope.unrestricted(), Map.of()), metadata));
+  }
+
+  @Test
+  void rejectsUnknownTablesColumnsAndOptions() {
+    assertThrows(
+        DataProblem.class,
+        () ->
+            new QueryPlanner()
+                .plan(
+                    source,
+                    query(LabelScope.unrestricted(), Map.of("region", "public.tasks.bad")),
+                    metadata));
+    assertThrows(
+        DataProblem.class,
+        () ->
+            new QueryPlanner()
+                .plan(
+                    new SourceSpec("s", "RELATIONAL", source.connection(), Set.of()),
+                    query(LabelScope.unrestricted(), Map.of("region", "public.tasks.region")),
+                    metadata));
+    assertThrows(
+        DataProblem.class,
+        () ->
+            new QueryPlanner()
+                .plan(
+                    source,
+                    new QuerySpec(
+                        "public.tasks;DROP",
+                        List.of("id"),
+                        List.of(),
+                        List.of(),
+                        1,
+                        1,
+                        Map.of(),
+                        LabelScope.unrestricted(),
+                        Map.of("region", "region")),
+                    metadata));
+  }
+
+  @Test
+  void joinsRequireGuardForEveryParticipatingTable() {
+    var joined =
+        new QuerySpec(
+            "public.tasks",
+            List.of("public.tasks.id", "public.algorithms.id"),
+            List.of(),
+            List.of(
+                new QuerySpec.Join(
+                    "public.algorithms", "public.tasks.algo", "public.algorithms.id")),
+            1,
+            1000,
+            Map.of(),
+            LabelScope.unrestricted(),
+            Map.of("region", "public.tasks.region"));
+    assertEquals(
+        "GUARD_ATTR_UNRESOLVED",
+        assertThrows(DataProblem.class, () -> new QueryPlanner().plan(source, joined, metadata))
+            .code());
+    var complete =
+        new QuerySpec(
+            joined.resource(),
+            joined.projection(),
+            joined.filters(),
+            joined.joins(),
+            1,
+            1000,
+            Map.of(),
+            LabelScope.unrestricted(),
+            Map.of(
+                "region",
+                "public.tasks.region",
+                "region@public.algorithms",
+                "public.algorithms.region"));
+    assertTrue(new QueryPlanner().plan(source, complete, metadata).sql().contains("JOIN"));
+  }
+}
+
+
+## onto-space/src/main/java/cn/ontorepo/space/application/GuardService.java
+package cn.ontorepo.space.application;
+
+import cn.ontorepo.common.domain.*;
+import cn.ontorepo.common.infra.Db;
+import cn.ontorepo.contract.GuardAttributeName;
+import cn.ontorepo.contract.GuardValidator;
+import cn.ontorepo.data.domain.LabelScope;
+
+import com.fasterxml.jackson.databind.*;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.*;
+
+/** 空间守卫定义属于草稿，授权属性属于实时主体；两者不能互相代替。 */
+@Service
+public class GuardService {
+    private final Db db;
+    private final SpaceService spaces;
+    private static final ObjectMapper JSON = new ObjectMapper();
+
+    public GuardService(Db db, SpaceService spaces) {
+        this.db = db;
+        this.spaces = spaces;
+    }
+
+    private void owner(UUID u, UUID s) {
+        if (!"OWNER".equals(spaces.role(u, s)))
+            throw new Problem(403, "FORBIDDEN", "仅OWNER可管理守卫和授权");
+    }
+
+    public Map<String, Object> guards(UUID u, UUID s) {
+        spaces.role(u, s);
+        return Map.of(
+                "guardCfg",
+                db.one("SELECT guard_cfg FROM ontology_space WHERE id=?", s).get("guardCfg"));
+    }
+
+    @Transactional
+    public Map<String, Object> saveGuards(UUID u, UUID s, Map<String, Object> b) {
+        return spaces.write(
+                u,
+                s,
+                Input.number(b, "expectedDraftRev"),
+                "GUARD_SAVE",
+                () -> {
+                    owner(u, s);
+                    JsonNode cfg = JSON.valueToTree(b.get("guardCfg"));
+                    if (!cfg.isObject() || cfg.size() > 64) throw Problem.bad("守卫配置必须为最多64项的对象");
+                    cfg.fields()
+                            .forEachRemaining(
+                                    e -> {
+                                        JsonNode d = e.getValue();
+                                        if (!GuardAttributeName.valid(e.getKey())
+                                                || !d.isObject()
+                                                || !Set.of(
+                                                                "STRING", "INTEGER", "DECIMAL",
+                                                                "BOOLEAN")
+                                                        .contains(d.path("type").asText()))
+                                            throw Problem.bad("守卫名称或类型无效");
+                                        // 草稿允许缺绑定，但显式提交的绑定必须结构正确，不能把任意代码当作绑定。
+                                        if (d.has("authorization_rule")) {
+                                            var r = d.path("authorization_rule");
+                                            if (!r.isObject()
+                                                    || !"PRINCIPAL_ATTRIBUTE"
+                                                            .equals(r.path("kind").asText())
+                                                    || !r.path("attribute").isTextual()
+                                                    || !GuardAttributeName.valid(
+                                                            r.path("attribute").asText()))
+                                                throw Problem.bad("主体属性绑定无效");
+                                        }
+                                        if (d.has("filter_binding")) {
+                                            var f = d.path("filter_binding");
+                                            if (!f.isObject()
+                                                    || !f.path("table").isTextual()
+                                                    || !f.path("column").isTextual()
+                                                    || !GuardValidator.identifier(
+                                                            f.path("table").asText())
+                                                    || !GuardValidator.identifier(
+                                                            f.path("column").asText())
+                                                    || !Set.of("IN", "EQ")
+                                                            .contains(f.path("operator").asText()))
+                                                throw Problem.bad("数据过滤绑定无效");
+                                        }
+                                    });
+                    db.update(
+                            "UPDATE ontology_space SET guard_cfg=?::jsonb WHERE id=?",
+                            db.json(b.get("guardCfg")),
+                            s);
+                });
+    }
+
+    public List<Map<String, Object>> grants(UUID u, UUID s) {
+        owner(u, s);
+        return db.list(
+                "SELECT g.user_id,u.username,u.display_name,g.role,g.data_scope,g.attributes FROM"
+                    + " space_grant g JOIN local_user u ON u.id=g.user_id WHERE g.space_id=? ORDER"
+                    + " BY u.username",
+                s);
+    }
+
+    public List<Map<String, Object>> users(UUID u, UUID s) {
+        owner(u, s);
+        return db.list("SELECT id user_id,username,display_name FROM local_user ORDER BY username");
+    }
+
+    @Transactional
+    public Map<String, Object> saveGrant(UUID u, UUID s, UUID target, Map<String, Object> b) {
+        return spaces.write(
+                u,
+                s,
+                Input.number(b, "expectedDraftRev"),
+                "GRANT_SAVE",
+                () -> {
+                    owner(u, s);
+                    db.one("SELECT id FROM local_user WHERE id=?", target);
+                    String role = Input.text(b, "role", 10);
+                    if (!Set.of("OWNER", "EDITOR", "VIEWER").contains(role))
+                        throw Problem.bad("授权角色无效");
+                    if (!role.equals("OWNER")
+                            && !db.list(
+                                            "SELECT 1 FROM space_grant WHERE space_id=? AND"
+                                                    + " user_id=? AND role='OWNER'",
+                                            s,
+                                            target)
+                                    .isEmpty()
+                            && db.list(
+                                                    "SELECT 1 FROM space_grant WHERE space_id=? AND"
+                                                            + " role='OWNER'",
+                                                    s)
+                                            .size()
+                                    == 1) throw new Problem(409, "LAST_OWNER", "不能移除最后一个OWNER");
+                    JsonNode attrs = JSON.valueToTree(b.getOrDefault("attributes", Map.of()));
+                    if (!attrs.isObject() || attrs.size() > 64) throw Problem.bad("主体属性必须为对象");
+                    JsonNode cfg =
+                            JSON.valueToTree(
+                                    db.one("SELECT guard_cfg FROM ontology_space WHERE id=?", s)
+                                            .get("guardCfg"));
+                    attrs.fields()
+                            .forEachRemaining(
+                                    e -> {
+                                        if (!GuardAttributeName.valid(e.getKey())
+                                                || !e.getValue().isValueNode()
+                                                || e.getValue().isNull()
+                                                || e.getValue().isTextual()
+                                                        && e.getValue().asText().isBlank())
+                                            throw Problem.bad("主体属性必须是非空标量");
+                                    });
+                    cfg.fields()
+                            .forEachRemaining(
+                                    e -> {
+                                        JsonNode d = e.getValue();
+                                        String attr =
+                                                d.path("authorization_rule")
+                                                        .path("attribute")
+                                                        .asText();
+                                        if (attrs.has(attr))
+                                            typed(d.path("type").asText(), attrs.path(attr));
+                                    });
+                    LabelScope.parse(JSON.valueToTree(b.get("dataScope")));
+                    db.update(
+                            "INSERT INTO space_grant(space_id,user_id,role,data_scope,attributes)"
+                                + " VALUES(?,?,?,?::jsonb,?::jsonb) ON CONFLICT(space_id,user_id)"
+                                + " DO UPDATE SET"
+                                + " role=excluded.role,data_scope=excluded.data_scope,attributes=excluded.attributes",
+                            s,
+                            target,
+                            role,
+                            b.get("dataScope") == null ? null : db.json(b.get("dataScope")),
+                            db.json(b.getOrDefault("attributes", Map.of())));
+                });
+    }
+
+    /** 只有空间授权行存在时null范围才不限；读取发生在每次调用的空间锁内。 */
+    public Map<String, Object> grant(UUID u, UUID s) {
+        spaces.editor(u, s);
+        return db.one(
+                "SELECT data_scope,attributes FROM space_grant WHERE space_id=? AND user_id=?",
+                s,
+                u);
+    }
+
+    /** 严格JSON标量类型检查，禁止字符串数字或布尔值冒充受信属性。 */
+    public static void typed(String type, JsonNode v) {
+        boolean valid =
+                switch (type) {
+                    case "STRING" -> v.isTextual() && !v.asText().isBlank();
+                    case "INTEGER" -> v.isIntegralNumber();
+                    case "DECIMAL" -> v.isNumber();
+                    case "BOOLEAN" -> v.isBoolean();
+                    default -> false;
+                };
+        if (!valid) throw new Problem(403, "GUARD_ATTRIBUTE_INVALID", "主体守卫属性缺失或类型错误");
+    }
+}
+
+
+## onto-operation/src/main/java/cn/ontorepo/operation/application/TestCaseService.java
+package cn.ontorepo.operation.application;
+
+import cn.ontorepo.common.domain.*;
+import cn.ontorepo.common.infra.Db;
+import cn.ontorepo.space.application.SpaceService;
+
+import org.springframework.stereotype.Service;
+
+import java.util.*;
+
+/** 确定性用例保存实际操作和输入；运行时仅从候选副本装载。 */
+@Service
+public class TestCaseService {
+    private final Db db;
+    private final SpaceService spaces;
+
+    public TestCaseService(Db db, SpaceService spaces) {
+        this.db = db;
+        this.spaces = spaces;
+    }
+
+    public List<Map<String, Object>> list(UUID u, UUID s) {
+        spaces.role(u, s);
+        return db.list("SELECT * FROM ont_test_case WHERE space_id=? ORDER BY name,id", s);
+    }
+
+    public Map<String, Object> save(UUID u, UUID id, Map<String, Object> b) {
+        UUID s = Input.uuid(b.get("spaceId")), op = Input.uuid(b.get("operationId"));
+        String n = Input.text(b, "name", 200),
+                q = Input.text(b, "question", 4000),
+                mode = b.get("matchMode") == null ? "EXACT" : Input.text(b, "matchMode", 10);
+        boolean en = Input.bool(b, "enabled");
+        String executionMode = b.get("mode") == null ? "DIRECT" : Input.text(b, "mode", 10);
+        if (!Set.of("DIRECT", "NL").contains(executionMode)) throw Problem.bad("用例模式必须为DIRECT或NL");
+        if (!Set.of("EXACT", "CONTAINS").contains(mode)
+                || !b.containsKey("input")
+                || !(b.get("expected") instanceof Map<?, ?>)) throw Problem.bad("用例匹配或输入断言无效");
+        Map<?, ?> expected = (Map<?, ?>) b.get("expected");
+        if (expected.isEmpty()
+                || !Set.of("status", "errorCode", "opCode", "columns", "rows")
+                        .containsAll(expected.keySet())
+                || mode.equals("EXACT") && !expected.containsKey("rows"))
+            throw Problem.bad("精确匹配须提供完整rows，包含匹配也必须有明确断言");
+        return spaces.write(
+                u,
+                s,
+                Input.number(b, "expectedDraftRev"),
+                "TEST_CASE_SAVE",
+                () -> {
+                    if (id != null) OperationRefs.owned(db, "ont_test_case", id, s);
+                    OperationRefs.owned(db, "ont_operation", op, s);
+                    if (id == null)
+                        db.update(
+                                "INSERT INTO"
+                                    + " ont_test_case(id,space_id,name,question,operation_id,input,expected,match_mode,enabled,mode)"
+                                    + " VALUES(?,?,?,?,?,?::jsonb,?::jsonb,?,?,?)",
+                                UUID.randomUUID(),
+                                s,
+                                n,
+                                q,
+                                op,
+                                db.json(b.get("input")),
+                                db.json(b.get("expected")),
+                                mode,
+                                en,
+                                executionMode);
+                    else
+                        db.update(
+                                "UPDATE ont_test_case SET"
+                                    + " name=?,question=?,operation_id=?,input=?::jsonb,expected=?::jsonb,match_mode=?,enabled=?,mode=?"
+                                    + " WHERE id=?",
+                                n,
+                                q,
+                                op,
+                                db.json(b.get("input")),
+                                db.json(b.get("expected")),
+                                mode,
+                                en,
+                                executionMode,
+                                id);
+                });
+    }
+
+    public Map<String, Object> delete(UUID u, UUID id, UUID s, long r) {
+        return spaces.write(
+                u,
+                s,
+                r,
+                "TEST_CASE_DELETE",
+                () -> {
+                    OperationRefs.owned(db, "ont_test_case", id, s);
+                    db.update("DELETE FROM ont_test_case WHERE id=?", id);
+                });
+    }
+}
+
+
+## onto-trace/src/main/java/cn/ontorepo/trace/application/TermMatcher.java
+package cn.ontorepo.trace.application;
+
+import cn.ontorepo.common.domain.*;
+import cn.ontorepo.knowledge.application.FrozenKnowledge;
+
+import org.springframework.stereotype.Component;
+
+import java.util.*;
+
+/** 确定性NL选择：仅冻结声明、示例与词典可参与打分，不接收期望operationId。 */
+@Component
+public class TermMatcher {
+    public UUID select(Map<String, Object> p, String question) {
+        String q = normalize(question);
+        if (q.isEmpty()) throw new Problem(400, "NL_OPERATION_NOT_FOUND", "问题未命中冻结操作声明");
+        int best = 0;
+        List<Map<String, Object>> found = new ArrayList<>();
+        for (var op : FrozenKnowledge.rows(p, "operations")) {
+            if (!(op.get("assistantTool") instanceof Map<?, ?> tool)) continue;
+            int score = 0;
+            for (Object text :
+                    List.of(
+                            op.get("name"),
+                            op.get("code"),
+                            Objects.toString(tool.get("name"), ""),
+                            Objects.toString(tool.get("description"), ""))) {
+                String t = normalize(text.toString());
+                if (!t.isEmpty() && (q.contains(t) || t.contains(q)))
+                    score = Math.max(score, t.equals(q) ? 100 : 20);
+            }
+            String declaration =
+                    normalize(
+                            op.get("name")
+                                    + " "
+                                    + tool.get("name")
+                                    + " "
+                                    + tool.get("description"));
+            for (var term : FrozenKnowledge.rows(p, "knowledge")) {
+                Set<String> names = new HashSet<>();
+                names.add(normalize(Objects.toString(term.get("term"), "")));
+                for (Object alias : (List<?>) term.getOrDefault("aliases", List.of()))
+                    names.add(normalize(Objects.toString(alias, "")));
+                // 已冻结的历史词条也可能只有标点；空token绝不能利用contains("")制造命中。
+                names.remove("");
+                boolean questionHit = names.stream().anyMatch(q::contains);
+                boolean operationHit = names.stream().anyMatch(declaration::contains);
+                if (questionHit && operationHit) score += 10;
+            }
+            if (tool.get("param_examples") instanceof List<?> samples)
+                for (Object sample : samples) {
+                    if (sample instanceof Map<?, ?> example
+                            && example.get("question") instanceof String text
+                            && q.equals(normalize(text))) score += 100;
+                    Set<String> tokens = new HashSet<>();
+                    exampleTokens(sample, tokens, 0);
+                    if (tokens.stream().anyMatch(q::contains)) score += 5;
+                }
+            if (score > best) {
+                best = score;
+                found.clear();
+                found.add(op);
+            } else if (score > 0 && score == best) found.add(op);
+        }
+        if (found.isEmpty()) throw new Problem(400, "NL_OPERATION_NOT_FOUND", "问题未命中冻结操作声明");
+        if (found.size() != 1)
+            throw new Problem(400, "NL_OPERATION_AMBIGUOUS", "问题命中多个冻结操作，请补充限定条件");
+        return Input.uuid(found.getFirst().get("id"));
+    }
+
+    private String normalize(String s) {
+        return s.toLowerCase(Locale.ROOT).replaceAll("[\\s\\p{Punct}，。？！]", "");
+    }
+
+    /** 普通参数例中的稳定字符串也参与匹配，不能只识别非标准question字段。 */
+    private void exampleTokens(Object value, Set<String> tokens, int depth) {
+        if (depth > 32) return;
+        if (value instanceof String text) {
+            String token = normalize(text);
+            if (token.length() >= 2) tokens.add(token);
+        } else if (value instanceof Map<?, ?> map)
+            for (Object child : map.values()) exampleTokens(child, tokens, depth + 1);
+        else if (value instanceof List<?> list)
+            for (Object child : list) exampleTokens(child, tokens, depth + 1);
+    }
+}
+
+
+## onto-trace/src/main/java/cn/ontorepo/trace/application/FrozenExecutor.java
+package cn.ontorepo.trace.application;
+
+import cn.ontorepo.common.domain.*;
+import cn.ontorepo.model.domain.PropertyFacets;
+import cn.ontorepo.model.infra.RdfCodec;
+import cn.ontorepo.operation.domain.*;
+
+import org.apache.jena.query.*;
+import org.apache.jena.rdf.model.*;
+import org.springframework.stereotype.Component;
+
+import java.util.*;
+import java.util.concurrent.TimeUnit;
+
+/** 执行仅接收冻结包；策略上限取交集，调用参数不能扩大资源边界。 */
+@Component
+public class FrozenExecutor {
+    public record Result(
+            List<String> columns,
+            List<Map<String, Object>> rows,
+            List<Map<String, String>> steps) {}
+
+    private Map<String, String> step(String k, String d) {
+        return Map.of("kind", k, "status", "SUCCEEDED", "detail", d);
+    }
+
+    @SuppressWarnings("unchecked")
+    public Result execute(Map<String, Object> p, Map<String, Object> op, Object input) {
+        var effective = FrozenPolicy.of(p, op);
+        int max = effective.maxRows(), timeout = effective.timeoutMs();
+        List<Map<String, String>> steps = new ArrayList<>();
+        if (op.get("assistantTool") == null && !effective.scopes().isEmpty())
+            throw new Problem(409, "READ_SCOPE_UNSUPPORTED", "当前MODEL_ONLY模型查询不能证明该读取范围");
+        String kind = op.getOrDefault("kind", "OBJECT_QUERY").toString();
+        List<String> columns = new ArrayList<>();
+        List<Map<String, Object>> rows = new ArrayList<>();
+        long started = System.nanoTime();
+        if (kind.equals("OBJECT_QUERY") || kind.equals("RELATION_QUERY")) {
+            Query query =
+                    QueryPolicy.validate(
+                            op.get("queryTemplate").toString(), max, Math.max(100, timeout));
+            steps.add(step("VALIDATE_QUERY", "受限SELECT安全校验通过"));
+            Model model = RdfCodec.model(p);
+            try (QueryExecution qe =
+                    QueryExecution.model(model)
+                            .query(query)
+                            .timeout(timeout, TimeUnit.MILLISECONDS)
+                            .build()) {
+                qe.getContext().set(ARQ.enablePropertyFunctions, false);
+                ResultSet result = qe.execSelect();
+                columns.addAll(result.getResultVars());
+                while (result.hasNext() && rows.size() < max) {
+                    QuerySolution solution = result.next();
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    for (String col : columns) {
+                        RDFNode value = solution.get(col);
+                        row.put(
+                                col,
+                                value == null
+                                        ? null
+                                        : value.isLiteral()
+                                                ? value.asLiteral().getLexicalForm()
+                                                : value.toString());
+                    }
+                    rows.add(row);
+                }
+            } finally {
+                model.close();
+            }
+            steps.add(step("MODEL_SELECT", "本地冻结模型查询完成，返回 " + rows.size() + " 行"));
+        } else {
+            if (!(input instanceof Map<?, ?> attributes))
+                throw new Problem(400, "INPUT_ROOT_NOT_APPLICABLE", "规则和评分操作需要属性对象输入");
+            Map<String, String> types = new HashMap<>();
+            for (var prop : RdfCodec.rows(p, "properties"))
+                types.put(prop.get("id").toString(), prop.get("rangeType").toString());
+            Map<String, Object> canonicalInput = new LinkedHashMap<>();
+            for (var entry : attributes.entrySet()) {
+                String key = Input.uuid(entry.getKey()).toString();
+                if (canonicalInput.containsKey(key)) throw Problem.bad("输入属性UUID重复");
+                canonicalInput.put(key, entry.getValue());
+            }
+            for (var entry : canonicalInput.entrySet()) {
+                if (!types.containsKey(entry.getKey())) throw Problem.bad("输入引用未知属性");
+                if (entry.getValue() != null)
+                    PropertyFacets.scalar(types.get(entry.getKey()), entry.getValue());
+            }
+            columns.addAll(
+                    kind.equals("SCORING")
+                            ? List.of("ruleId", "score", "explanation")
+                            : List.of("ruleId", "passed", "message"));
+            List<?> ids = (List<?>) op.getOrDefault("ruleIds", List.of());
+            for (Object id : ids) {
+                var rule =
+                        RdfCodec.rows(p, "rules").stream()
+                                .filter(r -> Input.sameUuid(r.get("id"), id))
+                                .findFirst()
+                                .orElseThrow(
+                                        () ->
+                                                new Problem(
+                                                        409,
+                                                        "FROZEN_REFERENCE_INVALID",
+                                                        "冻结操作规则引用缺失"));
+                if (RuleExpression.evaluate(rule.get("condition").toString(), canonicalInput)) {
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    row.put("ruleId", rule.get("id").toString());
+                    if (kind.equals("SCORING")) {
+                        Map<String, Object> scoring = (Map<String, Object>) rule.get("scoring");
+                        row.put(
+                                "score",
+                                ScoringPolicy.score(scoring, canonicalInput)
+                                        .stripTrailingZeros()
+                                        .toPlainString());
+                        row.put(
+                                "explanation",
+                                Boolean.TRUE.equals(scoring.get("explain")) ? "按冻结指标、权重与分段计算" : "");
+                    } else {
+                        Map<String, Object> action = (Map<String, Object>) rule.get("action");
+                        row.put("passed", Boolean.toString("ACCEPT".equals(action.get("type"))));
+                        row.put("message", Objects.toString(action.get("message"), ""));
+                    }
+                    rows.add(row);
+                }
+                if (TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started) > timeout)
+                    throw new QueryCancelledException();
+            }
+            if (kind.equals("SCORING"))
+                rows.sort(
+                        Comparator.<Map<String, Object>, java.math.BigDecimal>comparing(
+                                        r -> new java.math.BigDecimal(r.get("score").toString()))
+                                .reversed()
+                                .thenComparing(r -> r.get("ruleId").toString()));
+            if (rows.size() > max) rows = new ArrayList<>(rows.subList(0, max));
+            steps.add(step("RULE_EXECUTION", "冻结规则计算完成，返回 " + rows.size() + " 行"));
+        }
+        return new Result(columns, rows, steps);
+    }
+}
+
+
+## onto-trace/src/main/java/cn/ontorepo/trace/application/SupplyService.java
+package cn.ontorepo.trace.application;
+
+import cn.ontorepo.common.domain.*;
+import cn.ontorepo.contract.*;
+import cn.ontorepo.data.domain.LabelScope;
+import cn.ontorepo.operation.domain.FrozenPolicy;
+import cn.ontorepo.space.application.GuardService;
+
+import com.fasterxml.jackson.databind.*;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+import java.util.*;
+
+/** 供给编译与统一冻结守卫复核；不依赖任何草稿操作或客户端主体属性。 */
+@Service
+public class SupplyService {
+    private static final ObjectMapper JSON = new ObjectMapper();
+    private final GuardService guards;
+    private final String baseUrl;
+
+    public SupplyService(
+            GuardService guards,
+            @Value("${onto.service-base-url:http://127.0.0.1:18182}") String baseUrl) {
+        this.guards = guards;
+        this.baseUrl = baseUrl;
+    }
+
+    public JsonNode operation(Map<String, Object> p, Map<String, Object> op) {
+        var node = JSON.createObjectNode();
+        node.put("code", op.get("code").toString());
+        node.set("input_schema", inputSchema(op));
+        node.set("output_schema", JSON.valueToTree(op.get("outputSchema")));
+        node.set("assistant_tool", JSON.valueToTree(op.get("assistantTool")));
+        var policy = FrozenPolicy.of(p, op);
+        node.set(
+                "policy",
+                JSON.valueToTree(
+                        Map.of("max_rows", policy.maxRows(), "timeout_ms", policy.timeoutMs())));
+        return node;
+    }
+
+    @SuppressWarnings("unchecked")
+    private JsonNode cfg(Map<String, Object> p) {
+        return JSON.valueToTree(
+                ((Map<String, Object>) p.get("space")).getOrDefault("guardCfg", Map.of()));
+    }
+
+    /** MODEL_ONLY能力不能生成供给契约；冻结格式缺标记的旧候选也绝不默认通过。 */
+    public List<JsonNode> manifests(Map<String, Object> p, String candidate) {
+        if (!"CONTRACT".equals(p.get("capability")))
+            throw new Problem(409, "CONTRACT_NOT_AVAILABLE", "该候选仅具备MODEL_ONLY本地模型能力");
+        List<JsonNode> result = new ArrayList<>();
+        for (var op : cn.ontorepo.knowledge.application.FrozenKnowledge.rows(p, "operations"))
+            result.add(preview(p, op, candidate));
+        return result;
+    }
+
+    private JsonNode preview(Map<String, Object> p, Map<String, Object> op, String candidate) {
+        return new ContractGenerator().preview(operation(p, op), cfg(p), baseUrl, "", candidate);
+    }
+
+    /** 六步：入口会话、角色、冻结守卫完整性、当前主体授权、空间/策略范围、执行绑定适用性。 */
+    public void authorize(
+            UUID u,
+            UUID s,
+            Map<String, Object> p,
+            Map<String, Object> op,
+            String caller,
+            String candidate) {
+        var grant = guards.grant(u, s);
+        JsonNode node = operation(p, op);
+        boolean declared = op.get("assistantTool") != null;
+        if ("SERVICE".equals(caller) && !"CONTRACT".equals(p.get("capability")))
+            throw new Problem(409, "CONTRACT_NOT_AVAILABLE", "MODEL_ONLY候选不可作为内部供给服务调用");
+        if (!declared) {
+            if ("SERVICE".equals(caller)
+                    || !Set.of("OBJECT_QUERY", "RELATION_QUERY", "RULE_CHECK", "SCORING")
+                            .contains(op.getOrDefault("kind", "OBJECT_QUERY").toString()))
+                throw new Problem(409, "ASSISTANT_REQUIRED", "外部操作必须具备完整助手声明与守卫");
+            // 纯P1本地兼容仍不能绕过明确授权范围。
+            if (!LabelScope.parse(JSON.valueToTree(grant.get("dataScope"))).clauses().isEmpty())
+                throw new Problem(403, "GUARD_BINDING_NOT_APPLICABLE", "模型操作不能证明当前数据范围");
+            return;
+        }
+        GuardValidator.validate(node, cfg(p));
+        preview(p, op, candidate);
+        JsonNode attrs = JSON.valueToTree(grant.get("attributes"));
+        LabelScope scope = LabelScope.parse(JSON.valueToTree(grant.get("dataScope")));
+        for (Object extra : FrozenPolicy.of(p, op).scopes())
+            scope = LabelScope.intersect(scope, LabelScope.parse(JSON.valueToTree(extra)));
+        Set<String> checked = new HashSet<>();
+        for (JsonNode attr : node.path("assistant_tool").path("guard_attrs")) {
+            String name = attr.asText();
+            JsonNode def = cfg(p).path(name), rule = def.path("authorization_rule");
+            // 即使同时存在主体授权规则，模型路径也不能静默丢掉声明的源列过滤。
+            if (def.has("filter_binding")
+                    || !"PRINCIPAL_ATTRIBUTE".equals(rule.path("kind").asText()))
+                throw new Problem(403, "GUARD_BINDING_NOT_APPLICABLE", "模型查询不支持数据源列过滤守卫");
+            JsonNode value = attrs.path(rule.path("attribute").asText());
+            GuardService.typed(def.path("type").asText(), value);
+            if (!scope.allows(name, value))
+                throw new Problem(403, "DATA_SCOPE_DENIED", "当前主体属性超出授权范围");
+            checked.add(name);
+        }
+        if (!checked.containsAll(scope.clauses().keySet()))
+            throw new Problem(403, "GUARD_BINDING_NOT_APPLICABLE", "模型查询不能证明未绑定的数据范围");
+    }
+
+    public void input(Map<String, Object> op, Object value) {
+        if (op.get("assistantTool") != null)
+            JsonSchemaAssertions.validate(inputSchema(op), JSON.valueToTree(value));
+    }
+
+    /** 规则/评分只消费属性对象；在原Schema根追加合取约束，保留原类型和所有本地引用路径。 */
+    private JsonNode inputSchema(Map<String, Object> op) {
+        JsonNode schema = JSON.valueToTree(op.get("inputSchema"));
+        if (Set.of("RULE_CHECK", "SCORING").contains(op.getOrDefault("kind", "OBJECT_QUERY"))
+                && schema instanceof com.fasterxml.jackson.databind.node.ObjectNode object) {
+            JsonSchemaAssertions.validateSchema(schema);
+            object.withArray("allOf").addObject().put("type", "object");
+        }
+        return schema;
+    }
+
+    public void output(Map<String, Object> op, Object value) {
+        if (op.get("assistantTool") != null)
+            JsonSchemaAssertions.validate(
+                    JSON.valueToTree(op.get("outputSchema")), JSON.valueToTree(value));
+    }
+}
+
+
+## onto-trace/src/main/java/cn/ontorepo/trace/application/CandidateService.java
+package cn.ontorepo.trace.application;
+
+import cn.ontorepo.common.domain.Input;
+import cn.ontorepo.common.domain.Problem;
+import cn.ontorepo.common.infra.Db;
+import cn.ontorepo.contract.ContractProblem;
+import cn.ontorepo.space.application.AuthService;
+import cn.ontorepo.space.application.SpaceService;
+import cn.ontorepo.trace.infra.CanonicalPayload;
+
+import org.apache.jena.query.QueryCancelledException;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.TreeMap;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+
+/** 冻结读取在空间行锁内完成；执行路径只解码候选，绝不回查类、属性或操作草稿。 */
+@Service
+public class CandidateService {
+    private final Db db;
+    private final SpaceService spaces;
+    private final CanonicalPayload codec;
+    private final FrozenExecutor executor;
+    private final SupplyService supply;
+    private final TermMatcher matcher;
+
+    public CandidateService(
+            Db db,
+            SpaceService spaces,
+            CanonicalPayload codec,
+            FrozenExecutor executor,
+            SupplyService supply,
+            TermMatcher matcher) {
+        this.db = db;
+        this.spaces = spaces;
+        this.codec = codec;
+        this.executor = executor;
+        this.supply = supply;
+        this.matcher = matcher;
+    }
+
+    /** 返回可见候选摘要，不向客户端传输原始冻结 BYTEA。 */
+    public List<Map<String, Object>> list(UUID user, UUID space) {
+        spaces.role(user, space);
+        return db.list(
+                "SELECT id,space_id,draft_rev,sha256,status,created_at,format_version,capability"
+                        + " FROM publish_candidate WHERE space_id=? ORDER BY created_at DESC",
+                space);
+    }
+
+    /** 持有空间锁时一次读取完整模型与操作，冻结不改变草稿修订，审计与 BYTEA 同事务。 */
+    @Transactional
+    public Map<String, Object> freeze(UUID user, UUID space, long rev) {
+        spaces.lock(user, space, rev, true);
+        Map<String, Object> payload = new TreeMap<>();
+        payload.put(
+                "space",
+                db.one(
+                        "SELECT"
+                            + " id,code,name,namespace_uri,domain,status,draft_rev,created_at,guard_cfg"
+                            + " FROM ontology_space WHERE id=?",
+                        space));
+        for (String[] table :
+                new String[][] {
+                    {"classes", "ont_class"},
+                    {"properties", "ont_property"},
+                    {"operations", "ont_operation"},
+                    {"codebooks", "ont_codebook"},
+                    {"relations", "ont_relation"},
+                    {"constraints", "ont_constraint"},
+                    {"rules", "ont_rule"},
+                    {"strategies", "ont_strategy"},
+                    {"testCases", "ont_test_case"},
+                    {"rdfDocuments", "ont_rdf_document"},
+                    {"knowledge", "ont_knowledge"}
+                })
+            payload.put(
+                    table[0],
+                    db.list("SELECT * FROM " + table[1] + " WHERE space_id=? ORDER BY id", space));
+        // 新格式显式记录供给能力；不修改任何已经存在的候选原始字节。
+        payload.put("formatVersion", 2);
+        boolean contract =
+                codec.rows(payload, "operations").stream()
+                        .anyMatch(op -> op.get("assistantTool") != null);
+        payload.put("capability", contract ? "CONTRACT" : "MODEL_ONLY");
+        byte[] bytes = codec.encode(payload);
+        UUID id = UUID.randomUUID();
+        db.update(
+                "INSERT INTO"
+                    + " publish_candidate(id,space_id,draft_rev,sha256,payload,format_version,capability)"
+                    + " VALUES(?,?,?,?,?,2,?)",
+                id,
+                space,
+                rev,
+                AuthService.digest(bytes),
+                bytes,
+                payload.get("capability"));
+        spaces.audit(user, space, "CANDIDATE_FREEZE", rev);
+        return db.one(
+                "SELECT id,space_id,draft_rev,sha256,status,created_at,format_version,capability"
+                        + " FROM publish_candidate WHERE id=?",
+                id);
+    }
+
+    public Map<String, Object> candidate(UUID user, UUID id) {
+        var c = db.one("SELECT * FROM publish_candidate WHERE id=?", id);
+        spaces.role(user, Input.uuid(c.get("spaceId")));
+        return c;
+    }
+
+    /** 常量时间比较摘要；不以重新序列化结果校验，避免掩盖原始字节损坏。 */
+    public Map<String, Object> payload(Map<String, Object> c) {
+        byte[] bytes = (byte[]) c.get("payload");
+        byte[] actual = AuthService.digest(bytes).getBytes(StandardCharsets.US_ASCII),
+                expected = c.get("sha256").toString().getBytes(StandardCharsets.US_ASCII);
+        if (!MessageDigest.isEqual(actual, expected))
+            throw new Problem(409, "CANDIDATE_CORRUPT", "候选摘要不匹配，已拒绝试执行");
+        return codec.decode(bytes);
+    }
+
+    /** 旧候选操作独立于当前草稿，读取前必须复核实际载荷字节摘要。 */
+    public List<Map<String, Object>> operations(UUID user, UUID id) {
+        return codec.rows(payload(candidate(user, id)), "operations");
+    }
+
+    /**
+     * 试执行保持空间锁直到执行事实与步骤提交，使归档、授权边界和审计具有一致顺序。 ponytail: 首批同空间试执行串行，单次查询最多10秒；吞吐扩大时改为执行预留记录与短锁。
+     * 参数/授权错误拒绝请求，载荷损坏、查询超时和执行错误则保存 FAILED 事实供追溯。
+     */
+    @Transactional(noRollbackFor = {Problem.class, ContractProblem.class})
+    public Map<String, Object> trial(UUID user, UUID id, UUID operation) {
+        return run(user, id, operation, Map.of(), "TRIAL");
+    }
+
+    /** 试执行输入进入摘要，执行事实仍绑定不可变候选。 */
+    @Transactional(noRollbackFor = {Problem.class, ContractProblem.class})
+    public Map<String, Object> trial(UUID user, UUID id, UUID operation, Object input) {
+        return run(user, id, operation, input, "TRIAL");
+    }
+
+    /** 测试入口调用方必须建立事务，caller 仅由服务端选择。 */
+    public Map<String, Object> run(
+            UUID user, UUID id, UUID operation, Object input, String caller) {
+        return run(user, id, operation, input, caller, null);
+    }
+
+    /** NL选择只接收问题，期望操作不会传入匹配器；所有入口共用下方冻结授权与执行。 */
+    public Map<String, Object> run(
+            UUID user, UUID id, UUID operation, Object input, String caller, String question) {
+        return run(user, id, operation, input, caller, question, null);
+    }
+
+    /** SERVICE按操作码选择也必须处于同一事实边界，完整性失败时仍保留请求码与实际主体。 */
+    private Map<String, Object> run(
+            UUID user,
+            UUID id,
+            UUID operation,
+            Object input,
+            String caller,
+            String question,
+            String requestedCode) {
+        var c = candidate(user, id);
+        UUID space = Input.uuid(c.get("spaceId"));
+        spaces.editor(user, space);
+        var locked =
+                db.one("SELECT status,draft_rev FROM ontology_space WHERE id=? FOR UPDATE", space);
+        if (!locked.get("status").equals("ACTIVE"))
+            throw new Problem(409, "SPACE_ARCHIVED", "归档空间不能试执行");
+        UUID execution = UUID.randomUUID(), trace = UUID.randomUUID();
+        long start = System.nanoTime();
+        String status = "SUCCEEDED",
+                error = null,
+                opCode = requestedCode == null ? "UNKNOWN" : requestedCode;
+        String frozenSpaceCode = null;
+        List<String> columns = new ArrayList<>();
+        List<Map<String, Object>> rows = new ArrayList<>();
+        List<Map<String, String>> steps = new ArrayList<>();
+        RuntimeException rejection = null;
+        try {
+            var p = payload(c);
+            frozenSpaceCode = Objects.toString(((Map<?, ?>) p.get("space")).get("code"), "");
+            steps.add(step("VERIFY_PAYLOAD", "SUCCEEDED", "冻结载荷摘要复核通过"));
+            if (question != null) {
+                try {
+                    operation = matcher.select(p, question);
+                    steps.add(step("TERM_MATCH", "SUCCEEDED", "冻结术语匹配操作 " + operation));
+                } catch (Problem e) {
+                    steps.add(step("TERM_MATCH", "FAILED", e.getMessage()));
+                    throw e;
+                }
+            }
+            final UUID selectedOperation = operation;
+            var op =
+                    codec.rows(p, "operations").stream()
+                            .filter(
+                                    o ->
+                                            requestedCode != null
+                                                    ? requestedCode.equals(o.get("code"))
+                                                    : selectedOperation != null
+                                                            && o.get("id")
+                                                                    .equals(
+                                                                            selectedOperation
+                                                                                    .toString()))
+                            .findFirst()
+                            .orElseThrow(
+                                    () ->
+                                            new Problem(
+                                                    "SERVICE".equals(caller) ? 404 : 400,
+                                                    "OPERATION_NOT_IN_CANDIDATE",
+                                                    "操作不在当前候选中"));
+            opCode = op.get("code").toString();
+            operation = Input.uuid(op.get("id"));
+            // 仅旧的无Schema/无助手操作沿用P1显式null视为空属性对象；声明nullable输入保留真实null。
+            if (input == null && op.get("inputSchema") == null && op.get("assistantTool") == null)
+                input = Map.of();
+            supply.authorize(user, space, p, op, caller, id.toString());
+            // MODEL_ONLY保留P1三步骤事实格式；实际授权仍必经上方统一检查。
+            if (op.get("assistantTool") != null)
+                steps.add(step("AUTHORIZE_GUARDS", "SUCCEEDED", "冻结守卫与当前空间授权复核通过"));
+            supply.input(op, input);
+            var evaluated = executor.execute(p, op, input);
+            columns.addAll(evaluated.columns());
+            for (var row : evaluated.rows()) rows.add(new java.util.LinkedHashMap<>(row));
+            steps.addAll(evaluated.steps());
+            supply.output(op, Map.of("columns", columns, "rows", rows));
+        } catch (ContractProblem e) {
+            status = "FAILED";
+            error = e.code();
+            rejection = e;
+            columns.clear();
+            rows.clear();
+            steps.add(step("CONTRACT_VALIDATE", "FAILED", e.getMessage()));
+        } catch (Problem e) {
+            if (e.code.equals("OPERATION_NOT_IN_CANDIDATE") && !"SERVICE".equals(caller)) throw e;
+            status = "FAILED";
+            error = e.code;
+            columns.clear();
+            rows.clear();
+            steps.add(step("EXECUTE", "FAILED", e.getMessage()));
+            if ("SERVICE".equals(caller)
+                    || e.code.startsWith("GUARD_")
+                    || e.code.equals("DATA_SCOPE_DENIED")
+                    || e.code.equals("CONTRACT_NOT_AVAILABLE")
+                    || e.code.equals("ASSISTANT_REQUIRED")) rejection = e;
+        } catch (QueryCancelledException e) {
+            status = "FAILED";
+            error = "QUERY_TIMEOUT";
+            columns.clear();
+            rows.clear();
+            steps.add(step("MODEL_SELECT", "FAILED", "查询超过执行时限"));
+        } catch (Exception e) {
+            status = "FAILED";
+            error = "EXECUTION_FAILED";
+            columns.clear();
+            rows.clear();
+            steps.add(step("MODEL_SELECT", "FAILED", "模型查询失败"));
+        }
+        long elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+        Map<String, Object> result = Map.of("columns", columns, "rows", rows);
+        // 输入摘要包含冻结主体、操作标识及空参数，输出摘要包含状态、错误与实际结果。
+        // 不把当前草稿修订加入输入，确保相同候选试执行事实可独立复核。
+        Map<String, Object> inputFact = new TreeMap<>();
+        inputFact.put("candidateId", id.toString());
+        inputFact.put("candidateSha256", c.get("sha256"));
+        inputFact.put("operationId", operation == null ? "UNRESOLVED" : operation.toString());
+        inputFact.put("parameters", input);
+        if (requestedCode != null) inputFact.put("operationCode", requestedCode);
+        if (question != null) inputFact.put("question", question);
+        String inputDigest = AuthService.digest(codec.encode(inputFact));
+        Map<String, Object> outputFact = new TreeMap<>();
+        outputFact.put("status", status);
+        outputFact.put("errorCode", error);
+        outputFact.put("result", result);
+        String outputDigest = AuthService.digest(codec.encode(outputFact));
+        db.update(
+                "INSERT INTO"
+                    + " op_execution(id,space_id,trace_id,subject_type,subject_id,op_code,status,error_code,elapsed_ms,candidate_sha256,result_json,principal_id,caller,input_digest,output_digest)"
+                    + " VALUES(?,?,?,'CANDIDATE',?,?,?,?,?,?,?::jsonb,?,?,?,?)",
+                execution,
+                space,
+                trace,
+                id,
+                opCode,
+                status,
+                error,
+                elapsed,
+                c.get("sha256"),
+                codec.json(result),
+                user,
+                caller,
+                inputDigest,
+                outputDigest);
+        int order = 0;
+        for (var step : steps)
+            db.update(
+                    "INSERT INTO op_execution_step(execution_id,step_order,kind,status,detail)"
+                            + " VALUES(?,?,?,?,?)",
+                    execution,
+                    order++,
+                    step.get("kind"),
+                    step.get("status"),
+                    step.get("detail"));
+        spaces.audit(user, space, "CANDIDATE_TRIAL", ((Number) locked.get("draftRev")).longValue());
+        // 外部事务声明noRollbackFor，拒绝事实提交后HTTP边界才能抛出原始结构化错误。
+        if (rejection != null && !"LOCAL_TEST".equals(caller)) throw rejection;
+        var fact = execution(execution);
+        fact.put("spaceCode", frozenSpaceCode);
+        return fact;
+    }
+
+    /** 内部入口按冻结opCode选择；业务data不包含执行id，meta来自真实候选与空间上下文。 */
+    @Transactional(noRollbackFor = {Problem.class, ContractProblem.class})
+    public Map<String, Object> service(UUID user, UUID id, String opCode, Object input) {
+        var fact = run(user, id, null, input, "SERVICE", null, opCode);
+        if (!"SUCCEEDED".equals(fact.get("status")))
+            throw new Problem(
+                    400, Objects.toString(fact.get("errorCode"), "EXECUTION_FAILED"), "冻结操作执行失败");
+        Map<String, Object> meta = new java.util.LinkedHashMap<>();
+        meta.put("spaceCode", fact.get("spaceCode"));
+        meta.put("releaseId", null);
+        meta.put("version", null);
+        meta.put("contentDigest", fact.get("candidateSha256"));
+        meta.put("preview", true);
+        return Map.of(
+                "code",
+                "OK",
+                "data",
+                Map.of("columns", fact.get("columns"), "rows", fact.get("rows")),
+                "meta",
+                meta);
+    }
+
+    private Map<String, String> step(String kind, String status, String detail) {
+        return Map.of("kind", kind, "status", status, "detail", detail);
+    }
+
+    /** 执行历史按空间授权读取，首批仅保留最近50条返回，不暴露内部身份事实字段。 */
+    public List<Map<String, Object>> executions(UUID user, UUID space) {
+        spaces.role(user, space);
+        return db
+                .list(
+                        "SELECT id FROM op_execution WHERE space_id=? ORDER BY created_at DESC"
+                                + " LIMIT 50",
+                        space)
+                .stream()
+                .map(r -> execution(Input.uuid(r.get("id"))))
+                .toList();
+    }
+
+    private Map<String, Object> execution(UUID id) {
+        var r =
+                db.one(
+                        "SELECT"
+                            + " id,trace_id,subject_type,subject_id,op_code,status,error_code,elapsed_ms,created_at,candidate_sha256,result_json::text"
+                            + " FROM op_execution WHERE id=?",
+                        id);
+        r.putAll(codec.decode(r.remove("resultJson").toString().getBytes(StandardCharsets.UTF_8)));
+        r.put(
+                "steps",
+                db.list(
+                        "SELECT kind,status,detail FROM op_execution_step WHERE execution_id=?"
+                                + " ORDER BY step_order",
+                        id));
+        return r;
+    }
+}
+
+
+## onto-trace/src/main/java/cn/ontorepo/trace/application/CandidateTestService.java
+package cn.ontorepo.trace.application;
+
+import cn.ontorepo.common.domain.*;
+import cn.ontorepo.common.infra.Db;
+import cn.ontorepo.contract.ContractProblem;
+import cn.ontorepo.model.domain.PropertyFacets;
+import cn.ontorepo.model.infra.RdfCodec;
+import cn.ontorepo.space.application.SpaceService;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.*;
+
+/** 用例只使用候选冻结的 enabled 集合，确定性比较结构并持久化 LOCAL_TEST 执行事实。 */
+@Service
+public class CandidateTestService {
+    private final CandidateService candidates;
+    private final SpaceService spaces;
+    private final Db db;
+
+    public CandidateTestService(CandidateService candidates, SpaceService spaces, Db db) {
+        this.candidates = candidates;
+        this.spaces = spaces;
+        this.db = db;
+    }
+
+    @SuppressWarnings("unchecked")
+    @Transactional
+    public Map<String, Object> tests(UUID user, UUID id) {
+        var candidate = candidates.candidate(user, id);
+        UUID space = Input.uuid(candidate.get("spaceId"));
+        spaces.editor(user, space);
+        Map<String, Object> payload;
+        try {
+            payload = candidates.payload(candidate);
+        } catch (Problem e) {
+            if (!e.code.equals("CANDIDATE_CORRUPT")) throw e;
+            // 不能从损坏载荷读取或伪造用例；登记一次LOCAL_TEST完整性失败并关联实际执行事实。
+            var failed = candidates.run(user, id, null, Map.of(), "LOCAL_TEST");
+            return Map.of(
+                    "candidateSha256",
+                    candidate.get("sha256"),
+                    "passed",
+                    false,
+                    "results",
+                    List.of(
+                            Map.of(
+                                    "caseId",
+                                    "",
+                                    "name",
+                                    "候选完整性检查",
+                                    "passed",
+                                    false,
+                                    "executionId",
+                                    failed.get("id"),
+                                    "message",
+                                    e.getMessage())));
+        }
+        List<Map<String, Object>> results = new ArrayList<>();
+        boolean all = true;
+        for (var test : RdfCodec.rows(payload, "testCases")) {
+            if (!Boolean.TRUE.equals(test.get("enabled"))) continue;
+            String executionId = "";
+            boolean passed = false;
+            String message = "";
+            try {
+                var execution =
+                        candidates.run(
+                                user,
+                                id,
+                                "NL".equals(test.get("mode"))
+                                        ? null
+                                        : Input.uuid(test.get("operationId")),
+                                test.get("input"),
+                                "LOCAL_TEST",
+                                "NL".equals(test.get("mode"))
+                                        ? test.get("question").toString()
+                                        : null);
+                executionId = execution.get("id").toString();
+                Map<String, Object> expected = (Map<String, Object>) test.get("expected");
+                Map<String, Object> actual = new LinkedHashMap<>();
+                for (String key : List.of("status", "errorCode", "opCode", "columns", "rows"))
+                    if (expected.containsKey(key)) actual.put(key, execution.get(key));
+                boolean allowed =
+                        Set.of("status", "errorCode", "opCode", "columns", "rows")
+                                .containsAll(expected.keySet());
+                passed =
+                        allowed
+                                && !expected.isEmpty()
+                                && RdfCodec.rows(payload, "operations").stream()
+                                        .anyMatch(
+                                                op ->
+                                                        Input.sameUuid(
+                                                                        op.get("id"),
+                                                                        test.get("operationId"))
+                                                                && Objects.equals(
+                                                                        op.get("code"),
+                                                                        execution.get("opCode")))
+                                && Objects.equals(
+                                        expected.getOrDefault("status", "SUCCEEDED"),
+                                        execution.get("status"))
+                                && ("FAILED".equals(expected.get("status"))
+                                        || "SUCCEEDED".equals(execution.get("status")))
+                                && matches(
+                                        expected, actual, "CONTAINS".equals(test.get("matchMode")));
+                message = passed ? "操作命中且结果断言匹配" : "操作结果不符合冻结断言";
+            } catch (ContractProblem e) {
+                message = e.getMessage();
+            } catch (Problem e) {
+                message = e.getMessage();
+            }
+            all &= passed;
+            results.add(
+                    Map.of(
+                            "caseId",
+                            test.get("id"),
+                            "name",
+                            test.get("name"),
+                            "passed",
+                            passed,
+                            "executionId",
+                            executionId,
+                            "message",
+                            message));
+        }
+        return Map.of(
+                "candidateSha256", candidate.get("sha256"), "passed", all, "results", results);
+    }
+
+    /** EXACT 逐层相等；CONTAINS 对象按字段子集、数组按元素包含，数值按数学值比较。 */
+    private boolean matches(Object expected, Object actual, boolean contains) {
+        if (expected instanceof Map<?, ?> em) {
+            if (!(actual instanceof Map<?, ?> am) || !contains && em.size() != am.size())
+                return false;
+            for (var e : em.entrySet())
+                if (!am.containsKey(e.getKey())
+                        || !matches(e.getValue(), am.get(e.getKey()), contains)) return false;
+            return true;
+        }
+        if (expected instanceof List<?> el) {
+            if (!(actual instanceof List<?> al)) return false;
+            if (contains) {
+                List<Object> left = new ArrayList<>(al);
+                for (Object e : el) {
+                    int found = -1;
+                    for (int i = 0; i < left.size(); i++)
+                        if (matches(e, left.get(i), true)) {
+                            found = i;
+                            break;
+                        }
+                    if (found < 0) return false;
+                    left.remove(found);
+                }
+                return true;
+            }
+            if (el.size() != al.size()) return false;
+            for (int i = 0; i < el.size(); i++)
+                if (!matches(el.get(i), al.get(i), false)) return false;
+            return true;
+        }
+        return PropertyFacets.equal(expected, actual);
+    }
+}
+
+
+## onto-designer-api/src/main/java/cn/ontorepo/api/ApiDtos.java
+package cn.ontorepo.api;
+
+import java.util.List;
+import java.util.Map;
+
+/** 冻结契约的传输类型，不将数据库行或密码字段暴露给接口文档。 */
+public final class ApiDtos {
+    private ApiDtos() {}
+
+    /** 统一成功/错误信封；失败data为null，客户端按code处理可恢复错误。 */
+    public record Envelope<T>(String code, String message, T data) {
+        public static <T> Envelope<T> ok(T value) {
+            return new Envelope<>("OK", "", value);
+        }
+    }
+
+    /** 本地登录凭据，仅用于身份校验，不作为操作者请求参数透传。 */
+    public record LoginRequest(String username, String password) {}
+
+    /** 可公开用户资料，禁止包含密码哈希与令牌摘要。 */
+    public record User(String id, String username, String displayName) {}
+
+    /** 当前会话令牌和到期时间，令牌仅允许保存在前端内存。 */
+    public record Login(String token, String expiresAt, User user) {}
+
+    /** 空间详情及调用者角色；draftRev用于后续全部草稿写入的乐观并发校验。 */
+    public record Space(
+            String id,
+            String code,
+            String name,
+            String namespaceUri,
+            String domain,
+            String status,
+            long draftRev,
+            String role,
+            long classCount,
+            long propertyCount,
+            long operationCount,
+            String createdAt) {}
+
+    /** 空间创建参数；命名空间创建后不可修改，domain允许空字符串。 */
+    public record SpaceCreate(String code, String name, String namespaceUri, String domain) {}
+
+    /** 空间可修改信息；expectedDraftRev必须等于锁定后的当前修订。 */
+    public record SpaceUpdate(String name, String domain, Long expectedDraftRev) {}
+
+    /** 仅携带预期修订的归档或候选冻结请求。 */
+    public record Revision(Long expectedDraftRev) {}
+
+    /** 稳定UUID对象及可空父级，deprecated表示草稿中停用标记。 */
+    public record OntClass(
+            String id,
+            String spaceId,
+            String name,
+            String parentId,
+            String description,
+            boolean deprecated) {}
+
+    /** 对象写请求；parentId为null代表根节点，父级必须属于同空间。 */
+    public record ClassWrite(
+            String spaceId,
+            String name,
+            String parentId,
+            String description,
+            Boolean deprecated,
+            Long expectedDraftRev) {}
+
+    /** 属性定义含单位、码表、默认值、枚举、范围和主键分面。 */
+    public record OntProperty(
+            String id,
+            String spaceId,
+            String domainClassId,
+            String name,
+            String rangeType,
+            boolean required,
+            String description,
+            Map<String, Object> facets) {}
+
+    /** 属性写请求；domainClassId限定所属类，rangeType为受支持XSD基础类型。 */
+    public record PropertyWrite(
+            String spaceId,
+            String domainClassId,
+            String name,
+            String rangeType,
+            Boolean required,
+            String description,
+            Map<String, Object> facets,
+            Long expectedDraftRev) {}
+
+    /** 四种候选操作；策略和规则引用随候选冻结，行数与超时由服务端强制。 */
+    public record Operation(
+            String id,
+            String spaceId,
+            String code,
+            String name,
+            String kind,
+            String queryTemplate,
+            int maxRows,
+            int timeoutMs,
+            String strategyRef,
+            List<String> ruleIds) {}
+
+    /** 受限SELECT操作写请求，禁止外部数据集、网络与扩展函数能力。 */
+    public record OperationWrite(
+            String spaceId,
+            String code,
+            String name,
+            String queryTemplate,
+            Integer maxRows,
+            Integer timeoutMs,
+            String kind,
+            String strategyRef,
+            List<String> ruleIds,
+            Long expectedDraftRev) {}
+
+    /** 冻结候选的版本、SHA-256和创建时间，TESTING不表示正式发布。 */
+    public record Candidate(
+            String id,
+            String spaceId,
+            long draftRev,
+            String sha256,
+            String status,
+            String createdAt,
+            Integer formatVersion,
+            String capability) {}
+
+    /** 试执行请求中的操作标识必须来自所选候选，不能使用新草稿操作。 */
+    public record Trial(
+            String operationId,
+            @io.swagger.v3.oas.annotations.media.Schema(
+                            implementation = Object.class,
+                            schemaResolution =
+                                    io.swagger.v3.oas.annotations.media.Schema.SchemaResolution
+                                            .INLINE,
+                            types = {"object", "array", "string", "number", "boolean", "null"},
+                            description = "按冻结Schema校验的JSON输入；省略时沿用P1空对象")
+                    com.fasterxml.jackson.databind.JsonNode input) {}
+
+    /** 按执行顺序保存的步骤结果和可公开中文说明。 */
+    public record Step(String kind, String status, String detail) {}
+
+    /** 只读试执行结果和留痕；失败执行也返回记录，内部身份和摘要事实另行持久化。 */
+    public record Execution(
+            String id,
+            String traceId,
+            String subjectType,
+            String subjectId,
+            String opCode,
+            String status,
+            String errorCode,
+            long elapsedMs,
+            String createdAt,
+            List<String> columns,
+            List<Map<String, Object>> rows,
+            String candidateSha256,
+            List<Step> steps) {}
+}
+
+
+## onto-designer-api/src/main/java/cn/ontorepo/api/P1Dtos.java
+package cn.ontorepo.api;
+
+import java.util.*;
+
+/** P1 扩展传输模型；动态 JSON 仅用于表达式、分面和确定性用例断言。 */
+public final class P1Dtos {
+    private P1Dtos() {}
+
+    /** 码表契约，空间写入必须携带预期修订。 */
+    public record Codebook(
+            String id,
+            String spaceId,
+            String code,
+            String name,
+            String kind,
+            List<CodebookEntry> entries) {}
+
+    /** P1 CodebookEntry契约，空间写入必须携带预期修订。 */
+    public record CodebookEntry(String code, String label) {}
+
+    /** P1 CodebookWrite契约，空间写入必须携带预期修订。 */
+    public record CodebookWrite(
+            String spaceId,
+            Long expectedDraftRev,
+            String code,
+            String name,
+            String kind,
+            List<CodebookEntry> entries) {}
+
+    /** 关系契约，空间写入必须携带预期修订。 */
+    public record Relation(
+            String id,
+            String spaceId,
+            String name,
+            String fromClassId,
+            String toClassId,
+            String cardinality,
+            String inverseOf,
+            boolean transitive,
+            boolean symmetric,
+            String description,
+            boolean subsetExceeded) {}
+
+    /** P1 RelationWrite契约，空间写入必须携带预期修订。 */
+    public record RelationWrite(
+            String spaceId,
+            Long expectedDraftRev,
+            String name,
+            String fromClassId,
+            String toClassId,
+            String cardinality,
+            String inverseName,
+            Boolean transitive,
+            Boolean symmetric,
+            String description) {}
+
+    /** 约束契约，空间写入必须携带预期修订。 */
+    public record Constraint(
+            String id,
+            String spaceId,
+            String name,
+            String kind,
+            String targetType,
+            String targetRef,
+            Map<String, Object> expr) {}
+
+    /** P1 ConstraintWrite契约，空间写入必须携带预期修订。 */
+    public record ConstraintWrite(
+            String spaceId,
+            Long expectedDraftRev,
+            String name,
+            String kind,
+            String targetType,
+            String targetRef,
+            Map<String, Object> expr) {}
+
+    /** 规则契约，空间写入必须携带预期修订。 */
+    public record Rule(
+            String id,
+            String spaceId,
+            String name,
+            String applicableClassId,
+            String kind,
+            String condition,
+            Map<String, Object> action,
+            Map<String, Object> scoring,
+            String severity) {}
+
+    /** P1 RuleWrite契约，空间写入必须携带预期修订。 */
+    public record RuleWrite(
+            String spaceId,
+            Long expectedDraftRev,
+            String name,
+            String applicableClassId,
+            String kind,
+            String condition,
+            Map<String, Object> action,
+            Map<String, Object> scoring,
+            String severity) {}
+
+    /** 执行策略契约，空间写入必须携带预期修订。 */
+    public record Strategy(
+            String id,
+            String spaceId,
+            String name,
+            Map<String, Object> policy,
+            List<String> boundOps) {}
+
+    /** P1 StrategyWrite契约，空间写入必须携带预期修订。 */
+    public record StrategyWrite(
+            String spaceId,
+            Long expectedDraftRev,
+            String name,
+            Map<String, Object> policy,
+            List<String> boundOps) {}
+
+    /** 确定性用例契约，空间写入必须携带预期修订。 */
+    public record TestCase(
+            String id,
+            String spaceId,
+            String name,
+            String question,
+            String operationId,
+            @io.swagger.v3.oas.annotations.media.Schema(
+                            types = {"object", "array", "string", "number", "boolean", "null"})
+                    Object input,
+            Map<String, Object> expected,
+            String matchMode,
+            boolean enabled,
+            String mode) {}
+
+    /** P1 TestCaseWrite契约，空间写入必须携带预期修订。 */
+    public record TestCaseWrite(
+            String spaceId,
+            Long expectedDraftRev,
+            String name,
+            String question,
+            String operationId,
+            @io.swagger.v3.oas.annotations.media.Schema(
+                            types = {"object", "array", "string", "number", "boolean", "null"})
+                    Object input,
+            Map<String, Object> expected,
+            String matchMode,
+            Boolean enabled,
+            String mode) {}
+
+    /** P1 Impact契约，空间写入必须携带预期修订。 */
+    public record Impact(List<Reference> references) {}
+
+    /** P1 Reference契约，空间写入必须携带预期修订。 */
+    public record Reference(String kind, String id, String name) {}
+
+    /** P1 Conflict契约，空间写入必须携带预期修订。 */
+    public record Conflict(String kind, String message, List<String> entityIds) {}
+
+    /** P1 Conflicts契约，空间写入必须携带预期修订。 */
+    public record Conflicts(List<Conflict> errors, List<Conflict> warnings) {}
+
+    /** P1 ImportRequest契约，空间写入必须携带预期修订。 */
+    public record ImportRequest(String kind, String content, Long expectedDraftRev) {}
+
+    /** P1 ImportIssue契约，空间写入必须携带预期修订。 */
+    public record ImportIssue(int line, String message) {}
+
+    /** P1 Unsupported契约，空间写入必须携带预期修订。 */
+    public record Unsupported(int line, String construct, String message) {}
+
+    /** P1 ImportPreview契约，空间写入必须携带预期修订。 */
+    public record ImportPreview(
+            String id,
+            String status,
+            long targetDraftRev,
+            int added,
+            int updated,
+            List<ImportIssue> conflicts,
+            List<Unsupported> unsupported,
+            List<ImportIssue> errors) {}
+
+    /** P1 Export契约，空间写入必须携带预期修订。 */
+    public record Export(String content, String format) {}
+
+    /** P1 TestResult契约，空间写入必须携带预期修订。 */
+    public record TestResult(
+            String caseId, String name, boolean passed, String executionId, String message) {}
+
+    /** P1 Tests契约，空间写入必须携带预期修订。 */
+    public record Tests(String candidateSha256, boolean passed, List<TestResult> results) {}
+
+    /** P1 Check契约，空间写入必须携带预期修订。 */
+    public record Check(
+            String kind,
+            String conclusion,
+            String reason,
+            String message,
+            Map<String, Object> details) {}
+
+    /** P1 Checks契约，空间写入必须携带预期修订。 */
+    public record Checks(
+            String candidateSha256, boolean eligible, List<Check> checks, boolean supplyEligible) {}
+
+    /** P1 WaiverRequest契约，空间写入必须携带预期修订。 */
+    public record WaiverRequest(String kind, String reason) {}
+
+    /** P1 Waiver契约，空间写入必须携带预期修订。 */
+    public record Waiver(
+            String id, String candidateSha256, String kind, String reason, String approver) {}
+}
+
+
+## onto-designer-api/src/main/java/cn/ontorepo/api/CandidateController.java
+package cn.ontorepo.api;
+
+import cn.ontorepo.api.ApiDtos.Candidate;
+import cn.ontorepo.api.ApiDtos.Envelope;
+import cn.ontorepo.api.ApiDtos.Execution;
+import cn.ontorepo.api.ApiDtos.Operation;
+import cn.ontorepo.api.ApiDtos.Revision;
+import cn.ontorepo.api.ApiDtos.Trial;
+import cn.ontorepo.common.domain.Input;
+import cn.ontorepo.trace.application.CandidateService;
+
+import jakarta.servlet.http.HttpServletRequest;
+
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+import java.util.UUID;
+
+/** 候选读操作列表来自冻结载荷，保证前端切换旧候选时不混用新草稿。 */
+@RestController
+@RequestMapping("/onto")
+public class CandidateController {
+    private final CandidateService candidates;
+    private final Transport t;
+
+    public CandidateController(CandidateService candidates, Transport t) {
+        this.candidates = candidates;
+        this.t = t;
+    }
+
+    /** 列出可见冻结候选。 */
+    @io.swagger.v3.oas.annotations.Operation(summary = "列出可见冻结候选")
+    @GetMapping("/spaces/{id}/candidates")
+    public Envelope<List<Candidate>> list(HttpServletRequest r, @PathVariable UUID id) {
+        return Envelope.ok(t.list(candidates.list(t.user(r), id), Candidate.class));
+    }
+
+    /** 冻结完整草稿载荷并计算摘要。 */
+    @io.swagger.v3.oas.annotations.Operation(summary = "冻结完整草稿载荷并计算摘要")
+    @PostMapping("/spaces/{id}/candidates")
+    public Envelope<Candidate> freeze(
+            HttpServletRequest r, @PathVariable UUID id, @RequestBody Revision b) {
+        return Envelope.ok(
+                t.as(
+                        candidates.freeze(
+                                t.user(r), id, Input.number(t.body(b), "expectedDraftRev")),
+                        Candidate.class));
+    }
+
+    /** 从摘要复核后的候选读取操作。 */
+    @io.swagger.v3.oas.annotations.Operation(summary = "从摘要复核后的候选读取操作")
+    @GetMapping("/candidates/{id}/operations")
+    public Envelope<List<Operation>> operations(HttpServletRequest r, @PathVariable UUID id) {
+        return Envelope.ok(t.list(candidates.operations(t.user(r), id), Operation.class));
+    }
+
+    /** 对冻结模型试执行并记录完整执行事实。 */
+    @io.swagger.v3.oas.annotations.Operation(summary = "对冻结模型试执行并记录完整执行事实")
+    @PostMapping("/candidates/{id}/trial")
+    public Envelope<Execution> trial(
+            HttpServletRequest r, @PathVariable UUID id, @RequestBody Trial b) {
+        return Envelope.ok(
+                t.as(
+                        candidates.trial(
+                                t.user(r),
+                                id,
+                                Input.uuid(b.operationId()),
+                                b.input() == null
+                                        ? java.util.Map.of()
+                                        : t.as(b.input(), Object.class)),
+                        Execution.class));
+    }
+
+    /** 查询空间最近50次执行及步骤。 */
+    @io.swagger.v3.oas.annotations.Operation(summary = "查询空间最近50次执行及步骤")
+    @GetMapping("/spaces/{id}/executions")
+    public Envelope<List<Execution>> executions(HttpServletRequest r, @PathVariable UUID id) {
+        return Envelope.ok(t.list(candidates.executions(t.user(r), id), Execution.class));
+    }
+}
+
+
+## onto-designer-api/src/main/java/cn/ontorepo/api/SupplyController.java
+package cn.ontorepo.api;
+
+import cn.ontorepo.api.ApiDtos.Envelope;
+import cn.ontorepo.contract.ContractValidator;
+import cn.ontorepo.operation.application.AssistantService;
+import cn.ontorepo.trace.application.*;
+
+import com.fasterxml.jackson.databind.JsonNode;
+
+import jakarta.servlet.http.HttpServletRequest;
+
+import org.springframework.web.bind.annotation.*;
+
+import java.util.*;
+
+/** 助手声明、冻结契约及内部调用边界；消费校验仅验证，不创建任何正式发布数据。 */
+@RestController
+@RequestMapping("/onto")
+public class SupplyController {
+    private final AssistantService assistants;
+    private final CandidateSupplyService previews;
+    private final CandidateService candidates;
+    private final Transport t;
+
+    public SupplyController(
+            AssistantService assistants,
+            CandidateSupplyService previews,
+            CandidateService candidates,
+            Transport t) {
+        this.assistants = assistants;
+        this.previews = previews;
+        this.candidates = candidates;
+        this.t = t;
+    }
+
+    @io.swagger.v3.oas.annotations.Operation(summary = "读取独立助手三段声明")
+    @GetMapping("/operations/{id}/assistant")
+    public Envelope<P2Dtos.AssistantDeclaration> assistant(
+            HttpServletRequest r, @PathVariable UUID id, @RequestParam UUID spaceId) {
+        return Envelope.ok(
+                t.as(assistants.get(t.user(r), id, spaceId), P2Dtos.AssistantDeclaration.class));
+    }
+
+    @io.swagger.v3.oas.annotations.Operation(summary = "保存助手声明草稿")
+    @PutMapping("/operations/{id}/assistant")
+    public Envelope<ApiDtos.Space> save(
+            HttpServletRequest r, @PathVariable UUID id, @RequestBody P2Dtos.AssistantWrite b) {
+        return Envelope.ok(t.as(assistants.save(t.user(r), id, t.body(b)), ApiDtos.Space.class));
+    }
+
+    @io.swagger.v3.oas.annotations.Operation(summary = "编译冻结候选契约预览")
+    @GetMapping("/candidates/{id}/contracts")
+    public Envelope<P2Dtos.CandidateContracts> contracts(
+            HttpServletRequest r, @PathVariable UUID id) {
+        return Envelope.ok(
+                t.as(previews.contracts(t.user(r), id), P2Dtos.CandidateContracts.class));
+    }
+
+    @io.swagger.v3.oas.annotations.Operation(summary = "校验完整正式消费契约")
+    @PostMapping("/contracts/validate")
+    public Envelope<P2Dtos.ValidationResult> validate(@RequestBody JsonNode manifest) {
+        ContractValidator.validateImport(manifest);
+        return Envelope.ok(new P2Dtos.ValidationResult(true));
+    }
+
+    @io.swagger.v3.oas.annotations.Operation(summary = "按冻结操作编码调用候选服务")
+    @PostMapping("/internal/candidates/{id}/ops/{opCode}")
+    public P2Dtos.ServiceEnvelope invoke(
+            HttpServletRequest r,
+            @PathVariable UUID id,
+            @PathVariable String opCode,
+            @RequestBody
+                    @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                            content =
+                                    @io.swagger.v3.oas.annotations.media.Content(
+                                            mediaType = "application/json",
+                                            schema =
+                                                    @io.swagger.v3.oas.annotations.media.Schema(
+                                                            implementation = Object.class,
+                                                            types = {
+                                                                "object", "array", "string",
+                                                                "number", "boolean", "null"
+                                                            })))
+                    JsonNode input) {
+        return t.as(
+                candidates.service(t.user(r), id, opCode, t.as(input, Object.class)),
+                P2Dtos.ServiceEnvelope.class);
+    }
+}
+
+
+## onto-designer-api/src/test/java/cn/ontorepo/P2ReviewRegressionTest.java
+package cn.ontorepo;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+
+import cn.ontorepo.data.domain.LabelScope;
+import cn.ontorepo.trace.application.FrozenExecutor;
+
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+
+import java.util.*;
+import java.util.stream.Stream;
+
+/** 独立复审R1～R4：真实PG与真实HTTP转换边界，不替换执行器业务实现。 */
+class P2ReviewRegressionTest extends WorkflowFixture {
+    @Test
+    void r2OpenApiRetainsAnyJsonInputInsteadOfAnObjectOnlyReference() throws Exception {
+        var spec = call(get("/v3/api-docs"), ownerToken, null, 200);
+        var trial =
+                spec.path("components")
+                        .path("schemas")
+                        .path("Trial")
+                        .path("properties")
+                        .path("input");
+        assertFalse(trial.has("$ref"));
+        var service =
+                spec.path("paths")
+                        .path("/onto/internal/candidates/{id}/ops/{opCode}")
+                        .path("post")
+                        .path("requestBody")
+                        .path("content")
+                        .path("application/json")
+                        .path("schema");
+        assertFalse(service.has("$ref"));
+        assertTrue(service.path("type").toString().contains("array"));
+        assertTrue(service.path("type").toString().contains("null"));
+    }
+
+    @Test
+    void r2LegacyExplicitNullInputKeepsP1EmptyAttributeDefault() throws Exception {
+        String s = createSpace(), cl = createClass(s, "A", null);
+        data(
+                post("/onto/rules"),
+                Map.of(
+                        "spaceId",
+                        s,
+                        "expectedDraftRev",
+                        rev(s),
+                        "name",
+                        "默认校验",
+                        "applicableClassId",
+                        cl,
+                        "kind",
+                        "VALIDATION",
+                        "condition",
+                        "",
+                        "action",
+                        Map.of("type", "ACCEPT", "message", "通过"),
+                        "severity",
+                        "ERROR"));
+        String rule = data(get("/onto/rules").param("spaceId", s), null).get(0).path("id").asText();
+        data(
+                post("/onto/operations"),
+                Map.of(
+                        "spaceId",
+                        s,
+                        "expectedDraftRev",
+                        rev(s),
+                        "code",
+                        "validate",
+                        "name",
+                        "校验",
+                        "kind",
+                        "RULE_CHECK",
+                        "ruleIds",
+                        List.of(rule),
+                        "maxRows",
+                        20,
+                        "timeoutMs",
+                        1000));
+        String
+                op =
+                        data(get("/onto/operations").param("spaceId", s), null)
+                                .get(0)
+                                .path("id")
+                                .asText(),
+                c = freeze(s).path("id").asText();
+        var b = new LinkedHashMap<String, Object>();
+        b.put("operationId", op);
+        b.put("input", null);
+        assertEquals(
+                "SUCCEEDED",
+                data(post("/onto/candidates/" + c + "/trial"), b).path("status").asText());
+    }
+
+    @Test
+    void r1NormalKnowledgeAliasStillSelectsAndRealAmbiguityStillFails() throws Exception {
+        String s = createSpace(), op = createOperation(s, 20);
+        guards(s, "region");
+        data(
+                put("/onto/operations/" + op + "/assistant"),
+                declaration(s, "region", Map.of("type", "object"), Map.of()));
+        data(
+                post("/onto/knowledge"),
+                Map.of(
+                        "spaceId",
+                        s,
+                        "expectedDraftRev",
+                        rev(s),
+                        "term",
+                        "对象",
+                        "aliases",
+                        List.of("实体", "!!!"),
+                        "definition",
+                        "领域对象",
+                        "sourceRef",
+                        "review:R1-valid"));
+        localCase(s, op, Map.of(), "NL", "有哪些实体");
+        String c = freeze(s).path("id").asText();
+        assertTrue(data(post("/onto/candidates/" + c + "/tests"), null).path("passed").asBoolean());
+        data(
+                post("/onto/operations"),
+                Map.of(
+                        "spaceId",
+                        s,
+                        "expectedDraftRev",
+                        rev(s),
+                        "code",
+                        "other",
+                        "name",
+                        "其他操作",
+                        "queryTemplate",
+                        QUERY,
+                        "maxRows",
+                        20,
+                        "timeoutMs",
+                        1000));
+        for (var o : data(get("/onto/operations").param("spaceId", s), null))
+            if ("other".equals(o.path("code").asText()))
+                data(
+                        put("/onto/operations/" + o.path("id").asText() + "/assistant"),
+                        declaration(s, "region", Map.of("type", "object"), Map.of()));
+        c = freeze(s).path("id").asText();
+        assertFalse(
+                data(post("/onto/candidates/" + c + "/tests"), null).path("passed").asBoolean());
+        assertEquals(
+                "NL_OPERATION_AMBIGUOUS",
+                db.queryForObject(
+                        "SELECT error_code FROM op_execution ORDER BY created_at DESC LIMIT 1",
+                        String.class));
+    }
+
+    @Test
+    void r2RuleObjectConstraintPreservesOriginalCompositionAndLocalReferences() throws Exception {
+        String s = createSpace(), cl = createClass(s, "A", null);
+        guards(s, "region");
+        data(
+                post("/onto/rules"),
+                Map.of(
+                        "spaceId",
+                        s,
+                        "expectedDraftRev",
+                        rev(s),
+                        "name",
+                        "校验",
+                        "applicableClassId",
+                        cl,
+                        "kind",
+                        "VALIDATION",
+                        "condition",
+                        "",
+                        "action",
+                        Map.of("type", "ACCEPT", "message", "通过"),
+                        "severity",
+                        "ERROR"));
+        String rule = data(get("/onto/rules").param("spaceId", s), null).get(0).path("id").asText();
+        data(
+                post("/onto/operations"),
+                Map.of(
+                        "spaceId",
+                        s,
+                        "expectedDraftRev",
+                        rev(s),
+                        "code",
+                        "validate",
+                        "name",
+                        "属性校验",
+                        "kind",
+                        "RULE_CHECK",
+                        "ruleIds",
+                        List.of(rule),
+                        "maxRows",
+                        20,
+                        "timeoutMs",
+                        1000));
+        String op =
+                data(get("/onto/operations").param("spaceId", s), null).get(0).path("id").asText();
+        var schema =
+                Map.<String, Object>of(
+                        "$defs",
+                        Map.of(
+                                "root",
+                                Map.of(
+                                        "oneOf",
+                                        List.of(
+                                                Map.of("type", "object"),
+                                                Map.of("type", "array")))),
+                        "$ref",
+                        "#/$defs/root");
+        data(
+                put("/onto/operations/" + op + "/assistant"),
+                declaration(s, "region", schema, Map.of()));
+        String c = freeze(s).path("id").asText();
+        var effective =
+                data(get("/onto/candidates/" + c + "/contracts"), null)
+                        .path("manifests")
+                        .get(0)
+                        .path("input_schema");
+        assertEquals("#/$defs/root", effective.path("$ref").asText());
+        cn.ontorepo.contract.JsonSchemaAssertions.validate(effective, json.createObjectNode());
+        assertThrows(
+                cn.ontorepo.contract.ContractProblem.class,
+                () ->
+                        cn.ontorepo.contract.JsonSchemaAssertions.validate(
+                                effective, json.createArrayNode()));
+        call(post("/onto/internal/candidates/" + c + "/ops/validate"), ownerToken, Map.of(), 200);
+        clearInvocations(executor);
+        assertEquals(
+                "SCHEMA_VALIDATION_FAILED",
+                call(
+                                post("/onto/internal/candidates/" + c + "/ops/validate"),
+                                ownerToken,
+                                List.of(),
+                                400)
+                        .path("code")
+                        .asText());
+        verify(executor, never()).execute(anyMap(), anyMap(), any());
+    }
+
+    @Test
+    void r3UnknownOperationIsRecordedButMissingTargetOrGrantIsAnEntryRejection() throws Exception {
+        String s = createSpace(), op = createOperation(s, 20);
+        guards(s, "region");
+        data(
+                put("/onto/operations/" + op + "/assistant"),
+                declaration(s, "region", Map.of("type", "object"), Map.of()));
+        String c = freeze(s).path("id").asText();
+        call(post("/onto/internal/candidates/" + c + "/ops/unknown"), ownerToken, Map.of(), 404);
+        assertEquals(
+                1,
+                db.queryForObject(
+                        "SELECT count(*) FROM op_execution WHERE caller='SERVICE' AND"
+                                + " op_code='unknown' AND error_code='OPERATION_NOT_IN_CANDIDATE'",
+                        Integer.class));
+        call(
+                post("/onto/internal/candidates/" + c + "/ops/listClasses"),
+                strangerToken,
+                Map.of(),
+                403);
+        call(
+                post("/onto/internal/candidates/" + UUID.randomUUID() + "/ops/listClasses"),
+                ownerToken,
+                Map.of(),
+                404);
+        assertEquals(1, db.queryForObject("SELECT count(*) FROM op_execution", Integer.class));
+        verify(executor, never()).execute(anyMap(), anyMap(), any());
+    }
+
+    @MockitoSpyBean FrozenExecutor executor;
+
+    void guards(String s, String name) throws Exception {
+        data(
+                put("/onto/spaces/" + s + "/guards"),
+                Map.of(
+                        "expectedDraftRev",
+                        rev(s),
+                        "guardCfg",
+                        Map.of(
+                                name,
+                                Map.of(
+                                        "type",
+                                        "STRING",
+                                        "authorization_rule",
+                                        Map.of(
+                                                "kind",
+                                                "PRINCIPAL_ATTRIBUTE",
+                                                "attribute",
+                                                name)))));
+        data(
+                put("/onto/spaces/" + s + "/grants/" + owner),
+                Map.of(
+                        "expectedDraftRev",
+                        rev(s),
+                        "role",
+                        "OWNER",
+                        "attributes",
+                        Map.of(name, "A")));
+    }
+
+    Map<String, Object> declaration(
+            String s, String attr, Map<String, Object> schema, Object example) throws Exception {
+        Map<String, Object> tool = new LinkedHashMap<>();
+        tool.put("name", "列出对象");
+        tool.put("description", "列出对象模型");
+        tool.put("guard_attrs", List.of(attr));
+        tool.put("info_attrs", List.of());
+        tool.put("param_examples", Collections.singletonList(example));
+        tool.put(
+                "exec",
+                Map.of(
+                        "readonly",
+                        true,
+                        "side_effect",
+                        false,
+                        "idempotent",
+                        true,
+                        "cancellable",
+                        true));
+        tool.put("risk_level", "READ_ONLY");
+        tool.put(
+                "error_semantics",
+                List.of(Map.of("match", "HTTP 403", "semantic", "NO_PERMISSION")));
+        tool.put(
+                "return_spec",
+                Map.of(
+                        "modelSummary",
+                        Map.of("mode", "TEMPLATE", "template", "结果"),
+                        "structuredPath",
+                        "$.data",
+                        "fileRefPaths",
+                        List.of(),
+                        "cardTemplate",
+                        "结果"));
+        return new LinkedHashMap<>(
+                Map.of(
+                        "spaceId",
+                        s,
+                        "expectedDraftRev",
+                        rev(s),
+                        "inputSchema",
+                        schema,
+                        "outputSchema",
+                        Map.of("type", "object"),
+                        "assistantTool",
+                        tool));
+    }
+
+    void localCase(String s, String op, Object input, String mode) throws Exception {
+        localCase(s, op, input, mode, "完全陌生的问题");
+    }
+
+    void localCase(String s, String op, Object input, String mode, String question)
+            throws Exception {
+        Map<String, Object> b = new LinkedHashMap<>();
+        b.put("spaceId", s);
+        b.put("expectedDraftRev", rev(s));
+        b.put("name", "复审用例");
+        b.put("question", question);
+        b.put("operationId", op);
+        b.put("input", input);
+        b.put("expected", Map.of("rows", List.of()));
+        b.put("enabled", true);
+        b.put("mode", mode);
+        data(post("/onto/test-cases"), b);
+    }
+
+    static Stream<Arguments> punctuation() {
+        return Stream.of(
+                Arguments.of("!!!", List.of(), false), Arguments.of("正常术语", List.of("!!!"), false),
+                Arguments.of("!!!", List.of("对象", "!!!"), false),
+                        Arguments.of("正常术语", List.of("!!!", "对象"), true));
+    }
+
+    @ParameterizedTest
+    @MethodSource("punctuation")
+    void r1EmptyNormalizedKnowledgeNeverTurnsNoHitIntoSuccessOrAmbiguity(
+            String term, List<String> aliases, boolean multiple) throws Exception {
+        String s = createSpace(), op = createOperation(s, 20);
+        guards(s, "region");
+        data(
+                put("/onto/operations/" + op + "/assistant"),
+                declaration(s, "region", Map.of("type", "object"), Map.of()));
+        if (multiple) {
+            data(
+                    post("/onto/operations"),
+                    Map.of(
+                            "spaceId",
+                            s,
+                            "expectedDraftRev",
+                            rev(s),
+                            "code",
+                            "other",
+                            "name",
+                            "其他操作",
+                            "queryTemplate",
+                            QUERY,
+                            "maxRows",
+                            20,
+                            "timeoutMs",
+                            1000));
+            for (var o : data(get("/onto/operations").param("spaceId", s), null))
+                if ("other".equals(o.path("code").asText()))
+                    data(
+                            put("/onto/operations/" + o.path("id").asText() + "/assistant"),
+                            declaration(s, "region", Map.of("type", "object"), Map.of()));
+        }
+        data(
+                post("/onto/knowledge"),
+                Map.of(
+                        "spaceId",
+                        s,
+                        "expectedDraftRev",
+                        rev(s),
+                        "term",
+                        term,
+                        "aliases",
+                        aliases,
+                        "definition",
+                        "无关定义",
+                        "sourceRef",
+                        "review:R1"));
+        localCase(s, op, Map.of(), "NL");
+        String c = freeze(s).path("id").asText();
+        assertFalse(
+                data(post("/onto/candidates/" + c + "/tests"), null).path("passed").asBoolean());
+        assertEquals(
+                "NL_OPERATION_NOT_FOUND",
+                db.queryForObject(
+                        "SELECT error_code FROM op_execution ORDER BY created_at DESC LIMIT 1",
+                        String.class));
+        verify(executor, never()).execute(anyMap(), anyMap(), any());
+    }
+
+    record InputCase(Map<String, Object> schema, Object value) {}
+
+    static Stream<InputCase> inputs() {
+        return Stream.of(
+                new InputCase(
+                        Map.of("type", "array", "items", Map.of("type", "string")), List.of("x")),
+                new InputCase(Map.of("type", "string"), "x"),
+                new InputCase(Map.of("type", "number"), 42),
+                new InputCase(Map.of("type", "boolean"), true),
+                new InputCase(Map.of("type", "null"), null),
+                new InputCase(
+                        Map.of(
+                                "oneOf",
+                                List.of(
+                                        Map.of("type", "object"),
+                                        Map.of(
+                                                "type",
+                                                "array",
+                                                "items",
+                                                Map.of("type", "string")))),
+                        List.of("mixed")));
+    }
+
+    @ParameterizedTest
+    @MethodSource("inputs")
+    void r2EveryDeclaredJsonRootRunsThroughServiceTrialAndLocalTest(InputCase test)
+            throws Exception {
+        String s = createSpace(), op = createOperation(s, 20);
+        guards(s, "region");
+        data(
+                put("/onto/operations/" + op + "/assistant"),
+                declaration(s, "region", test.schema, test.value));
+        String c = freeze(s).path("id").asText();
+        assertEquals(
+                json.valueToTree(test.schema),
+                data(get("/onto/candidates/" + c + "/contracts"), null)
+                        .path("manifests")
+                        .get(0)
+                        .path("input_schema"));
+        assertAll(
+                () ->
+                        assertEquals(
+                                0,
+                                call(
+                                                post(
+                                                        "/onto/internal/candidates/"
+                                                                + c
+                                                                + "/ops/listClasses"),
+                                                ownerToken,
+                                                json.valueToTree(test.value),
+                                                200)
+                                        .path("data")
+                                        .path("rows")
+                                        .size()),
+                () -> {
+                    var b = new LinkedHashMap<String, Object>();
+                    b.put("operationId", op);
+                    b.put("input", test.value);
+                    assertEquals(
+                            "SUCCEEDED",
+                            data(post("/onto/candidates/" + c + "/trial"), b)
+                                    .path("status")
+                                    .asText());
+                },
+                () -> {
+                    localCase(s, op, test.value, "DIRECT");
+                    String local = freeze(s).path("id").asText();
+                    assertTrue(
+                            data(post("/onto/candidates/" + local + "/tests"), null)
+                                    .path("passed")
+                                    .asBoolean());
+                });
+    }
+
+    @Test
+    void r3CorruptCandidateKeepsFactsAcrossAllThreeEntriesWithoutExecutorAccess() throws Exception {
+        String s = createSpace(), op = createOperation(s, 20);
+        guards(s, "region");
+        data(
+                put("/onto/operations/" + op + "/assistant"),
+                declaration(s, "region", Map.of("type", "object"), Map.of()));
+        localCase(s, op, Map.of(), "DIRECT");
+        String good = freeze(s).path("id").asText();
+        UUID bad = UUID.randomUUID();
+        db.update(
+                "INSERT INTO"
+                    + " publish_candidate(id,space_id,draft_rev,sha256,payload,format_version,capability)"
+                    + " SELECT ?,space_id,draft_rev,sha256,?,format_version,capability FROM"
+                    + " publish_candidate WHERE id=?",
+                bad,
+                new byte[] {0},
+                UUID.fromString(good));
+        var failed =
+                call(
+                        post("/onto/internal/candidates/" + bad + "/ops/listClasses"),
+                        ownerToken,
+                        Map.of(),
+                        409);
+        assertEquals("CANDIDATE_CORRUPT", failed.path("code").asText());
+        assertFalse(failed.has("meta"));
+        assertEquals(
+                1,
+                db.queryForObject(
+                        "SELECT count(*) FROM op_execution WHERE subject_id=? AND caller='SERVICE'"
+                                + " AND op_code='listClasses' AND principal_id=? AND"
+                                + " error_code='CANDIDATE_CORRUPT'",
+                        Integer.class,
+                        bad,
+                        owner));
+        assertEquals(
+                "CANDIDATE_CORRUPT",
+                data(post("/onto/candidates/" + bad + "/trial"), Map.of("operationId", op))
+                        .path("errorCode")
+                        .asText());
+        var local = data(post("/onto/candidates/" + bad + "/tests"), null);
+        assertFalse(local.path("passed").asBoolean());
+        assertFalse(local.path("results").get(0).path("executionId").asText().isBlank());
+        assertEquals(
+                3,
+                db.queryForObject(
+                        "SELECT count(*) FROM op_execution WHERE subject_id=? AND status='FAILED'"
+                                + " AND error_code='CANDIDATE_CORRUPT'",
+                        Integer.class,
+                        bad));
+        verify(executor, never()).execute(anyMap(), anyMap(), any());
+    }
+
+    static Stream<String> names() {
+        return Stream.of("_region", "r".repeat(81), "r".repeat(128));
+    }
+
+    @ParameterizedTest
+    @MethodSource("names")
+    void r4HistoricalGuardNamesCanBeNarrowedByTheSameDataScope(String name) throws Exception {
+        String s = createSpace(), op = createOperation(s, 20);
+        guards(s, name);
+        data(
+                put("/onto/operations/" + op + "/assistant"),
+                declaration(s, name, Map.of("type", "object"), Map.of()));
+        String c = freeze(s).path("id").asText();
+        data(
+                put("/onto/spaces/" + s + "/grants/" + owner),
+                Map.of(
+                        "expectedDraftRev",
+                        rev(s),
+                        "role",
+                        "OWNER",
+                        "attributes",
+                        Map.of(name, "A"),
+                        "dataScope",
+                        Map.of("attr", name, "in", List.of("A"))));
+        assertEquals(
+                "SUCCEEDED",
+                data(post("/onto/candidates/" + c + "/trial"), Map.of("operationId", op))
+                        .path("status")
+                        .asText());
+        assertTrue(
+                LabelScope.parse(json.valueToTree(Map.of("attr", name, "in", List.of("A"))))
+                        .allows(name, json.valueToTree("A")));
+        data(
+                put("/onto/spaces/" + s + "/grants/" + owner),
+                Map.of(
+                        "expectedDraftRev",
+                        rev(s),
+                        "role",
+                        "OWNER",
+                        "attributes",
+                        Map.of(name, "A"),
+                        "dataScope",
+                        Map.of("attr", name, "in", List.of("B"))));
+        assertEquals(
+                "DATA_SCOPE_DENIED",
+                call(
+                                post("/onto/internal/candidates/" + c + "/ops/listClasses"),
+                                ownerToken,
+                                Map.of(),
+                                403)
+                        .path("code")
+                        .asText());
+    }
+}
+

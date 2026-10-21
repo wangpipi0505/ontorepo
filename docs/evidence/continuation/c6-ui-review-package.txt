@@ -1,0 +1,3882 @@
+# C6 P4 前端当前源码审查包（非 Git diff）
+
+## web/apps/onto-admin/src/features/p4\TraceView.vue
+<script setup lang="ts">
+import { useRoute } from 'vue-router'
+import ExecutionTracePanel from './ExecutionTracePanel.vue'
+import './p4.css'
+const route = useRoute()
+</script>
+<template>
+  <div class="p4-page stack">
+    <div class="page-heading">
+      <div>
+        <h1>执行追溯</h1>
+        <p class="muted">从实际执行记录查看请求、规则、查询、授权与证据关系。</p>
+      </div>
+      <RouterLink :to="`/spaces/${route.params.spaceId}/executions`">返回执行记录</RouterLink>
+    </div>
+    <ExecutionTracePanel :execution-id="String(route.params.executionId ?? '')" />
+  </div>
+</template>
+
+
+## web/apps/onto-admin/src/features/p4\TraceGraph.vue
+<script setup lang="ts">
+/** 图与可读列表共享服务端事实；缺失边端点不补造节点，仍在关系列表展示。 */
+import { computed, useId } from 'vue'
+import type { TraceGraphData } from '../../../../../packages/api-client/src/release'
+const props = defineProps<{ graph: TraceGraphData }>()
+const marker = `arrow-${useId().replaceAll(':', '')}`
+const nodes = computed(() =>
+  props.graph.nodes.map((node, index) => ({
+    ...node,
+    x: index % 2 === 0 ? 25 : 345,
+    y: 25 + Math.floor(index / 2) * 115,
+  })),
+)
+const edges = computed(() =>
+  props.graph.edges.flatMap((edge) => {
+    const from = nodes.value.find((node) => node.id === edge.from),
+      to = nodes.value.find((node) => node.id === edge.to)
+    return from && to
+      ? [{ ...edge, x1: from.x + 115, y1: from.y + 58, x2: to.x + 115, y2: to.y }]
+      : []
+  }),
+)
+const height = computed(() => Math.max(130, Math.ceil(nodes.value.length / 2) * 115 + 25))
+</script>
+<template>
+  <section class="stack">
+    <h3>执行关系图</h3>
+    <p v-if="!nodes.length" class="muted">此记录未保存图节点。</p>
+    <div v-else class="graph-frame">
+      <svg :viewBox="`0 0 600 ${height}`" role="img" aria-label="由实际执行节点和关联生成的追溯图">
+        <defs>
+          <marker :id="marker" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+            <path d="M0,0 L8,3 L0,6" fill="#64748b" />
+          </marker>
+        </defs>
+        <g v-for="edge in edges" :key="edge.id" :data-edge-id="edge.id">
+          <path
+            :d="`M ${edge.x1} ${edge.y1} L ${edge.x2} ${edge.y2}`"
+            fill="none"
+            stroke="#64748b"
+            :marker-end="`url(#${marker})`"
+          />
+          <title>{{ edge.label }}</title>
+        </g>
+        <g
+          v-for="node in nodes"
+          :key="node.id"
+          :data-node-id="node.id"
+          :transform="`translate(${node.x},${node.y})`"
+        >
+          <rect width="230" height="58" rx="6" fill="#eef4ff" stroke="#93b4fc" />
+          <text x="12" y="23" fill="#172b46">
+            {{ node.label.length > 19 ? node.label.slice(0, 19) + '…' : node.label }}
+          </text>
+          <text x="12" y="44" fill="#64748b" font-size="10">{{ node.kind }}</text>
+          <title>{{ node.label }} · {{ node.ref ?? node.id }}</title>
+        </g>
+      </svg>
+    </div>
+    <details>
+      <summary>可读节点与关系列表</summary>
+      <ul>
+        <li v-for="node in graph.nodes" :key="node.id">
+          {{ node.label }} · {{ node.kind }} · {{ node.ref ?? node.id }}
+        </li>
+      </ul>
+      <ul>
+        <li v-for="edge in graph.edges" :key="edge.id">
+          {{ edge.from }} → {{ edge.to }} · {{ edge.label }}
+        </li>
+      </ul>
+    </details>
+  </section>
+</template>
+<style scoped>
+.graph-frame {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: auto;
+  max-height: 650px;
+}
+svg {
+  display: block;
+  width: 100%;
+  min-width: 350px;
+  font:
+    13px 'Microsoft YaHei',
+    sans-serif;
+}
+li {
+  overflow-wrap: anywhere;
+  margin: 8px 0;
+  font-size: 13px;
+}
+</style>
+
+
+## web/apps/onto-admin/src/features/p4\ServiceCallPanel.vue
+<script setup lang="ts">
+/** 正式调用使用 TOKEN 的实际主体，成功证据必须来自服务返回且匹配当前正式版本。 */
+import { computed, ref, shallowRef, watch } from 'vue'
+import type { Envelope } from '@onto/api-client'
+import type { Endpoint, Release } from '../../../../../packages/api-client/src/release'
+import { useSession } from '../../stores/session'
+import { useWorkspace } from '../../stores/workspace'
+import { useMutation } from '../../composables/useMutation'
+import ParameterFields from './ParameterFields.vue'
+import { parameterObject, type ParameterRow } from './parameters'
+const props = defineProps<{ release: Release; endpoints: Endpoint[] }>()
+const api = useSession().api,
+  workspace = useWorkspace(),
+  mutation = useMutation()
+const code = ref(''),
+  rows = ref<ParameterRow[]>([]),
+  result = shallowRef<Envelope<unknown> | null>(null)
+const inputMode = ref<'fields' | 'json'>('fields'),
+  jsonInput = ref('{}')
+const endpoint = computed(() => props.endpoints.find((item) => item.opCode === code.value))
+const allowed = computed(
+  () =>
+    props.release.status === 'READY' &&
+    !!workspace.space &&
+    !!endpoint.value &&
+    endpoint.value.status === 'ACTIVE',
+)
+let generation = 0
+watch(
+  () => props.release.id,
+  () => {
+    generation++
+    code.value = ''
+    rows.value = []
+    result.value = null
+    mutation.error.value = ''
+  },
+)
+watch(code, () => {
+  generation++
+  rows.value = []
+  jsonInput.value = '{}'
+  inputMode.value = 'fields'
+  result.value = null
+  mutation.error.value = ''
+})
+function readInput(): unknown {
+  if (inputMode.value === 'fields') return parameterObject(rows.value)
+  try {
+    return JSON.parse(jsonInput.value) as unknown
+  } catch {
+    throw new Error('操作输入须为有效 JSON 值。请检查格式后重试。')
+  }
+}
+async function execute() {
+  if (!allowed.value) return
+  const release = props.release,
+    opCode = code.value,
+    ticket = generation,
+    spaceCode = workspace.space?.code
+  result.value = null
+  await mutation.run(async ({ isCurrent }) => {
+    const response = await api.requestEnvelope<unknown>(
+      `/internal/releases/${release.id}/ops/${encodeURIComponent(opCode)}`,
+      'POST',
+      readInput(),
+    )
+    if (!isCurrent() || ticket !== generation) return
+    const meta = response.meta
+    if (
+      !meta ||
+      typeof meta !== 'object' ||
+      !('preview' in meta) ||
+      meta.preview !== false ||
+      !('releaseId' in meta) ||
+      meta.releaseId !== release.id ||
+      !('version' in meta) ||
+      meta.version !== `v${release.versionNo}` ||
+      !('contentDigest' in meta) ||
+      meta.contentDigest !== release.bundleSha256 ||
+      !('spaceCode' in meta) ||
+      meta.spaceCode !== spaceCode
+    )
+      throw new Error('服务返回的正式版本证据不完整或与所选版本不符，请刷新版本后重试。')
+    result.value = response
+  })
+}
+</script>
+<template>
+  <section class="p4-page panel stack">
+    <h2>正式服务调用</h2>
+    <p class="muted">
+      以当前登录用户调用指定版本。OWNER 身份仍需有效的端点授权与空间授权；所有可信守卫由服务端取得。
+    </p>
+    <p v-if="release.status !== 'READY'" class="readonly-note">
+      {{ release.status }} 版本不可消费。
+    </p>
+    <label>
+      正式操作
+      <select
+        v-model="code"
+        data-testid="service-operation"
+        :disabled="mutation.pending.value || release.status !== 'READY'"
+      >
+        <option value="">请选择正式操作</option>
+        <option v-for="item in endpoints" :key="item.id" :value="item.opCode">
+          {{ item.opCode }} · {{ item.status }}
+        </option>
+      </select>
+    </label>
+    <p v-if="endpoint" class="identity">固定版本路由：{{ endpoint.route }}</p>
+    <label>
+      操作输入方式
+      <select
+        v-model="inputMode"
+        data-testid="service-input-mode"
+        :disabled="mutation.pending.value || !allowed"
+      >
+        <option value="fields">逐字段填写业务对象</option>
+        <option value="json">直接输入 JSON 值（支持数组、标量和 null）</option>
+      </select>
+    </label>
+    <ParameterFields
+      v-if="inputMode === 'fields'"
+      v-model="rows"
+      :disabled="mutation.pending.value || !allowed"
+      add-label="添加业务参数"
+    />
+    <label v-else>
+      操作输入（JSON 值）
+      <textarea
+        v-model="jsonInput"
+        data-testid="service-json-input"
+        rows="5"
+        :disabled="mutation.pending.value || !allowed"
+      />
+    </label>
+    <div>
+      <el-button
+        type="primary"
+        :disabled="!allowed"
+        :loading="mutation.pending.value"
+        @click="execute"
+      >
+        调用正式服务
+      </el-button>
+    </div>
+    <p v-if="mutation.error.value" class="error-text" role="alert">{{ mutation.error.value }}</p>
+    <div v-if="result" data-testid="service-result" class="stack">
+      <h3>业务数据</h3>
+      <pre>{{ JSON.stringify(result.data, null, 2) }}</pre>
+      <h3>正式版本元数据</h3>
+      <pre>{{ JSON.stringify(result.meta, null, 2) }}</pre>
+    </div>
+  </section>
+</template>
+
+
+## web/apps/onto-admin/src/features/p4\RestoreDraftPanel.vue
+<script setup lang="ts">
+/** 确认面板捕获打开时修订，409 或外部刷新后不能借新修订覆盖用户草稿。 */
+import { computed, ref } from 'vue'
+import { ApiError, type Space } from '@onto/api-client'
+import type { Release } from '../../../../../packages/api-client/src/release'
+import { useWorkspace } from '../../stores/workspace'
+import { useSession } from '../../stores/session'
+import { useMutation } from '../../composables/useMutation'
+import './p4.css'
+const props = defineProps<{ release: Release }>()
+const emit = defineEmits<{ restored: []; cancel: [] }>()
+const workspace = useWorkspace(),
+  api = useSession().api,
+  mutation = useMutation()
+const expectedDraftRev = workspace.space?.draftRev,
+  releaseId = props.release.id
+const reason = ref(''),
+  confirmed = ref(false),
+  locked = ref(false),
+  done = ref(false)
+const allowed = computed(
+  () =>
+    workspace.space?.role === 'OWNER' &&
+    workspace.canWrite &&
+    !locked.value &&
+    !done.value &&
+    props.release.status !== 'CORRUPTED' &&
+    expectedDraftRev === workspace.space?.draftRev &&
+    releaseId === props.release.id,
+)
+async function restore() {
+  if (!allowed.value || !confirmed.value || !reason.value.trim()) return
+  await mutation.run(async ({ isCurrent }) => {
+    try {
+      const updated = await api.post<Space>(`/releases/${releaseId}/restore-draft`, {
+        expectedDraftRev,
+        reason: reason.value.trim(),
+      })
+      if (!isCurrent()) return
+      workspace.accept(updated)
+      done.value = true
+      emit('restored')
+    } catch (cause) {
+      if (isCurrent() && cause instanceof ApiError && cause.status === 409) locked.value = true
+      throw cause
+    }
+  })
+}
+</script>
+<template>
+  <section class="p4-page panel stack">
+    <h2>恢复历史版本到草稿</h2>
+    <p class="notice">
+      目标 v{{ release.versionNo }} · {{ release.id }}。将覆盖打开面板时的草稿 r{{
+        expectedDraftRev
+      }}，生成新修订；历史版本保持不变，恢复后需要重新冻结和发布。
+    </p>
+    <p class="identity">
+      目标摘要 {{ release.bundleSha256 }}
+      <br />
+      当前草稿 r{{ workspace.space?.draftRev }}
+    </p>
+    <label>
+      恢复理由
+      <textarea
+        v-model="reason"
+        data-testid="restore-reason"
+        rows="3"
+        :disabled="mutation.pending.value || done"
+      />
+    </label>
+    <label class="check-label">
+      <input
+        v-model="confirmed"
+        data-testid="restore-confirm"
+        type="checkbox"
+        :disabled="!allowed || mutation.pending.value"
+      />
+      确认使用此版本全量覆盖当前草稿内容
+    </label>
+    <p v-if="!allowed && !done" class="error-text">
+      当前修订已变化、版本损坏或没有恢复权限。请保留理由，关闭后刷新版本与草稿再操作。
+    </p>
+    <p v-if="done" class="notice">草稿已恢复，尚未自动发布。</p>
+    <p v-if="mutation.error.value" class="error-text" role="alert">{{ mutation.error.value }}</p>
+    <div class="row">
+      <el-button
+        type="danger"
+        :disabled="!allowed || !confirmed || !reason.trim()"
+        :loading="mutation.pending.value"
+        @click="restore"
+      >
+        确认覆盖并恢复草稿
+      </el-button>
+      <el-button :disabled="mutation.pending.value" @click="emit('cancel')">关闭恢复面板</el-button>
+    </div>
+  </section>
+</template>
+
+
+## web/apps/onto-admin/src/features/p4\ReleasesView.vue
+<script setup lang="ts">
+/** 列表和详情显示管理状态；弃用或损坏版本不开放消费制品入口。 */
+import { computed, ref, watch } from 'vue'
+import type { Release, ReleaseDetail } from '../../../../../packages/api-client/src/release'
+import { useWorkspace } from '../../stores/workspace'
+import { useSession } from '../../stores/session'
+import { useResource } from '../../composables/useResource'
+import { useMutation, confirmAction } from '../../composables/useMutation'
+import AsyncState from '@onto/shared-ui/AsyncState.vue'
+import ArtifactList from './ArtifactList.vue'
+import ReleaseEntities from './ReleaseEntities.vue'
+import ReleaseDiffPanel from './ReleaseDiffPanel.vue'
+import RestoreDraftPanel from './RestoreDraftPanel.vue'
+import './p4.css'
+const workspace = useWorkspace(),
+  api = useSession().api,
+  mutation = useMutation()
+const releases = useResource<Release[]>([]),
+  detail = useResource<ReleaseDetail | null>(null),
+  document = useResource<unknown | null>(null)
+const selected = ref(''),
+  reason = ref(''),
+  restoring = ref(false)
+const owner = computed(() => workspace.space?.role === 'OWNER' && workspace.canWrite)
+let generation = 0
+async function load() {
+  const id = workspace.space?.id
+  if (!id || mutation.pending.value || restoring.value) return
+  const result = await releases.load(() => api.get<Release[]>(`/releases?spaceId=${id}`))
+  if (result) {
+    if (!result.some((item) => item.id === selected.value)) selected.value = result[0]?.id ?? ''
+    else await loadDetail()
+  }
+}
+function loadDetail() {
+  if (!selected.value) return
+  const id = selected.value
+  return detail.load(async () => {
+    const value = await api.get<ReleaseDetail>(`/releases/${id}`)
+    if (value.release.id !== id) throw new Error('版本详情与当前选择不符。')
+    return value
+  })
+}
+watch(selected, () => {
+  generation++
+  detail.reset()
+  document.reset()
+  reason.value = ''
+  restoring.value = false
+  void loadDetail()
+})
+watch(
+  () => workspace.space?.id,
+  () => {
+    selected.value = ''
+    releases.reset()
+    detail.reset()
+    void load()
+  },
+  { immediate: true },
+)
+async function action(kind: 'deprecate' | 'integrity-check') {
+  const value = detail.data.value,
+    ticket = generation,
+    context = workspace.captureContext()
+  if (
+    !value ||
+    !owner.value ||
+    (kind === 'deprecate' && (value.release.status !== 'READY' || !reason.value.trim()))
+  )
+    return
+  const releaseId = value.release.id
+  if (
+    kind === 'deprecate' &&
+    (!(await confirmAction(`弃用 v${value.release.versionNo} 后消费者不能继续调用。确认弃用？`)) ||
+      !workspace.isCurrentContext(context) ||
+      ticket !== generation)
+  )
+    return
+  await mutation.run(async ({ isCurrent }) => {
+    const updated = await api.post<ReleaseDetail>(
+      `/releases/${releaseId}/${kind}`,
+      kind === 'deprecate' ? { reason: reason.value.trim() } : {},
+    )
+    if (!isCurrent() || ticket !== generation) return
+    if (updated.release.id !== releaseId) throw new Error('版本操作返回了不同版本，请重新读取。')
+    detail.data.value = updated
+    document.reset()
+    releases.data.value = releases.data.value.map((item) =>
+      item.id === releaseId ? updated.release : item,
+    )
+  })
+}
+function readDocument(kind: 'manifest' | 'context-pack') {
+  if (detail.data.value?.release.status !== 'READY') return
+  return document.load(() => api.get<unknown>(`/releases/${selected.value}/${kind}`))
+}
+async function restored() {
+  restoring.value = false
+  await load()
+}
+</script>
+<template>
+  <div class="p4-page stack">
+    <div class="page-heading">
+      <div>
+        <h1>正式版本</h1>
+        <p class="muted">查看版本制品、冻结实体、版本差异与完整性。</p>
+      </div>
+      <el-button :disabled="mutation.pending.value || restoring" @click="load">刷新版本</el-button>
+    </div>
+    <p v-if="mutation.error.value" class="error-text" role="alert">{{ mutation.error.value }}</p>
+    <AsyncState
+      :loading="releases.loading.value"
+      :error="releases.error.value"
+      :empty="!releases.data.value.length"
+      empty-text="尚无正式版本。请在候选发布中完成五门禁与制品准备。"
+      @retry="load"
+    >
+      <div class="split">
+        <section class="panel stack">
+          <h2>版本目录</h2>
+          <button
+            v-for="item in releases.data.value"
+            :key="item.id"
+            class="selector record"
+            :aria-pressed="selected === item.id"
+            :disabled="mutation.pending.value || restoring"
+            @click="selected = item.id"
+          >
+            <b>v{{ item.versionNo }} · {{ item.status }}</b>
+            <p class="muted">{{ item.publishedAt }}</p>
+            <span class="identity">{{ item.bundleSha256 }}</span>
+          </button>
+        </section>
+        <AsyncState :loading="detail.loading.value" :error="detail.error.value" @retry="loadDetail">
+          <section v-if="detail.data.value" class="panel stack">
+            <h2>
+              版本 v{{ detail.data.value.release.versionNo }} ·
+              {{ detail.data.value.release.status }}
+            </h2>
+            <p v-if="detail.data.value.release.status !== 'READY'" class="readonly-note">
+              当前版本不可消费；历史事实仍可管理浏览。
+            </p>
+            <dl class="details-grid">
+              <dt>版本标识</dt>
+              <dd>{{ detail.data.value.release.id }}</dd>
+              <dt>发布人</dt>
+              <dd>{{ detail.data.value.release.publishedBy }}</dd>
+              <dt>发布时间</dt>
+              <dd>{{ detail.data.value.release.publishedAt }}</dd>
+            </dl>
+            <ArtifactList :artifacts="detail.data.value.artifacts" />
+            <details>
+              <summary>冻结门禁报告</summary>
+              <article v-for="check in detail.data.value.checks" :key="check.kind" class="record">
+                <b>{{ check.kind }} · {{ check.conclusion }}</b>
+                <p>{{ check.reason }}</p>
+                <pre>{{ JSON.stringify(check.report, null, 2) }}</pre>
+              </article>
+            </details>
+            <details>
+              <summary>正式服务端点 · {{ detail.data.value.endpoints.length }}</summary>
+              <p
+                v-for="endpoint in detail.data.value.endpoints"
+                :key="endpoint.id"
+                class="identity"
+              >
+                {{ endpoint.opCode }} · {{ endpoint.status }}
+                <br />
+                {{ endpoint.route }}
+              </p>
+            </details>
+            <div class="row">
+              <el-button
+                :disabled="detail.data.value.release.status !== 'READY'"
+                @click="readDocument('manifest')"
+              >
+                读取正式操作清单
+              </el-button>
+              <el-button
+                :disabled="detail.data.value.release.status !== 'READY'"
+                @click="readDocument('context-pack')"
+              >
+                读取正式上下文包
+              </el-button>
+            </div>
+            <p v-if="document.error.value" class="error-text" role="alert">
+              {{ document.error.value }}
+            </p>
+            <pre v-if="document.data.value">{{ JSON.stringify(document.data.value, null, 2) }}</pre>
+            <ReleaseEntities :key="selected" :release-id="selected" />
+            <template v-if="owner">
+              <label>
+                弃用理由
+                <textarea
+                  v-model="reason"
+                  rows="2"
+                  :disabled="mutation.pending.value || restoring"
+                />
+              </label>
+              <div class="row">
+                <el-button
+                  :disabled="mutation.pending.value || restoring"
+                  @click="action('integrity-check')"
+                >
+                  执行真实完整性检查
+                </el-button>
+                <el-button
+                  type="danger"
+                  :disabled="
+                    mutation.pending.value ||
+                    restoring ||
+                    detail.data.value.release.status !== 'READY' ||
+                    !reason.trim()
+                  "
+                  @click="action('deprecate')"
+                >
+                  弃用此版本
+                </el-button>
+                <el-button
+                  :disabled="
+                    mutation.pending.value ||
+                    restoring ||
+                    detail.data.value.release.status === 'CORRUPTED'
+                  "
+                  @click="restoring = true"
+                >
+                  恢复到草稿
+                </el-button>
+              </div>
+            </template>
+          </section>
+        </AsyncState>
+      </div>
+      <RestoreDraftPanel
+        v-if="restoring && detail.data.value"
+        :key="selected"
+        :release="detail.data.value.release"
+        @cancel="restoring = false"
+        @restored="restored"
+      />
+      <ReleaseDiffPanel
+        v-if="workspace.space"
+        :releases="releases.data.value"
+        :space-id="workspace.space.id"
+      />
+    </AsyncState>
+  </div>
+</template>
+
+
+## web/apps/onto-admin/src/features/p4\ReleaseEntities.vue
+<script setup lang="ts">
+/** 实体从已核验的不可变 bundle 投影读取；历史版本仍可管理浏览。 */
+import { ref, watch } from 'vue'
+import type {
+  ReleaseEntity,
+  ReleaseEntityKind,
+} from '../../../../../packages/api-client/src/release'
+import { useSession } from '../../stores/session'
+import { useResource } from '../../composables/useResource'
+import AsyncState from '@onto/shared-ui/AsyncState.vue'
+const props = defineProps<{ releaseId: string }>(),
+  api = useSession().api
+const kind = ref<ReleaseEntityKind | ''>(''),
+  state = useResource<ReleaseEntity[]>([])
+const kinds: ReleaseEntityKind[] = [
+  'CLASS',
+  'PROPERTY',
+  'RELATION',
+  'OPERATION',
+  'RULE',
+  'STRATEGY',
+  'KNOWLEDGE',
+  'MAPPING',
+]
+function load() {
+  return state.load(() =>
+    api.get<ReleaseEntity[]>(
+      `/releases/${props.releaseId}/entities${kind.value ? `?kind=${kind.value}` : ''}`,
+    ),
+  )
+}
+watch(
+  () => `${props.releaseId}:${kind.value}`,
+  () => {
+    state.reset()
+    void load()
+  },
+  { immediate: true },
+)
+</script>
+<template>
+  <section class="stack">
+    <h3>不可变实体投影</h3>
+    <label>
+      实体类别
+      <select v-model="kind">
+        <option value="">全部类别</option>
+        <option v-for="item in kinds" :key="item" :value="item">{{ item }}</option>
+      </select>
+    </label>
+    <AsyncState
+      :loading="state.loading.value"
+      :error="state.error.value"
+      :empty="!state.data.value.length"
+      empty-text="此版本无匹配实体。"
+      @retry="load"
+    >
+      <details v-for="item in state.data.value" :key="`${item.kind}:${item.key}`" class="record">
+        <summary>{{ item.kind }} · {{ item.key }}</summary>
+        <pre>{{ JSON.stringify(item.value, null, 2) }}</pre>
+      </details>
+    </AsyncState>
+  </section>
+</template>
+
+
+## web/apps/onto-admin/src/features/p4\ReleaseDiffPanel.vue
+<script setup lang="ts">
+import { ref, watch } from 'vue'
+import type { Release, ReleaseDiff } from '../../../../../packages/api-client/src/release'
+import { useSession } from '../../stores/session'
+import { useResource } from '../../composables/useResource'
+import AsyncState from '@onto/shared-ui/AsyncState.vue'
+import ProjectionDiff from './ProjectionDiff.vue'
+const props = defineProps<{ releases: Release[]; spaceId: string }>(),
+  api = useSession().api
+const from = ref(''),
+  to = ref(''),
+  state = useResource<ReleaseDiff | null>(null)
+watch(
+  () => props.spaceId,
+  () => {
+    from.value = ''
+    to.value = ''
+    state.reset()
+  },
+)
+watch([from, to], () => state.reset())
+function compare() {
+  if (!from.value || !to.value || from.value === to.value) return
+  const fromId = from.value,
+    toId = to.value
+  return state.load(async () => {
+    const value = await api.get<ReleaseDiff>(
+      `/releases/diff?spaceId=${props.spaceId}&fromReleaseId=${fromId}&toReleaseId=${toId}`,
+    )
+    if (value.fromReleaseId !== fromId || value.toReleaseId !== toId)
+      throw new Error('差异响应版本不符，请重试比较。')
+    return value
+  })
+}
+</script>
+<template>
+  <section class="panel stack">
+    <h2>版本投影差异</h2>
+    <div class="form-columns">
+      <label>
+        原版本
+        <select v-model="from">
+          <option value="">请选择</option>
+          <option v-for="item in releases" :key="item.id" :value="item.id">
+            v{{ item.versionNo }} · {{ item.status }}
+          </option>
+        </select>
+      </label>
+      <label>
+        目标版本
+        <select v-model="to">
+          <option value="">请选择</option>
+          <option v-for="item in releases" :key="item.id" :value="item.id">
+            v{{ item.versionNo }} · {{ item.status }}
+          </option>
+        </select>
+      </label>
+    </div>
+    <div>
+      <el-button
+        :disabled="!from || !to || from === to"
+        :loading="state.loading.value"
+        @click="compare"
+      >
+        比较版本投影
+      </el-button>
+    </div>
+    <AsyncState :loading="state.loading.value" :error="state.error.value" @retry="compare">
+      <ProjectionDiff v-if="state.data.value" :diff="state.data.value" />
+    </AsyncState>
+  </section>
+</template>
+
+
+## web/apps/onto-admin/src/features/p4\PublicationView.vue
+<script setup lang="ts">
+/** 冻结与发布页面独立于既有候选试执行页，旧候选仍可回原入口试验。 */
+import { ref, watch } from 'vue'
+import type { Space } from '@onto/api-client'
+import type { PublicationCandidate } from '../../../../../packages/api-client/src/release'
+import { useWorkspace } from '../../stores/workspace'
+import { useSession } from '../../stores/session'
+import { useResource } from '../../composables/useResource'
+import { useMutation, confirmAction } from '../../composables/useMutation'
+import AsyncState from '@onto/shared-ui/AsyncState.vue'
+import PublicationPanel from './PublicationPanel.vue'
+import './p4.css'
+const workspace = useWorkspace(),
+  api = useSession().api,
+  mutation = useMutation()
+const state = useResource<PublicationCandidate[]>([]),
+  selected = ref(''),
+  opened = ref(0),
+  publicationBusy = ref(false)
+async function load() {
+  const id = workspace.space?.id,
+    context = workspace.captureContext()
+  if (!id || mutation.pending.value || publicationBusy.value || state.loading.value) return
+  const result = await state.load(async () => {
+    const [items, space] = await Promise.all([
+      api.get<PublicationCandidate[]>(`/spaces/${id}/candidates`),
+      api.get<Space>(`/spaces/${id}`),
+    ])
+    if (workspace.isCurrentContext(context)) workspace.refreshed(space)
+    return items
+  })
+  if (result && workspace.isCurrentContext(context)) {
+    if (!result.some((item) => item.id === selected.value)) selected.value = result[0]?.id ?? ''
+    opened.value++
+  }
+}
+watch(
+  () => workspace.space?.id,
+  () => {
+    selected.value = ''
+    state.reset()
+    void load()
+  },
+  { immediate: true },
+)
+async function freeze() {
+  const space = workspace.space,
+    context = workspace.captureContext()
+  if (!space || !workspace.canWrite || publicationBusy.value || state.loading.value) return
+  const rev = space.draftRev
+  if (
+    !(await confirmAction(
+      `将当前草稿 r${rev} 冻结为发布候选？预分配版本号在取消或失败后不会回收。`,
+    )) ||
+    !workspace.isCurrentContext(context)
+  )
+    return
+  let created: PublicationCandidate | undefined
+  if (
+    await mutation.run(async ({ isCurrent }) => {
+      const value = await api.post<PublicationCandidate>(`/spaces/${space.id}/candidates`, {
+        expectedDraftRev: rev,
+      })
+      if (isCurrent()) created = value
+    })
+  ) {
+    await load()
+    if (created) selected.value = created.id
+  }
+}
+</script>
+<template>
+  <div class="p4-page stack">
+    <div class="page-heading">
+      <div>
+        <h1>候选发布</h1>
+        <p class="muted">从冻结草稿到正式版本，逐项查看发布资格与制品证据。</p>
+      </div>
+      <div class="row">
+        <el-button
+          :disabled="mutation.pending.value || publicationBusy || state.loading.value"
+          @click="load"
+        >
+          重新读取候选与草稿
+        </el-button>
+        <el-button
+          v-if="workspace.canWrite"
+          type="primary"
+          :disabled="publicationBusy || state.loading.value"
+          :loading="mutation.pending.value"
+          @click="freeze"
+        >
+          冻结发布候选 r{{ workspace.space?.draftRev }}
+        </el-button>
+      </div>
+    </div>
+    <p v-if="mutation.error.value" class="error-text" role="alert">{{ mutation.error.value }}</p>
+    <AsyncState
+      :loading="state.loading.value"
+      :error="state.error.value"
+      :empty="!state.data.value.length"
+      empty-text="尚无候选。完成模型、映射和验收用例后冻结当前草稿。"
+      @retry="load"
+    >
+      <div class="split">
+        <section class="panel stack">
+          <h2>冻结候选</h2>
+          <button
+            v-for="item in state.data.value"
+            :key="item.id"
+            class="record selector"
+            :aria-pressed="selected === item.id"
+            :disabled="publicationBusy || mutation.pending.value"
+            @click="selected = item.id"
+          >
+            <b>草稿 r{{ item.draftRev }}</b>
+            <p class="muted">
+              {{ item.status }} · {{ item.preVersionNo ? `v${item.preVersionNo}` : '历史候选' }}
+            </p>
+            <span class="identity">{{ item.sha256 }}</span>
+          </button>
+        </section>
+        <PublicationPanel
+          v-if="state.data.value.find((item) => item.id === selected)"
+          :key="`${selected}:${opened}`"
+          :candidate="state.data.value.find((item) => item.id === selected)!"
+          @busy="publicationBusy = $event"
+        />
+      </div>
+    </AsyncState>
+  </div>
+</template>
+
+
+## web/apps/onto-admin/src/features/p4\PublicationPanel.vue
+<script setup lang="ts">
+/** 固定候选身份贯穿检查、复核和提交；刷新只读取事实，不更新提交修订。 */
+import { computed, ref, watch } from 'vue'
+import { ApiError, type CandidateTests } from '@onto/api-client'
+import type {
+  PublicationCandidate,
+  Publication,
+  Release,
+  ReleaseDiff,
+} from '../../../../../packages/api-client/src/release'
+import { useWorkspace } from '../../stores/workspace'
+import { useSession } from '../../stores/session'
+import { useResource } from '../../composables/useResource'
+import { useMutation } from '../../composables/useMutation'
+import AsyncState from '@onto/shared-ui/AsyncState.vue'
+import ArtifactList from './ArtifactList.vue'
+import ProjectionDiff from './ProjectionDiff.vue'
+import {
+  allArtifactsReady,
+  canWaiveConsistency,
+  gateKinds,
+  gateLabels,
+  gatePassed,
+} from './publication'
+import './p4.css'
+const props = defineProps<{ candidate: PublicationCandidate }>()
+const emit = defineEmits<{ committed: [release: Release]; busy: [value: boolean] }>()
+const workspace = useWorkspace(),
+  api = useSession().api,
+  mutation = useMutation()
+const state = useResource<Publication | null>(null),
+  diff = useResource<ReleaseDiff | null>(null)
+const reason = ref(''),
+  reviewed = ref(false),
+  tests = ref<CandidateTests | null>(null),
+  locked = ref(false)
+let generation = 0
+const publication = computed(() => state.data.value)
+const owner = computed(() => workspace.space?.role === 'OWNER')
+const legacy = computed(() => !publication.value?.preReleaseId || !publication.value.preVersionNo)
+const writable = computed(
+  () =>
+    workspace.canWrite &&
+    !locked.value &&
+    props.candidate.draftRev === workspace.space?.draftRev &&
+    !mutation.pending.value,
+)
+const actionable = computed(
+  () =>
+    writable.value &&
+    !!publication.value &&
+    !legacy.value &&
+    !['COMMITTED', 'CANCELLED'].includes(publication.value.status),
+)
+const completedTests = computed(
+  () => !tests.value || (tests.value.passed && tests.value.results.length > 0),
+)
+const machinePassed = computed(
+  () =>
+    completedTests.value &&
+    !!publication.value &&
+    gateKinds
+      .filter((kind) => kind !== 'REVIEW')
+      .every((kind) => gatePassed(publication.value!, kind)),
+)
+const allPassed = computed(
+  () =>
+    completedTests.value &&
+    !!publication.value &&
+    gateKinds.every((kind) => gatePassed(publication.value!, kind)),
+)
+const prepareAllowed = computed(
+  () =>
+    owner.value &&
+    actionable.value &&
+    allPassed.value &&
+    ['REVIEWING', 'READY_TO_COMMIT'].includes(publication.value!.status),
+)
+const commitAllowed = computed(
+  () =>
+    prepareAllowed.value &&
+    publication.value?.status === 'READY_TO_COMMIT' &&
+    allArtifactsReady(publication.value),
+)
+watch(mutation.pending, (value) => emit('busy', value), { flush: 'sync' })
+function verify(value: Publication) {
+  if (
+    value.candidateId !== props.candidate.id ||
+    value.candidateSha256 !== props.candidate.sha256 ||
+    value.draftRev !== props.candidate.draftRev
+  )
+    throw new ApiError(
+      'CANDIDATE_IDENTITY_MISMATCH',
+      '响应不属于当前候选摘要与修订，请重新选择候选。',
+      409,
+    )
+  return value
+}
+async function load() {
+  if (mutation.pending.value) return
+  const id = props.candidate.id,
+    ticket = generation
+  await state.load(async () => {
+    const value = await api.get<Publication>(`/candidates/${id}/publication`)
+    return ticket === generation ? verify(value) : value
+  })
+}
+function loadDiff() {
+  return diff.load(() => api.get<ReleaseDiff>(`/candidates/${props.candidate.id}/diff`))
+}
+watch(
+  () => `${props.candidate.id}:${props.candidate.sha256}`,
+  () => {
+    generation++
+    state.reset()
+    diff.reset()
+    reason.value = ''
+    reviewed.value = false
+    tests.value = null
+    locked.value = false
+    void load()
+    void loadDiff()
+  },
+  { immediate: true },
+)
+async function action(
+  kind: 'validate' | 'tests' | 'review' | 'prepare' | 'commit' | 'cancel' | 'waivers',
+) {
+  const value = publication.value
+  if (!value || !actionable.value) return
+  if (['review', 'prepare', 'commit', 'cancel', 'waivers'].includes(kind) && !owner.value) return
+  if ((kind === 'prepare' && !prepareAllowed.value) || (kind === 'commit' && !commitAllowed.value))
+    return
+  if (kind === 'review' && (!machinePassed.value || !reviewed.value || !diff.data.value)) return
+  if (kind === 'tests' && !gatePassed(value, 'CONTRACT')) return
+  if (kind === 'waivers' && !canWaiveConsistency(value)) return
+  if (['review', 'cancel', 'waivers'].includes(kind) && !reason.value.trim()) {
+    mutation.error.value = '请填写明确的操作理由。'
+    return
+  }
+  const id = props.candidate.id,
+    sha = props.candidate.sha256,
+    rev = props.candidate.draftRev,
+    ticket = generation
+  const body =
+    kind === 'commit'
+      ? { expectedDraftRev: rev, expectedSha256: sha }
+      : kind === 'waivers'
+        ? { kind: 'SUBSET_EXCEEDED', reason: reason.value.trim() }
+        : ['validate', 'tests'].includes(kind)
+          ? {}
+          : {
+              expectedDraftRev: rev,
+              candidateSha256: sha,
+              ...(['review', 'cancel'].includes(kind) ? { reason: reason.value.trim() } : {}),
+            }
+  await mutation.run(async ({ isCurrent }) => {
+    try {
+      const response = await api.post<Publication | CandidateTests | Release>(
+        `/candidates/${id}/${kind}`,
+        body,
+      )
+      if (!isCurrent() || ticket !== generation) return
+      if (kind === 'commit') {
+        const release = response as Release
+        if (release.candidateId !== id || release.bundleSha256 !== sha)
+          throw new Error('发布响应与当前冻结候选不符，请重新读取版本。')
+        emit('committed', release)
+      } else if (kind === 'tests') {
+        const result = response as CandidateTests
+        if (result.candidateSha256 !== sha) throw new Error('用例结果摘要与当前候选不符。')
+        tests.value = result
+      } else if (kind !== 'waivers') {
+        state.data.value = verify(response as Publication)
+        return
+      }
+      const latest = await api.get<Publication>(`/candidates/${id}/publication`)
+      if (isCurrent() && ticket === generation) state.data.value = verify(latest)
+    } catch (cause) {
+      if (isCurrent() && ticket === generation && cause instanceof ApiError && cause.status === 409)
+        locked.value = true
+      throw cause
+    }
+  })
+}
+</script>
+<template>
+  <section class="p4-page panel stack">
+    <div class="row spread">
+      <h2>发布向导 · r{{ candidate.draftRev }}</h2>
+      <el-button :disabled="mutation.pending.value" @click="load">刷新发布状态</el-button>
+    </div>
+    <p class="identity">
+      候选 {{ candidate.id }}
+      <br />
+      SHA-256 {{ candidate.sha256 }}
+    </p>
+    <p v-if="!writable && !mutation.pending.value" class="readonly-note">
+      当前候选或草稿已过期，或当前账号仅可查看。原输入保留；请重新读取草稿并冻结候选。
+    </p>
+    <p v-if="mutation.error.value" class="error-text" role="alert">{{ mutation.error.value }}</p>
+    <AsyncState :loading="state.loading.value" :error="state.error.value" @retry="load">
+      <template v-if="publication">
+        <div class="row">
+          <el-tag>{{ publication.status }}</el-tag>
+          <b v-if="publication.preVersionNo">预分配 v{{ publication.preVersionNo }}</b>
+        </div>
+        <p v-if="legacy" class="readonly-note">
+          此旧候选继续兼容本地试验；请重新冻结当前草稿以获得正式发布能力。
+        </p>
+        <p v-if="publication.releaseId" class="notice">已发布版本：{{ publication.releaseId }}</p>
+        <div class="gates" aria-label="五项发布门禁">
+          <article
+            v-for="kind in gateKinds"
+            :key="kind"
+            class="record gate"
+            :data-passed="gatePassed(publication, kind)"
+          >
+            <h3>{{ gateLabels[kind] }}</h3>
+            <b>
+              {{
+                publication.checks.find((check) => check.kind === kind)?.conclusion ?? '尚未执行'
+              }}
+            </b>
+            <p class="muted">
+              {{
+                publication.checks.find((check) => check.kind === kind)?.reason ?? '等待服务端检查'
+              }}
+            </p>
+            <details v-if="publication.checks.some((check) => check.kind === kind)">
+              <summary>证据与时间</summary>
+              <pre>{{
+                JSON.stringify(
+                  publication.checks.find((check) => check.kind === kind),
+                  null,
+                  2,
+                )
+              }}</pre>
+            </details>
+          </article>
+        </div>
+        <div class="row">
+          <el-button :disabled="!actionable" @click="action('validate')">
+            运行三项机器检查
+          </el-button>
+          <el-button
+            :disabled="!actionable || !gatePassed(publication, 'CONTRACT')"
+            @click="action('tests')"
+          >
+            运行冻结验收用例
+          </el-button>
+        </div>
+        <section v-if="tests" class="stack">
+          <h3>冻结验收结果</h3>
+          <p v-if="!tests.results.length" class="error-text">缺少验收用例，发布被阻断。</p>
+          <article v-for="test in tests.results" :key="test.caseId" class="record">
+            <b>{{ test.name }} · {{ test.passed ? '通过' : '失败' }}</b>
+            <p>{{ test.message }}</p>
+            <span class="identity">{{ test.executionId }}</span>
+          </article>
+        </section>
+        <details open>
+          <summary>冻结内容差异</summary>
+          <AsyncState :loading="diff.loading.value" :error="diff.error.value" @retry="loadDiff">
+            <ProjectionDiff v-if="diff.data.value" :diff="diff.data.value" />
+          </AsyncState>
+        </details>
+        <template v-if="owner">
+          <label>
+            复核 / 取消 / 豁免理由
+            <textarea
+              v-model="reason"
+              data-testid="publication-reason"
+              rows="3"
+              :disabled="mutation.pending.value"
+            />
+          </label>
+          <label class="check-label">
+            <input v-model="reviewed" type="checkbox" :disabled="!actionable" />
+            我已核对冻结差异与全部机器门禁证据
+          </label>
+          <div class="row">
+            <el-button
+              :disabled="
+                !actionable || !machinePassed || !reviewed || !reason.trim() || !diff.data.value
+              "
+              @click="action('review')"
+            >
+              确认人工复核
+            </el-button>
+            <el-button
+              v-if="canWaiveConsistency(publication)"
+              type="warning"
+              :disabled="!actionable || !reason.trim()"
+              @click="action('waivers')"
+            >
+              确认超范围豁免
+            </el-button>
+            <el-button
+              type="danger"
+              :disabled="!actionable || !reason.trim()"
+              @click="action('cancel')"
+            >
+              取消此候选
+            </el-button>
+          </div>
+        </template>
+        <p v-for="waiver in publication.waivers" :key="waiver.createdAt" class="readonly-note">
+          一致性豁免：{{ waiver.reason }} · {{ waiver.actorId }} · {{ waiver.createdAt }}
+        </p>
+        <p v-if="publication.review" class="muted">
+          复核：{{ publication.review.actorId }} · {{ publication.review.reason }} ·
+          {{ publication.review.reviewedAt }}
+        </p>
+        <ArtifactList :artifacts="publication.artifacts" />
+        <p class="notice">
+          先准备并核验全部制品，达到 READY_TO_COMMIT
+          后再提交。制品失败可重试准备；服务端提交时仍会复核摘要、权限、修订和五门禁。
+        </p>
+        <div v-if="owner" class="row">
+          <el-button
+            :disabled="!prepareAllowed"
+            :loading="mutation.pending.value"
+            @click="action('prepare')"
+          >
+            准备发布制品
+          </el-button>
+          <el-button type="primary" :disabled="!commitAllowed" @click="action('commit')">
+            提交正式发布
+          </el-button>
+        </div>
+      </template>
+    </AsyncState>
+  </section>
+</template>
+
+
+## web/apps/onto-admin/src/features/p4\publication.ts
+import type { GateKind, Publication } from '../../../../../packages/api-client/src/release'
+
+export const gateLabels: Record<GateKind, string> = {
+  CONFLICT: '冲突',
+  CONSISTENCY: '一致性',
+  CONTRACT: '操作契约',
+  TEST: '验收测试',
+  REVIEW: '人工复核',
+}
+export const gateKinds = Object.keys(gateLabels) as GateKind[]
+/** 豁免只能覆盖真实超子集的一致性结论，不能覆盖守卫、超时或执行失败。 */
+export function canWaiveConsistency(value: Publication) {
+  return value.checks.some(
+    (check) =>
+      check.kind === 'CONSISTENCY' &&
+      check.candidateSha256 === value.candidateSha256 &&
+      check.conclusion === 'NOT_CHECKED' &&
+      check.reason === 'SUBSET_EXCEEDED',
+  )
+}
+export function gatePassed(value: Publication, kind: GateKind) {
+  const check = value.checks.find(
+    (item) => item.kind === kind && item.candidateSha256 === value.candidateSha256,
+  )
+  return (
+    check?.conclusion === 'PASSED' ||
+    (kind === 'CONSISTENCY' &&
+      canWaiveConsistency(value) &&
+      value.waivers.some((item) => item.candidateSha256 === value.candidateSha256))
+  )
+}
+export function allArtifactsReady(value: Publication) {
+  return (['BUNDLE', 'MANIFEST', 'CONTEXT_PACK', 'KNOWLEDGE_INDEX'] as const).every((kind) =>
+    value.artifacts.some(
+      (item) =>
+        item.kind === kind &&
+        item.ready &&
+        !!item.sha256 &&
+        item.size !== null &&
+        item.size >= 0 &&
+        (kind !== 'BUNDLE' || item.sha256 === value.candidateSha256),
+    ),
+  )
+}
+
+
+## web/apps/onto-admin/src/features/p4\ProjectionDiff.vue
+<script setup lang="ts">
+import type { ReleaseDiff } from '../../../../../packages/api-client/src/release'
+defineProps<{ diff: ReleaseDiff }>()
+const sections = [
+  { key: 'added', label: '新增' },
+  { key: 'removed', label: '移除' },
+  { key: 'changed', label: '变更' },
+] as const
+</script>
+<template>
+  <div class="stack">
+    <section v-for="section in sections" :key="section.key">
+      <h3>{{ section.label }} · {{ diff[section.key].length }}</h3>
+      <p v-if="!diff[section.key].length" class="muted">无{{ section.label }}实体</p>
+      <details v-for="item in diff[section.key]" :key="`${item.kind}:${item.key}`" class="record">
+        <summary>{{ item.kind }} · {{ item.key }}</summary>
+        <div class="form-columns">
+          <div v-if="item.before !== undefined">
+            <h4>原内容</h4>
+            <pre>{{ JSON.stringify(item.before, null, 2) }}</pre>
+          </div>
+          <div v-if="item.after !== undefined">
+            <h4>新内容</h4>
+            <pre>{{ JSON.stringify(item.after, null, 2) }}</pre>
+          </div>
+        </div>
+      </details>
+    </section>
+  </div>
+</template>
+
+
+## web/apps/onto-admin/src/features/p4\parameters.ts
+export interface ParameterRow {
+  name: string
+  type: 'string' | 'number' | 'boolean' | 'json'
+  value: string
+}
+/** 业务参数逐字段维护，只有嵌套值才使用单字段 JSON；不混入身份或可信属性。 */
+export function parameterObject(rows: ParameterRow[]): Record<string, unknown> {
+  const result: Record<string, unknown> = {}
+  for (const row of rows) {
+    const name = row.name.trim()
+    if (
+      !name ||
+      Object.hasOwn(result, name) ||
+      ['__proto__', 'prototype', 'constructor'].includes(name)
+    )
+      throw new Error('参数名称不能为空、重复或使用保留名称。')
+    if (row.type === 'number') {
+      if (!row.value.trim() || !Number.isFinite(Number(row.value)))
+        throw new Error(`${name} 必须为有效数值。`)
+      result[name] = Number(row.value)
+    } else if (row.type === 'boolean') {
+      if (!['true', 'false'].includes(row.value)) throw new Error(`${name} 请选择 true 或 false。`)
+      result[name] = row.value === 'true'
+    } else if (row.type === 'json') {
+      try {
+        result[name] = JSON.parse(row.value) as unknown
+      } catch {
+        throw new Error(`${name} 必须为有效 JSON 值。`)
+      }
+    } else result[name] = row.value
+  }
+  return result
+}
+export function parameterRows(object: Record<string, unknown> | null): ParameterRow[] {
+  return Object.entries(object ?? {}).map(([name, value]) => ({
+    name,
+    type:
+      typeof value === 'string'
+        ? 'string'
+        : typeof value === 'number'
+          ? 'number'
+          : typeof value === 'boolean'
+            ? 'boolean'
+            : 'json',
+    value: typeof value === 'string' ? value : JSON.stringify(value),
+  }))
+}
+
+
+## web/apps/onto-admin/src/features/p4\ParameterFields.vue
+<script setup lang="ts">
+import type { ParameterRow } from './parameters'
+const rows = defineModel<ParameterRow[]>({ required: true })
+defineProps<{ disabled?: boolean; addLabel?: string }>()
+function update(index: number, key: keyof ParameterRow, value: string) {
+  rows.value = rows.value.map((row, i) => (i === index ? { ...row, [key]: value } : row))
+}
+</script>
+<template>
+  <div class="stack">
+    <div v-for="(row, index) in rows" :key="index" class="record stack">
+      <div class="form-columns">
+        <label>
+          字段名称
+          <input
+            :value="row.name"
+            :data-testid="`parameter-name-${index}`"
+            :disabled="disabled"
+            @input="update(index, 'name', ($event.target as HTMLInputElement).value)"
+          />
+        </label>
+        <label>
+          值类型
+          <select
+            :value="row.type"
+            :data-testid="`parameter-type-${index}`"
+            :disabled="disabled"
+            @change="update(index, 'type', ($event.target as HTMLSelectElement).value)"
+          >
+            <option value="string">文本</option>
+            <option value="number">数值</option>
+            <option value="boolean">布尔值</option>
+            <option value="json">嵌套对象或数组（JSON）</option>
+          </select>
+        </label>
+      </div>
+      <label>
+        字段值
+        <select
+          v-if="row.type === 'boolean'"
+          :value="row.value"
+          :data-testid="`parameter-value-${index}`"
+          :disabled="disabled"
+          @change="update(index, 'value', ($event.target as HTMLSelectElement).value)"
+        >
+          <option value="">请选择</option>
+          <option value="true">true</option>
+          <option value="false">false</option>
+        </select>
+        <textarea
+          v-else-if="row.type === 'json'"
+          :value="row.value"
+          rows="3"
+          :data-testid="`parameter-value-${index}`"
+          :disabled="disabled"
+          @input="update(index, 'value', ($event.target as HTMLTextAreaElement).value)"
+        />
+        <input
+          v-else
+          :value="row.value"
+          :data-testid="`parameter-value-${index}`"
+          :disabled="disabled"
+          @input="update(index, 'value', ($event.target as HTMLInputElement).value)"
+        />
+      </label>
+      <div>
+        <el-button :disabled="disabled" @click="rows = rows.filter((_, i) => i !== index)">
+          移除此字段
+        </el-button>
+      </div>
+    </div>
+    <div>
+      <el-button
+        :disabled="disabled"
+        @click="rows = [...rows, { name: '', type: 'string', value: '' }]"
+      >
+        {{ addLabel ?? '添加字段' }}
+      </el-button>
+    </div>
+  </div>
+</template>
+
+
+## web/apps/onto-admin/src/features/p4\p4.css
+.p4-page {
+  min-width: 0;
+}
+.p4-page label {
+  display: grid;
+  gap: 8px;
+  color: var(--text);
+  font-size: 13px;
+}
+.p4-page input:not([type='checkbox']),
+.p4-page select,
+.p4-page textarea {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  padding: 9px 12px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+.p4-page input:disabled,
+.p4-page select:disabled,
+.p4-page textarea:disabled {
+  background: var(--canvas);
+}
+.p4-page textarea {
+  resize: vertical;
+}
+.p4-page .check-label {
+  display: flex;
+  align-items: flex-start;
+}
+.p4-page pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 0;
+  padding: 12px;
+  background: var(--canvas);
+  font:
+    12px/1.7 Consolas,
+    monospace;
+}
+.p4-page summary {
+  cursor: pointer;
+  padding: 8px 0;
+  font-size: 13px;
+}
+.p4-page .record {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.p4-page .record p:last-child {
+  margin-bottom: 0;
+}
+.p4-page .selector {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+.p4-page .selector[aria-pressed='true'] {
+  border-color: var(--primary);
+  box-shadow: inset 3px 0 var(--primary);
+  background: #f1f6ff;
+}
+.p4-page .split {
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.p4-page .gates {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+.p4-page .gate {
+  border-top: 3px solid var(--line);
+}
+.p4-page .gate[data-passed='true'] {
+  border-top-color: #15803d;
+}
+.p4-page .muted {
+  overflow-wrap: anywhere;
+}
+.p4-page .identity {
+  overflow-wrap: anywhere;
+  font:
+    12px/1.7 Consolas,
+    monospace;
+  color: var(--muted);
+}
+.p4-page .notice {
+  padding: 12px;
+  border-left: 3px solid var(--primary);
+  background: #eef4ff;
+  font-size: 13px;
+}
+@media (max-width: 850px) {
+  .p4-page .split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 450px) {
+  .p4-page .gates {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .p4-page .el-button {
+    white-space: normal;
+    height: auto;
+    min-height: 32px;
+  }
+}
+
+
+## web/apps/onto-admin/src/features/p4\flows.test.ts
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
+import type { Component } from 'vue'
+import ElementPlus from 'element-plus'
+import { createPinia, setActivePinia } from 'pinia'
+import { ApiError, type Space } from '@onto/api-client'
+import { useSession } from '../../stores/session'
+import { useWorkspace } from '../../stores/workspace'
+
+const modules = import.meta.glob<{ default: Component }>('./*.vue')
+const wrappers: VueWrapper[] = []
+const candidate = { id: 'c', sha256: 'sha-c', draftRev: 5, status: 'REVIEWING' }
+const kinds = ['CONFLICT', 'CONSISTENCY', 'CONTRACT', 'TEST', 'REVIEW']
+const publication = {
+  candidateId: 'c',
+  candidateSha256: 'sha-c',
+  draftRev: 5,
+  status: 'REVIEWING',
+  preReleaseId: 'r',
+  preVersionNo: 1,
+  waivers: [],
+  releaseId: null,
+  review: { actorId: 'owner', reason: '已复核', reviewedAt: '2026-10-20T00:00:00Z' },
+  checks: kinds.map((kind) => ({
+    kind,
+    conclusion: 'PASSED',
+    reason: '',
+    candidateSha256: 'sha-c',
+    checkedAt: null,
+    report: {},
+  })),
+  artifacts: ['BUNDLE', 'MANIFEST', 'CONTEXT_PACK', 'KNOWLEDGE_INDEX'].map((kind) => ({
+    kind,
+    sha256: kind === 'BUNDLE' ? 'sha-c' : 'sha',
+    size: 10,
+    ready: true,
+  })),
+}
+const release = {
+  id: 'r',
+  spaceId: 's',
+  versionNo: 1,
+  candidateId: 'c',
+  status: 'READY',
+  bundleSha256: 'sha-c',
+  manifestSha256: 'sha-m',
+  publishedAt: '',
+  publishedBy: 'owner',
+}
+const space = {
+  id: 's',
+  code: 'demo',
+  name: '测试空间',
+  role: 'OWNER',
+  status: 'ACTIVE',
+  draftRev: 5,
+} as Space
+function button(wrapper: VueWrapper, text: string) {
+  const found = wrapper.findAll('button').find((item) => item.text() === text)
+  expect(found, text).toBeDefined()
+  return found!
+}
+async function page(name: string, props: Record<string, unknown> = {}) {
+  expect(modules[`./${name}.vue`], `${name} 应提供独立业务组件`).toBeDefined()
+  const component = (await modules[`./${name}.vue`]()).default
+  const wrapper = mount(component, {
+    props,
+    global: { plugins: [ElementPlus], stubs: { teleport: true } },
+  })
+  wrappers.push(wrapper)
+  await flushPromises()
+  return wrapper
+}
+beforeEach(() => {
+  setActivePinia(createPinia())
+  useWorkspace().space = { ...space }
+  vi.spyOn(useSession().api, 'get').mockImplementation(async <T>(path: string): Promise<T> => {
+    if (path === '/candidates/c/publication') return structuredClone(publication) as T
+    if (path === '/candidates/c/diff') return { added: [], removed: [], changed: [] } as T
+    if (path === '/spaces/s/grant-users')
+      return [{ userId: 'u', username: 'user', displayName: '用户' }] as T
+    if (path === '/api-credentials?spaceId=s') return [] as T
+    if (path === '/spaces/s') return { ...space } as T
+    throw new Error(`未知读取：${path}`)
+  })
+})
+afterEach(() => {
+  wrappers.splice(0).forEach((wrapper) => wrapper.unmount())
+  vi.restoreAllMocks()
+})
+
+describe('P4 发布与消费关键交互', () => {
+  it('五门禁通过仍须 prepare；未 READY 时不能 commit', async () => {
+    const post = vi
+      .spyOn(useSession().api, 'post')
+      .mockResolvedValue({ ...publication, status: 'READY_TO_COMMIT' })
+    const wrapper = await page('PublicationPanel', { candidate })
+    expect(button(wrapper, '提交正式发布').attributes('disabled')).toBeDefined()
+    await button(wrapper, '准备发布制品').trigger('click')
+    await flushPromises()
+    expect(post).toHaveBeenCalledWith('/candidates/c/prepare', {
+      expectedDraftRev: 5,
+      candidateSha256: 'sha-c',
+    })
+    expect(post).toHaveBeenCalledTimes(1)
+    expect(button(wrapper, '提交正式发布').attributes('disabled')).toBeUndefined()
+  })
+  it('守卫错误没有豁免入口，状态字符串不能代替五门禁', async () => {
+    vi.mocked(useSession().api.get).mockResolvedValueOnce({
+      ...publication,
+      status: 'READY_TO_COMMIT',
+      checks: publication.checks.map((check) =>
+        check.kind === 'CONTRACT'
+          ? { ...check, conclusion: 'FAILED', reason: 'MISSING_GUARD' }
+          : check,
+      ),
+    })
+    const wrapper = await page('PublicationPanel', { candidate })
+    expect(button(wrapper, '准备发布制品').attributes('disabled')).toBeDefined()
+    expect(button(wrapper, '提交正式发布').attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).not.toContain('确认超范围豁免')
+  })
+  it('409 保留理由并锁定原候选修订，不借新修订重试', async () => {
+    const post = vi
+      .spyOn(useSession().api, 'post')
+      .mockRejectedValue(new ApiError('DRAFT_REV_CONFLICT', '草稿已变化', 409))
+    const wrapper = await page('PublicationPanel', { candidate })
+    await wrapper.get('[data-testid="publication-reason"]').setValue('确认冻结内容')
+    await button(wrapper, '准备发布制品').trigger('click')
+    await flushPromises()
+    useWorkspace().space = { ...space, draftRev: 6 }
+    await flushPromises()
+    expect(
+      (wrapper.get('[data-testid="publication-reason"]').element as HTMLTextAreaElement).value,
+    ).toBe('确认冻结内容')
+    expect(button(wrapper, '准备发布制品').attributes('disabled')).toBeDefined()
+    expect(post).toHaveBeenCalledTimes(1)
+  })
+  it('旧候选提示重新冻结且不能发布', async () => {
+    vi.mocked(useSession().api.get).mockResolvedValueOnce({
+      ...publication,
+      preReleaseId: null,
+      preVersionNo: null,
+    })
+    const wrapper = await page('PublicationPanel', { candidate })
+    expect(wrapper.text()).toContain('重新冻结')
+    expect(button(wrapper, '准备发布制品').attributes('disabled')).toBeDefined()
+  })
+  it('恢复要求明确覆盖确认，且恢复请求绑定打开时修订', async () => {
+    const post = vi.spyOn(useSession().api, 'post').mockResolvedValue({ ...space, draftRev: 6 })
+    const wrapper = await page('RestoreDraftPanel', { release })
+    await wrapper.get('[data-testid="restore-reason"]').setValue('恢复到稳定版本')
+    expect(button(wrapper, '确认覆盖并恢复草稿').attributes('disabled')).toBeDefined()
+    await wrapper.get('[data-testid="restore-confirm"]').setValue(true)
+    await button(wrapper, '确认覆盖并恢复草稿').trigger('click')
+    await flushPromises()
+    expect(post).toHaveBeenCalledWith('/releases/r/restore-draft', {
+      expectedDraftRev: 5,
+      reason: '恢复到稳定版本',
+    })
+    expect(post).toHaveBeenCalledTimes(1)
+  })
+  it('API key 仅创建响应显示，关闭后清除明文', async () => {
+    vi.spyOn(useSession().api, 'post').mockResolvedValue({
+      credential: {
+        id: 'k',
+        spaceId: 's',
+        principalId: 'u',
+        name: '机器人',
+        status: 'ACTIVE',
+        createdAt: '',
+        expiresAt: null,
+      },
+      key: 'secret-once',
+    })
+    const wrapper = await page('CredentialsPanel')
+    await wrapper.get('[data-testid="credential-principal"]').setValue('u')
+    await wrapper.get('[data-testid="credential-name"]').setValue('机器人')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(wrapper.text()).toContain('secret-once')
+    await button(wrapper, '已保存，关闭明文').trigger('click')
+    expect(wrapper.text()).not.toContain('secret-once')
+    expect(localStorage.length).toBe(0)
+    expect(sessionStorage.length).toBe(0)
+  })
+  it('真实 trace 图只画响应节点与边，未知引用不生成虚构节点', async () => {
+    const wrapper = await page('TraceGraph', {
+      graph: {
+        nodes: [
+          { id: 'a', label: '请求真实 A', kind: 'REQUEST' },
+          { id: 'b', label: '证据真实 B', kind: 'EVIDENCE' },
+        ],
+        edges: [
+          { id: 'e', from: 'a', to: 'b', label: '查询' },
+          { id: 'broken', from: 'a', to: 'missing', label: '历史缺失' },
+        ],
+      },
+    })
+    expect(wrapper.findAll('svg [data-node-id]')).toHaveLength(2)
+    expect(wrapper.findAll('svg [data-edge-id]')).toHaveLength(1)
+    expect(wrapper.text()).toContain('历史缺失')
+    expect(wrapper.text()).not.toContain('missing节点')
+  })
+  it('DEAD 重放保留原 eventId，其他状态不给重放入口', async () => {
+    const event = {
+      id: 42,
+      releaseId: 'r',
+      spaceId: 's',
+      type: 'RELEASED',
+      boundStatus: 'READY',
+      releaseStatus: 'DEPRECATED',
+      status: 'DEAD',
+      retryCount: 5,
+      nextRetryAt: null,
+      lastError: '接收失败',
+      createdAt: '',
+    }
+    vi.mocked(useSession().api.get).mockImplementation(
+      async <T>(path: string): Promise<T> =>
+        (path === '/events?spaceId=s' ? [event, { ...event, id: 43, status: 'SENT' }] : []) as T,
+    )
+    const post = vi
+      .spyOn(useSession().api, 'post')
+      .mockResolvedValue({ ...event, status: 'PENDING' })
+    const wrapper = await page('EventsView')
+    expect(wrapper.findAll('button').filter((item) => item.text() === '重放此事件')).toHaveLength(1)
+    expect(wrapper.text()).toContain('DEPRECATED')
+    await wrapper.get('[data-testid="replay-reason-42"]').setValue('接收端已恢复')
+    await button(wrapper, '重放此事件').trigger('click')
+    await flushPromises()
+    expect(post).toHaveBeenCalledWith('/events/42/replay', { reason: '接收端已恢复' })
+    expect(wrapper.text()).toContain('PENDING')
+  })
+  it('审计下一页追加且保留前页，使用服务端游标', async () => {
+    const item = {
+      id: 20,
+      spaceId: 's',
+      actorId: 'u',
+      action: 'RELEASE_COMMIT',
+      subjectId: 'r',
+      detail: {},
+      createdAt: '',
+    }
+    const get = vi
+      .mocked(useSession().api.get)
+      .mockResolvedValueOnce({ items: [item], nextBeforeId: 20 })
+      .mockResolvedValueOnce({
+        items: [{ ...item, id: 19, action: 'CANDIDATE_REVIEW' }],
+        nextBeforeId: null,
+      })
+    const wrapper = await page('AuditView')
+    await button(wrapper, '加载更早记录').trigger('click')
+    await flushPromises()
+    expect(get).toHaveBeenLastCalledWith('/audit?spaceId=s&limit=50&beforeId=20')
+    expect(wrapper.text()).toContain('RELEASE_COMMIT')
+    expect(wrapper.text()).toContain('CANDIDATE_REVIEW')
+  })
+  it('正式调用只提交业务参数，拒绝候选preview元数据作为发布证据', async () => {
+    const call = vi.spyOn(useSession().api, 'requestEnvelope').mockResolvedValue({
+      code: 'OK',
+      data: { count: 3 },
+      meta: {
+        spaceCode: 'demo',
+        releaseId: 'r',
+        version: 'v1',
+        contentDigest: 'sha-c',
+        preview: true,
+      },
+    })
+    const wrapper = await page('ServiceCallPanel', {
+      release,
+      endpoints: [
+        {
+          id: 'ep',
+          releaseId: 'r',
+          opCode: 'lookup',
+          route: '/onto/s/demo/ops/lookup?releaseId=r',
+          status: 'ACTIVE',
+          execAttrs: {},
+        },
+      ],
+    })
+    await wrapper.get('[data-testid="service-operation"]').setValue('lookup')
+    await button(wrapper, '添加业务参数').trigger('click')
+    await wrapper.get('[data-testid="parameter-name-0"]').setValue('limit')
+    await wrapper.get('[data-testid="parameter-type-0"]').setValue('number')
+    await wrapper.get('[data-testid="parameter-value-0"]').setValue('3')
+    await button(wrapper, '调用正式服务').trigger('click')
+    await flushPromises()
+    expect(call).toHaveBeenCalledWith('/internal/releases/r/ops/lookup', 'POST', { limit: 3 })
+    expect(wrapper.text()).toContain('正式版本证据')
+    expect(wrapper.find('[data-testid="service-result"]').exists()).toBe(false)
+  })
+  it('真实零验收用例阻断准备，不将空集合当通过', async () => {
+    vi.spyOn(useSession().api, 'post').mockResolvedValue({
+      candidateSha256: 'sha-c',
+      passed: true,
+      results: [],
+    })
+    const wrapper = await page('PublicationPanel', { candidate })
+    await button(wrapper, '运行冻结验收用例').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('缺少验收用例')
+    expect(button(wrapper, '准备发布制品').attributes('disabled')).toBeDefined()
+  })
+  it('没有授权记录不会显示为不限范围，选择null只写端点授权', async () => {
+    vi.mocked(useSession().api.get).mockImplementation(
+      async <T>(path: string): Promise<T> =>
+        (path.endsWith('grant-users')
+          ? [{ userId: 'u', username: 'user', displayName: '用户' }]
+          : []) as T,
+    )
+    const put = vi.spyOn(useSession().api, 'put').mockResolvedValue({
+      userId: 'u',
+      username: 'user',
+      displayName: '用户',
+      dataScope: null,
+      expiresAt: null,
+      status: 'ACTIVE',
+    })
+    const wrapper = await page('EndpointGrantsPanel', {
+      endpoint: {
+        id: 'ep',
+        releaseId: 'r',
+        opCode: 'lookup',
+        route: '',
+        status: 'ACTIVE',
+        execAttrs: {},
+      },
+    })
+    await wrapper.get('[data-testid="endpoint-user"]').setValue('u')
+    expect(wrapper.text()).toContain('缺少记录：拒绝消费')
+    expect(wrapper.text()).toContain('缺少空间授权：拒绝消费')
+    await wrapper.get('[data-testid="endpoint-scope"]').setValue('unlimited')
+    await button(wrapper, '保存端点授权').trigger('click')
+    await flushPromises()
+    expect(put).toHaveBeenCalledWith('/endpoints/ep/grants/u', {
+      dataScope: null,
+      expiresAt: null,
+      status: 'ACTIVE',
+    })
+    expect(wrapper.text()).toContain('缺少空间授权：拒绝消费')
+  })
+  it('一次性密钥迟到响应在切空间后不展示', async () => {
+    let resolve!: (value: unknown) => void
+    vi.spyOn(useSession().api, 'post').mockImplementation(
+      () =>
+        new Promise((done) => {
+          resolve = done
+        }),
+    )
+    const wrapper = await page('CredentialsPanel')
+    await wrapper.get('[data-testid="credential-principal"]').setValue('u')
+    await wrapper.get('[data-testid="credential-name"]').setValue('机器人')
+    await wrapper.get('form').trigger('submit')
+    useWorkspace().space = { ...space, id: 'another' }
+    resolve({ credential: { id: 'k', name: '机器人' }, key: 'late-secret' })
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('late-secret')
+  })
+  it('准备失败保留原门禁和理由，可在同一修订重试且不会自行READY', async () => {
+    vi.spyOn(useSession().api, 'post').mockRejectedValue(
+      new ApiError('ARTIFACT_UNAVAILABLE', '对象存储暂不可达', 503),
+    )
+    const wrapper = await page('PublicationPanel', { candidate })
+    await wrapper.get('[data-testid="publication-reason"]').setValue('审查通过')
+    await button(wrapper, '准备发布制品').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('对象存储暂不可达')
+    expect(button(wrapper, '准备发布制品').attributes('disabled')).toBeUndefined()
+    expect(button(wrapper, '提交正式发布').attributes('disabled')).toBeDefined()
+    expect(
+      (wrapper.get('[data-testid="publication-reason"]').element as HTMLTextAreaElement).value,
+    ).toBe('审查通过')
+  })
+  it('正式成功只显示返回data与真实meta，不注入额外版本证据', async () => {
+    vi.spyOn(useSession().api, 'requestEnvelope').mockResolvedValue({
+      code: 'OK',
+      data: { count: 3 },
+      meta: {
+        spaceCode: 'demo',
+        releaseId: 'r',
+        version: 'v1',
+        contentDigest: 'sha-c',
+        preview: false,
+      },
+    })
+    const wrapper = await page('ServiceCallPanel', {
+      release,
+      endpoints: [
+        {
+          id: 'ep',
+          releaseId: 'r',
+          opCode: 'lookup',
+          route: '/onto/s/demo/ops/lookup?releaseId=r',
+          status: 'ACTIVE',
+          execAttrs: {},
+        },
+      ],
+    })
+    await wrapper.get('[data-testid="service-operation"]').setValue('lookup')
+    await button(wrapper, '调用正式服务').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="service-result"]').text()).toContain('"preview": false')
+    expect(wrapper.get('[data-testid="service-result"]').text()).toContain('"count": 3')
+  })
+  it('正式调用支持Schema允许的数组根，非法JSON错误不回显原输入', async () => {
+    const call = vi
+      .spyOn(useSession().api, 'requestEnvelope')
+      .mockRejectedValue(new ApiError('SCHEMA_ERROR', '输入不匹配', 400))
+    const wrapper = await page('ServiceCallPanel', {
+      release,
+      endpoints: [
+        { id: 'ep', releaseId: 'r', opCode: 'lookup', route: '', status: 'ACTIVE', execAttrs: {} },
+      ],
+    })
+    await wrapper.get('[data-testid="service-operation"]').setValue('lookup')
+    await wrapper.get('[data-testid="service-input-mode"]').setValue('json')
+    await wrapper.get('[data-testid="service-json-input"]').setValue('[1, "设备"]')
+    await button(wrapper, '调用正式服务').trigger('click')
+    await flushPromises()
+    expect(call).toHaveBeenCalledWith('/internal/releases/r/ops/lookup', 'POST', [1, '设备'])
+    await wrapper.get('[data-testid="service-json-input"]').setValue('{"sensitive": secret-invalid')
+    await button(wrapper, '调用正式服务').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).not.toContain('secret-invalid')
+    expect(call).toHaveBeenCalledTimes(1)
+  })
+  it('制品缺失或bundle摘要错配时，即使READY仍禁用提交', async () => {
+    vi.mocked(useSession().api.get).mockResolvedValueOnce({
+      ...publication,
+      status: 'READY_TO_COMMIT',
+      artifacts: publication.artifacts.map((item) =>
+        item.kind === 'BUNDLE' ? { ...item, sha256: 'other' } : item,
+      ),
+    })
+    const wrapper = await page('PublicationPanel', { candidate })
+    expect(button(wrapper, '提交正式发布').attributes('disabled')).toBeDefined()
+  })
+  it('恢复面板409后保持理由，空间刷新也不能重用旧确认', async () => {
+    const post = vi
+      .spyOn(useSession().api, 'post')
+      .mockRejectedValue(new ApiError('DRAFT_REV_CONFLICT', '修订冲突', 409))
+    const wrapper = await page('RestoreDraftPanel', { release })
+    await wrapper.get('[data-testid="restore-reason"]').setValue('恢复原因保留')
+    await wrapper.get('[data-testid="restore-confirm"]').setValue(true)
+    await button(wrapper, '确认覆盖并恢复草稿').trigger('click')
+    await flushPromises()
+    useWorkspace().refreshed({ ...space, draftRev: 9 })
+    await flushPromises()
+    expect(button(wrapper, '确认覆盖并恢复草稿').attributes('disabled')).toBeDefined()
+    expect(
+      (wrapper.get('[data-testid="restore-reason"]').element as HTMLTextAreaElement).value,
+    ).toBe('恢复原因保留')
+    expect(post).toHaveBeenCalledTimes(1)
+  })
+  it('审计刷新失败保留旧页，并重试同一次刷新而非错误翻页', async () => {
+    const item = {
+      id: 20,
+      spaceId: 's',
+      actorId: 'u',
+      action: 'OLD',
+      subjectId: 'r',
+      detail: {},
+      createdAt: '',
+    }
+    const get = vi
+      .mocked(useSession().api.get)
+      .mockResolvedValueOnce({ items: [item], nextBeforeId: null })
+      .mockRejectedValueOnce(new ApiError('NETWORK_ERROR', '读取失败', 0))
+      .mockResolvedValueOnce({ items: [{ ...item, id: 21, action: 'NEW' }], nextBeforeId: null })
+    const wrapper = await page('AuditView')
+    await button(wrapper, '刷新审计').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('OLD')
+    await button(wrapper, '重试读取').trigger('click')
+    await flushPromises()
+    expect(get).toHaveBeenCalledTimes(3)
+    expect(get).toHaveBeenLastCalledWith('/audit?spaceId=s&limit=50')
+    expect(wrapper.text()).toContain('NEW')
+  })
+})
+
+
+## web/apps/onto-admin/src/features/p4\ExecutionTracePanel.vue
+<script setup lang="ts">
+/** 读取持久 trace，不从当前模型推导历史证据；缺失历史事实明确展示为空。 */
+import { watch } from 'vue'
+import type { ExecutionTrace } from '../../../../../packages/api-client/src/release'
+import { useSession } from '../../stores/session'
+import { useResource } from '../../composables/useResource'
+import AsyncState from '@onto/shared-ui/AsyncState.vue'
+import TraceGraph from './TraceGraph.vue'
+import './p4.css'
+const props = defineProps<{ executionId: string }>(),
+  api = useSession().api
+const state = useResource<ExecutionTrace | null>(null)
+function load() {
+  const id = props.executionId
+  if (!id) return
+  return state.load(async () => {
+    const value = await api.get<ExecutionTrace>(`/executions/${id}/trace`)
+    if (value.execution.id !== id) throw new Error('追溯响应执行标识不符，请重新读取。')
+    return value
+  })
+}
+watch(
+  () => props.executionId,
+  () => {
+    state.reset()
+    void load()
+  },
+  { immediate: true },
+)
+</script>
+<template>
+  <section class="p4-page panel stack">
+    <div class="row spread">
+      <h2>执行追溯</h2>
+      <el-button :disabled="state.loading.value" @click="load">刷新追溯</el-button>
+    </div>
+    <AsyncState :loading="state.loading.value" :error="state.error.value" @retry="load">
+      <template v-if="state.data.value">
+        <dl class="details-grid">
+          <dt>执行标识</dt>
+          <dd>{{ state.data.value.execution.id }}</dd>
+          <dt>执行对象类型</dt>
+          <dd>{{ state.data.value.execution.subjectType }}</dd>
+          <dt>执行对象</dt>
+          <dd>{{ state.data.value.execution.subjectId ?? '未记录' }}</dd>
+          <dt>调用入口</dt>
+          <dd>{{ state.data.value.execution.caller ?? '历史记录未保存' }}</dd>
+          <dt>结果</dt>
+          <dd>
+            {{ state.data.value.execution.status }} ·
+            {{ state.data.value.execution.errorCode ?? '无错误码' }}
+          </dd>
+          <dt>冻结摘要</dt>
+          <dd class="mono">{{ state.data.value.execution.candidateSha256 }}</dd>
+        </dl>
+        <TraceGraph :graph="state.data.value.graph" />
+        <section class="stack">
+          <h3>授权检查</h3>
+          <p v-if="!state.data.value.authorization.length" class="muted">
+            此历史记录未保存授权步骤。
+          </p>
+          <article v-for="item in state.data.value.authorization" :key="item.order" class="record">
+            <b>
+              {{ item.order }} · {{ item.kind }} ·
+              {{ item.passed === null ? '未记录' : item.passed ? '通过' : '拒绝' }}
+            </b>
+            <pre>{{
+              typeof item.detail === 'string' ? item.detail : JSON.stringify(item.detail, null, 2)
+            }}</pre>
+          </article>
+        </section>
+        <section class="stack">
+          <h3>事实时间线</h3>
+          <p v-if="!state.data.value.timeline.length" class="muted">此记录没有时间线事实。</p>
+          <ol class="timeline">
+            <li v-for="item in state.data.value.timeline" :key="item.id">
+              <time>{{ item.at ?? '时间未记录' }}</time>
+              <b>{{ item.title }} · {{ item.kind }}</b>
+              <details>
+                <summary>详情</summary>
+                <pre>{{
+                  typeof item.detail === 'string'
+                    ? item.detail
+                    : JSON.stringify(item.detail, null, 2)
+                }}</pre>
+              </details>
+            </li>
+          </ol>
+        </section>
+        <section class="stack">
+          <h3>执行步骤</h3>
+          <article v-for="(step, index) in state.data.value.steps" :key="index" class="record">
+            <b>{{ step.kind }} · {{ step.status }}</b>
+            <p>{{ step.detail }}</p>
+          </article>
+        </section>
+        <section class="stack">
+          <h3>证据目录</h3>
+          <p v-if="!state.data.value.evidence.length" class="muted">此记录未保存证据条目。</p>
+          <details v-for="evidence in state.data.value.evidence" :key="evidence.id" class="record">
+            <summary>{{ evidence.type }} · {{ evidence.ref ?? '引用未记录' }}</summary>
+            <p class="identity">SHA-256 {{ evidence.sha256 ?? '未记录' }}</p>
+            <pre>{{ JSON.stringify(evidence.detail, null, 2) }}</pre>
+          </details>
+        </section>
+        <details>
+          <summary>持久业务结果</summary>
+          <pre>{{ JSON.stringify(state.data.value.execution.rows, null, 2) }}</pre>
+        </details>
+      </template>
+    </AsyncState>
+  </section>
+</template>
+<style scoped>
+.timeline {
+  margin: 0;
+  padding-left: 22px;
+}
+.timeline li {
+  padding: 0 0 18px 12px;
+  border-left: 2px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.timeline time {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+</style>
+
+
+## web/apps/onto-admin/src/features/p4\EventsView.vue
+<script setup lang="ts">
+/** 事件绑定状态与版本当前状态分开展示；重放只提交原事件 id。 */
+import { computed, reactive, watch } from 'vue'
+import type { ReleaseEvent, EventReceipt } from '../../../../../packages/api-client/src/release'
+import { useWorkspace } from '../../stores/workspace'
+import { useSession } from '../../stores/session'
+import { useResource } from '../../composables/useResource'
+import { useMutation } from '../../composables/useMutation'
+import AsyncState from '@onto/shared-ui/AsyncState.vue'
+import './p4.css'
+const workspace = useWorkspace(),
+  api = useSession().api,
+  mutation = useMutation()
+const state = useResource<{ events: ReleaseEvent[]; inbox: EventReceipt[] } | null>(null)
+const reasons = reactive<Record<number, string>>({})
+const owner = computed(() => workspace.space?.role === 'OWNER' && workspace.canWrite)
+function load() {
+  const id = workspace.space?.id
+  if (!id || mutation.pending.value) return
+  return state.load(async () => {
+    const [events, inbox] = await Promise.all([
+      api.get<ReleaseEvent[]>(`/events?spaceId=${id}`),
+      api.get<EventReceipt[]>(`/events/inbox?spaceId=${id}`),
+    ])
+    return { events, inbox }
+  })
+}
+watch(
+  () => workspace.space?.id,
+  () => {
+    state.reset()
+    Object.keys(reasons).forEach((key) => delete reasons[Number(key)])
+    void load()
+  },
+  { immediate: true },
+)
+async function replay(item: ReleaseEvent) {
+  if (!owner.value || item.status !== 'DEAD' || !reasons[item.id]?.trim()) return
+  await mutation.run(async ({ isCurrent }) => {
+    const result = await api.post<ReleaseEvent>(`/events/${item.id}/replay`, {
+      reason: reasons[item.id].trim(),
+    })
+    if (!isCurrent() || !state.data.value) return
+    if (result.id !== item.id) throw new Error('重放返回了不同事件标识，请刷新事件记录。')
+    state.data.value = {
+      ...state.data.value,
+      events: state.data.value.events.map((row) => (row.id === item.id ? result : row)),
+    }
+  })
+}
+</script>
+<template>
+  <div class="p4-page stack">
+    <div class="page-heading">
+      <div>
+        <h1>事件与收件箱</h1>
+        <p class="muted">跟踪发布通知的投递、重试与本地接收证据。</p>
+      </div>
+      <el-button :disabled="mutation.pending.value" @click="load">刷新事件</el-button>
+    </div>
+    <p class="notice">
+      事件记录当时的版本状态；版本之后可能已弃用或损坏。收到 RELEASED
+      历史通知不代表版本当前可消费。本地收件箱证据不代表外部智能体平台已上架。
+    </p>
+    <p v-if="mutation.error.value" class="error-text" role="alert">{{ mutation.error.value }}</p>
+    <AsyncState :loading="state.loading.value" :error="state.error.value" @retry="load">
+      <template v-if="state.data.value">
+        <section class="panel stack">
+          <h2>投递队列</h2>
+          <p v-if="!state.data.value.events.length" class="muted">暂无发布事件。</p>
+          <article v-for="item in state.data.value.events" :key="item.id" class="record stack">
+            <div class="row spread">
+              <h3>#{{ item.id }} · {{ item.type }}</h3>
+              <el-tag
+                :type="
+                  item.status === 'DEAD' ? 'danger' : item.status === 'SENT' ? 'success' : 'warning'
+                "
+              >
+                {{ item.status }}
+              </el-tag>
+            </div>
+            <dl class="details-grid">
+              <dt>事件绑定状态</dt>
+              <dd>{{ item.boundStatus }}</dd>
+              <dt>版本当前状态</dt>
+              <dd>{{ item.releaseStatus }}</dd>
+              <dt>版本标识</dt>
+              <dd>{{ item.releaseId }}</dd>
+              <dt>重试次数</dt>
+              <dd>{{ item.retryCount }}</dd>
+              <dt>下次重试</dt>
+              <dd>{{ item.nextRetryAt ?? '未安排' }}</dd>
+              <dt>最近错误</dt>
+              <dd>{{ item.lastError ?? '无' }}</dd>
+            </dl>
+            <template v-if="owner && item.status === 'DEAD'">
+              <label>
+                人工重放理由
+                <textarea
+                  v-model="reasons[item.id]"
+                  :data-testid="`replay-reason-${item.id}`"
+                  rows="2"
+                  :disabled="mutation.pending.value"
+                />
+              </label>
+              <div>
+                <el-button
+                  :disabled="mutation.pending.value || !reasons[item.id]?.trim()"
+                  @click="replay(item)"
+                >
+                  重放此事件
+                </el-button>
+              </div>
+              <p class="muted">保留 eventId {{ item.id }} 及重试历史，接收方按此 id 去重。</p>
+            </template>
+          </article>
+        </section>
+        <section class="panel stack">
+          <h2>本地收件箱</h2>
+          <p v-if="!state.data.value.inbox.length" class="muted">
+            尚无接收确认。日志输出不会作为已投递证据。
+          </p>
+          <article v-for="item in state.data.value.inbox" :key="item.eventId" class="record">
+            <b>eventId {{ item.eventId }} · {{ item.type }}</b>
+            <p class="muted">{{ item.receivedAt }} · {{ item.releaseId }}</p>
+            <details>
+              <summary>接收凭据</summary>
+              <pre>{{ JSON.stringify(item.receipt, null, 2) }}</pre>
+            </details>
+          </article>
+        </section>
+      </template>
+    </AsyncState>
+  </div>
+</template>
+
+
+## web/apps/onto-admin/src/features/p4\EndpointGrantsPanel.vue
+<script setup lang="ts">
+/** 端点授权和空间授权是独立事实；不存在记录必须显示拒绝，不等价于 NULL 范围。 */
+import { computed, ref, watch } from 'vue'
+import type { GrantUser, SpaceGrant } from '@onto/api-client'
+import type { Endpoint, EndpointGrant } from '../../../../../packages/api-client/src/release'
+import { useWorkspace } from '../../stores/workspace'
+import { useSession } from '../../stores/session'
+import { useResource } from '../../composables/useResource'
+import { useMutation } from '../../composables/useMutation'
+import AsyncState from '@onto/shared-ui/AsyncState.vue'
+import ParameterFields from './ParameterFields.vue'
+import { parameterObject, parameterRows, type ParameterRow } from './parameters'
+const props = defineProps<{ endpoint: Endpoint }>()
+const workspace = useWorkspace(),
+  api = useSession().api,
+  mutation = useMutation()
+const state = useResource<{
+  grants: EndpointGrant[]
+  users: GrantUser[]
+  spaceGrants: SpaceGrant[]
+} | null>(null)
+const userId = ref(''),
+  scope = ref<'unlimited' | 'limited'>('limited'),
+  rows = ref<ParameterRow[]>([]),
+  status = ref<EndpointGrant['status']>('ACTIVE'),
+  expiresAt = ref('')
+const owner = computed(() => workspace.space?.role === 'OWNER' && workspace.canWrite)
+const selected = computed(() =>
+  state.data.value?.grants.find((item) => item.userId === userId.value),
+)
+const spaceGrant = computed(() =>
+  state.data.value?.spaceGrants.find((item) => item.userId === userId.value),
+)
+let generation = 0
+async function load() {
+  const id = workspace.space?.id,
+    endpointId = props.endpoint.id
+  if (!id || !owner.value || mutation.pending.value) return
+  await state.load(async () => {
+    const [grants, users, spaceGrants] = await Promise.all([
+      api.get<EndpointGrant[]>(`/endpoints/${endpointId}/grants`),
+      api.get<GrantUser[]>(`/spaces/${id}/grant-users`),
+      api.get<SpaceGrant[]>(`/spaces/${id}/grants`),
+    ])
+    return { grants, users, spaceGrants }
+  })
+}
+function select() {
+  const item = selected.value
+  scope.value = item?.dataScope === null ? 'unlimited' : 'limited'
+  rows.value = parameterRows(item?.dataScope ?? null)
+  status.value = item?.status ?? 'ACTIVE'
+  expiresAt.value = item?.expiresAt
+    ? new Date(
+        new Date(item.expiresAt).getTime() - new Date(item.expiresAt).getTimezoneOffset() * 60000,
+      )
+        .toISOString()
+        .slice(0, 16)
+    : ''
+}
+watch(userId, select)
+watch(
+  () => `${workspace.space?.id}:${props.endpoint.id}`,
+  () => {
+    generation++
+    state.reset()
+    userId.value = ''
+    select()
+    void load()
+  },
+  { immediate: true },
+)
+async function refresh() {
+  await load()
+  select()
+}
+async function save() {
+  if (!owner.value || !state.data.value?.users.some((user) => user.userId === userId.value)) return
+  const endpointId = props.endpoint.id,
+    principal = userId.value,
+    ticket = generation
+  await mutation.run(async ({ isCurrent }) => {
+    const value = await api.put<EndpointGrant>(`/endpoints/${endpointId}/grants/${principal}`, {
+      dataScope: scope.value === 'unlimited' ? null : parameterObject(rows.value),
+      expiresAt: expiresAt.value ? new Date(expiresAt.value).toISOString() : null,
+      status: status.value,
+    })
+    if (!isCurrent() || ticket !== generation || !state.data.value) return
+    state.data.value = {
+      ...state.data.value,
+      grants: [...state.data.value.grants.filter((item) => item.userId !== value.userId), value],
+    }
+  })
+}
+</script>
+<template>
+  <section class="p4-page panel stack">
+    <div class="row spread">
+      <h2>端点授权 · {{ endpoint.opCode }}</h2>
+      <el-button v-if="owner" :disabled="mutation.pending.value" @click="refresh">
+        刷新端点授权
+      </el-button>
+    </div>
+    <p class="muted">ACTIVE 端点表示服务启用，实际消费仍需通过六步授权。</p>
+    <p v-if="!owner" class="readonly-note">仅 OWNER 可管理端点授权。</p>
+    <AsyncState v-else :loading="state.loading.value" :error="state.error.value" @retry="refresh">
+      <div v-if="state.data.value" class="stack">
+        <article v-for="grant in state.data.value.grants" :key="grant.userId" class="record">
+          <div class="row spread">
+            <b>{{ grant.displayName }} · {{ grant.status }}</b>
+            <el-button :disabled="mutation.pending.value" @click="userId = grant.userId">
+              编辑端点授权
+            </el-button>
+          </div>
+          <p class="muted">
+            端点范围：{{
+              grant.dataScope === null ? '该已存在授权不限范围' : JSON.stringify(grant.dataScope)
+            }}
+            · 到期 {{ grant.expiresAt ?? '未设置' }}
+          </p>
+        </article>
+        <label>
+          本地用户
+          <select v-model="userId" data-testid="endpoint-user" :disabled="mutation.pending.value">
+            <option value="">请选择已有本地用户</option>
+            <option v-for="user in state.data.value.users" :key="user.userId" :value="user.userId">
+              {{ user.displayName }}（{{ user.username }}）
+            </option>
+          </select>
+        </label>
+        <template v-if="userId">
+          <div class="form-columns">
+            <div class="record">
+              <h3>端点授权记录</h3>
+              <p>{{ selected ? selected.status : '缺少记录：拒绝消费' }}</p>
+            </div>
+            <div class="record">
+              <h3>空间授权记录</h3>
+              <p>
+                {{
+                  spaceGrant
+                    ? `${spaceGrant.role} · ${spaceGrant.dataScope === null ? '已授权且范围不限' : JSON.stringify(spaceGrant.dataScope)}`
+                    : '缺少空间授权：拒绝消费'
+                }}
+              </p>
+            </div>
+          </div>
+          <div class="form-columns">
+            <label>
+              授权状态
+              <select v-model="status" :disabled="mutation.pending.value">
+                <option value="ACTIVE">ACTIVE</option>
+                <option value="REVOKED">REVOKED</option>
+              </select>
+            </label>
+            <label>
+              到期时间（可选）
+              <input v-model="expiresAt" type="datetime-local" :disabled="mutation.pending.value" />
+            </label>
+          </div>
+          <label>
+            端点数据范围
+            <select v-model="scope" data-testid="endpoint-scope" :disabled="mutation.pending.value">
+              <option value="limited">指定范围</option>
+              <option value="unlimited">此端点授权不额外收窄范围（null）</option>
+            </select>
+          </label>
+          <ParameterFields
+            v-if="scope === 'limited'"
+            v-model="rows"
+            :disabled="mutation.pending.value"
+            add-label="添加范围字段"
+          />
+          <p class="notice">
+            null
+            仅对已存在的有效端点授权表示范围不限。实际数据范围取策略、端点、空间范围和源白名单的交集；保存不会修改空间角色或冻结守卫。
+          </p>
+          <div>
+            <el-button type="primary" :loading="mutation.pending.value" @click="save">
+              保存端点授权
+            </el-button>
+          </div>
+        </template>
+      </div>
+    </AsyncState>
+    <p v-if="mutation.error.value" class="error-text" role="alert">{{ mutation.error.value }}</p>
+  </section>
+</template>
+
+
+## web/apps/onto-admin/src/features/p4\CredentialsPanel.vue
+<script setup lang="ts">
+/** 明文 key 只在创建成功的当前面板中存在；关闭、切空间或卸载即清空。 */
+import { computed, onScopeDispose, ref, watch } from 'vue'
+import type { GrantUser } from '@onto/api-client'
+import type { ApiCredential } from '../../../../../packages/api-client/src/release'
+import { useWorkspace } from '../../stores/workspace'
+import { useSession } from '../../stores/session'
+import { useResource } from '../../composables/useResource'
+import { useMutation, confirmAction } from '../../composables/useMutation'
+import AsyncState from '@onto/shared-ui/AsyncState.vue'
+import './p4.css'
+const workspace = useWorkspace(),
+  api = useSession().api,
+  mutation = useMutation()
+const state = useResource<{ users: GrantUser[]; credentials: ApiCredential[] } | null>(null)
+const principal = ref(''),
+  name = ref(''),
+  expiresAt = ref(''),
+  key = ref(''),
+  copied = ref(false)
+const owner = computed(() => workspace.space?.role === 'OWNER' && workspace.canWrite)
+function closeKey() {
+  key.value = ''
+  copied.value = false
+}
+onScopeDispose(closeKey)
+async function load() {
+  const id = workspace.space?.id
+  if (!id || !owner.value || mutation.pending.value) return
+  await state.load(async () => {
+    const [users, credentials] = await Promise.all([
+      api.get<GrantUser[]>(`/spaces/${id}/grant-users`),
+      api.get<ApiCredential[]>(`/api-credentials?spaceId=${id}`),
+    ])
+    return { users, credentials }
+  })
+}
+watch(
+  () => workspace.space?.id,
+  () => {
+    closeKey()
+    state.reset()
+    principal.value = ''
+    name.value = ''
+    void load()
+  },
+  { immediate: true },
+)
+watch(owner, (value) => {
+  if (!value) {
+    closeKey()
+    state.reset()
+  }
+})
+async function create() {
+  const id = workspace.space?.id
+  if (
+    !owner.value ||
+    !id ||
+    !name.value.trim() ||
+    key.value ||
+    !state.data.value?.users.some((user) => user.userId === principal.value)
+  )
+    return
+  await mutation.run(async ({ isCurrent }) => {
+    const value = await api.post<{ credential: ApiCredential; key: string }>('/api-credentials', {
+      spaceId: id,
+      principalId: principal.value,
+      name: name.value.trim(),
+      expiresAt: expiresAt.value ? new Date(expiresAt.value).toISOString() : null,
+    })
+    if (!isCurrent() || !owner.value) return
+    key.value = value.key
+    copied.value = false
+    if (state.data.value)
+      state.data.value = {
+        ...state.data.value,
+        credentials: [value.credential, ...state.data.value.credentials],
+      }
+  })
+}
+async function revoke(item: ApiCredential) {
+  const context = workspace.captureContext()
+  if (
+    !owner.value ||
+    !(await confirmAction(`撤销“${item.name}”的 API key？后续请求将被拒绝。`)) ||
+    !workspace.isCurrentContext(context)
+  )
+    return
+  await mutation.run(async ({ isCurrent }) => {
+    const value = await api.post<ApiCredential>(`/api-credentials/${item.id}/revoke`, {})
+    if (isCurrent() && state.data.value)
+      state.data.value = {
+        ...state.data.value,
+        credentials: state.data.value.credentials.map((row) => (row.id === value.id ? value : row)),
+      }
+  })
+}
+async function copy() {
+  try {
+    await navigator.clipboard.writeText(key.value)
+    copied.value = true
+  } catch {
+    mutation.error.value = '复制失败，请手动选择并保存当前明文。'
+  }
+}
+</script>
+<template>
+  <section class="p4-page panel stack">
+    <div class="row spread">
+      <h2>API key</h2>
+      <el-button v-if="owner" :disabled="mutation.pending.value || !!key" @click="load">
+        刷新凭据目录
+      </el-button>
+    </div>
+    <p class="muted">凭据映射到已有本地用户；消费时仍需有效的端点授权和空间读取授权。</p>
+    <p v-if="!owner" class="readonly-note">仅 OWNER 可管理消费凭据。</p>
+    <AsyncState v-else :loading="state.loading.value" :error="state.error.value" @retry="load">
+      <template v-if="state.data.value">
+        <article v-for="item in state.data.value.credentials" :key="item.id" class="record">
+          <div class="row spread">
+            <b>{{ item.name }} · {{ item.status }}</b>
+            <el-button
+              v-if="item.status === 'ACTIVE'"
+              type="danger"
+              :disabled="mutation.pending.value"
+              @click="revoke(item)"
+            >
+              撤销
+            </el-button>
+          </div>
+          <p class="muted">
+            本地主体 {{ item.principalId }} · 创建 {{ item.createdAt }} · 到期
+            {{ item.expiresAt ?? '未设置' }}
+          </p>
+        </article>
+        <p v-if="!state.data.value.credentials.length" class="muted">
+          尚无 API key。先确认本地用户已获得消费授权。
+        </p>
+        <form class="stack" @submit.prevent="create">
+          <div class="form-columns">
+            <label>
+              本地主体
+              <select
+                v-model="principal"
+                data-testid="credential-principal"
+                :disabled="mutation.pending.value || !!key"
+              >
+                <option value="">请选择已有用户</option>
+                <option
+                  v-for="user in state.data.value.users"
+                  :key="user.userId"
+                  :value="user.userId"
+                >
+                  {{ user.displayName }}（{{ user.username }}）
+                </option>
+              </select>
+            </label>
+            <label>
+              凭据名称
+              <input
+                v-model="name"
+                data-testid="credential-name"
+                maxlength="160"
+                :disabled="mutation.pending.value || !!key"
+              />
+            </label>
+          </div>
+          <label>
+            到期时间（可选）
+            <input
+              v-model="expiresAt"
+              type="datetime-local"
+              :disabled="mutation.pending.value || !!key"
+            />
+          </label>
+          <div>
+            <el-button
+              native-type="submit"
+              type="primary"
+              :disabled="!principal || !name.trim() || !!key"
+              :loading="mutation.pending.value"
+            >
+              创建 API key
+            </el-button>
+          </div>
+        </form>
+      </template>
+    </AsyncState>
+    <div v-if="key" class="record stack" role="status">
+      <b>仅本次展示，请现在保存</b>
+      <code>{{ key }}</code>
+      <div class="row">
+        <el-button @click="copy">{{ copied ? '已复制' : '复制密钥' }}</el-button>
+        <el-button @click="closeKey">已保存，关闭明文</el-button>
+      </div>
+    </div>
+    <p v-if="mutation.error.value" class="error-text" role="alert">{{ mutation.error.value }}</p>
+  </section>
+</template>
+
+
+## web/apps/onto-admin/src/features/p4\ConsumptionView.vue
+<script setup lang="ts">
+/** 版本选择只加载真实端点目录；授权、凭据和调用各自持有独立可重试状态。 */
+import { computed, ref, watch } from 'vue'
+import type { Release, Endpoint } from '../../../../../packages/api-client/src/release'
+import { useWorkspace } from '../../stores/workspace'
+import { useSession } from '../../stores/session'
+import { useResource } from '../../composables/useResource'
+import AsyncState from '@onto/shared-ui/AsyncState.vue'
+import EndpointGrantsPanel from './EndpointGrantsPanel.vue'
+import CredentialsPanel from './CredentialsPanel.vue'
+import ServiceCallPanel from './ServiceCallPanel.vue'
+import './p4.css'
+const workspace = useWorkspace(),
+  api = useSession().api
+const releases = useResource<Release[]>([]),
+  endpoints = useResource<Endpoint[]>([]),
+  selected = ref(''),
+  endpointId = ref('')
+const release = computed(() => releases.data.value.find((item) => item.id === selected.value))
+const endpoint = computed(() => endpoints.data.value.find((item) => item.id === endpointId.value))
+function load() {
+  const id = workspace.space?.id
+  if (!id) return
+  return releases.load(() => api.get<Release[]>(`/releases?spaceId=${id}`))
+}
+async function loadEndpoints() {
+  if (!selected.value) return
+  const result = await endpoints.load(() =>
+    api.get<Endpoint[]>(`/releases/${selected.value}/endpoints`),
+  )
+  if (result) endpointId.value = result[0]?.id ?? ''
+}
+watch(selected, () => {
+  endpointId.value = ''
+  endpoints.reset()
+  void loadEndpoints()
+})
+watch(
+  () => workspace.space?.id,
+  () => {
+    selected.value = ''
+    endpoints.reset()
+    releases.reset()
+    void load()
+  },
+  { immediate: true },
+)
+async function refresh() {
+  selected.value = ''
+  await load()
+}
+</script>
+<template>
+  <div class="p4-page stack">
+    <div class="page-heading">
+      <div>
+        <h1>服务消费</h1>
+        <p class="muted">维护端点授权、一次性密钥，并验证固定正式版本的服务调用。</p>
+      </div>
+      <el-button @click="refresh">刷新消费目录</el-button>
+    </div>
+    <section class="panel stack">
+      <AsyncState
+        :loading="releases.loading.value"
+        :error="releases.error.value"
+        :empty="!releases.data.value.length"
+        empty-text="尚无正式版本。发布后才能管理端点和执行正式服务。"
+        @retry="load"
+      >
+        <label>
+          正式版本
+          <select v-model="selected">
+            <option value="">请选择版本</option>
+            <option v-for="item in releases.data.value" :key="item.id" :value="item.id">
+              v{{ item.versionNo }} · {{ item.status }}
+            </option>
+          </select>
+        </label>
+      </AsyncState>
+      <AsyncState
+        :loading="endpoints.loading.value"
+        :error="endpoints.error.value"
+        @retry="loadEndpoints"
+      >
+        <template v-if="release">
+          <p v-if="!endpoints.data.value.length" class="muted">此版本没有可展示的端点。</p>
+          <label v-else>
+            服务端点
+            <select v-model="endpointId">
+              <option v-for="item in endpoints.data.value" :key="item.id" :value="item.id">
+                {{ item.opCode }} · {{ item.status }}
+              </option>
+            </select>
+          </label>
+        </template>
+      </AsyncState>
+    </section>
+    <EndpointGrantsPanel v-if="endpoint" :key="endpoint.id" :endpoint="endpoint" />
+    <ServiceCallPanel
+      v-if="release"
+      :key="release.id"
+      :release="release"
+      :endpoints="endpoints.data.value"
+    />
+    <CredentialsPanel :key="workspace.space?.id" />
+  </div>
+</template>
+
+
+## web/apps/onto-admin/src/features/p4\AuditView.vue
+<script setup lang="ts">
+/** 游标按服务端倒序连续读取；后页追加，不覆盖已经展示的审计事实。 */
+import { ref, shallowRef, watch } from 'vue'
+import type { AuditPage } from '../../../../../packages/api-client/src/release'
+import { useWorkspace } from '../../stores/workspace'
+import { useSession } from '../../stores/session'
+import { useResource } from '../../composables/useResource'
+import './p4.css'
+const workspace = useWorkspace(),
+  api = useSession().api,
+  request = useResource<AuditPage | null>(null)
+const items = shallowRef<AuditPage['items']>([]),
+  cursor = ref<number | null>(null),
+  initialized = ref(false),
+  lastAppend = ref(false)
+let generation = 0
+async function load(append = false) {
+  const id = workspace.space?.id,
+    ticket = generation
+  if (!id || request.loading.value || (append && cursor.value === null)) return
+  lastAppend.value = append
+  const result = await request.load(() =>
+    api.get<AuditPage>(`/audit?spaceId=${id}&limit=50${append ? `&beforeId=${cursor.value}` : ''}`),
+  )
+  if (!result || ticket !== generation) return
+  const known = new Set(append ? items.value.map((item) => item.id) : [])
+  items.value = [
+    ...(append ? items.value : []),
+    ...result.items.filter((item) => !known.has(item.id)),
+  ]
+  cursor.value = result.nextBeforeId
+  initialized.value = true
+}
+watch(
+  () => workspace.space?.id,
+  () => {
+    generation++
+    request.reset()
+    items.value = []
+    cursor.value = null
+    initialized.value = false
+    void load()
+  },
+  { immediate: true },
+)
+</script>
+<template>
+  <div class="p4-page stack">
+    <div class="page-heading">
+      <div>
+        <h1>审计记录</h1>
+        <p class="muted">按时间查看模型、发布、授权与人工重放等处理活动。</p>
+      </div>
+      <el-button :disabled="request.loading.value" @click="load()">刷新审计</el-button>
+    </div>
+    <section class="panel stack">
+      <p v-if="request.error.value" class="error-text" role="alert">
+        {{ request.error.value }}
+        <el-button :disabled="request.loading.value" @click="load(lastAppend)">重试读取</el-button>
+      </p>
+      <p v-if="request.loading.value" role="status" class="muted">正在读取审计记录…</p>
+      <p v-if="initialized && !items.length" class="muted">当前空间暂无审计活动。</p>
+      <article v-for="item in items" :key="item.id" class="record">
+        <div class="row spread">
+          <b>#{{ item.id }} · {{ item.action }}</b>
+          <time>{{ item.createdAt }}</time>
+        </div>
+        <p class="muted">操作人 {{ item.actorId }} · 对象 {{ item.subjectId ?? '未记录' }}</p>
+        <details>
+          <summary>安全审计详情</summary>
+          <pre>{{ JSON.stringify(item.detail, null, 2) }}</pre>
+        </details>
+      </article>
+      <div v-if="cursor !== null">
+        <el-button :disabled="request.loading.value" @click="load(true)">加载更早记录</el-button>
+      </div>
+    </section>
+  </div>
+</template>
+
+
+## web/apps/onto-admin/src/features/p4\ArtifactList.vue
+<script setup lang="ts">
+import type { ReleaseArtifact } from '../../../../../packages/api-client/src/release'
+defineProps<{ artifacts: ReleaseArtifact[] }>()
+const labels = {
+  BUNDLE: '冻结内容包',
+  MANIFEST: '操作清单',
+  CONTEXT_PACK: '上下文包',
+  KNOWLEDGE_INDEX: '知识索引',
+}
+</script>
+<template>
+  <section class="stack">
+    <h3>发布制品</h3>
+    <p v-if="!artifacts.length" class="muted">尚无制品证据。准备成功后由服务端返回就绪状态。</p>
+    <article v-for="item in artifacts" :key="item.kind" class="record">
+      <div class="row spread">
+        <b>{{ labels[item.kind] }}</b>
+        <el-tag :type="item.ready ? 'success' : 'warning'">
+          {{ item.ready ? '已就绪' : '未就绪' }}
+        </el-tag>
+      </div>
+      <p class="identity">{{ item.sha256 ?? '摘要尚未生成' }}</p>
+      <span class="muted">{{ item.size === null ? '大小未知' : `${item.size} bytes` }}</span>
+    </article>
+  </section>
+</template>
+
+
+## web/packages/api-client/src/release.ts
+import type { Candidate, Execution } from './types'
+import type { JsonObject } from './supply'
+
+/** P4 固定展示 DTO；制品只暴露安全摘要，凭据目录永远不包含明文 key。 */
+export type PublicationStatus =
+  | 'FROZEN'
+  | 'VALIDATING'
+  | 'TESTING'
+  | 'REVIEWING'
+  | 'READY_TO_COMMIT'
+  | 'COMMITTED'
+  | 'CANCELLED'
+export type PublicationCandidate = Omit<Candidate, 'status'> & {
+  status: PublicationStatus
+  preReleaseId?: string | null
+  preVersionNo?: number | null
+  bundleSha256?: string | null
+}
+export type GateKind = 'CONFLICT' | 'CONSISTENCY' | 'CONTRACT' | 'TEST' | 'REVIEW'
+export interface PublicationCheck {
+  kind: GateKind
+  conclusion: 'PASSED' | 'FAILED' | 'NOT_CHECKED'
+  reason: string | null
+  candidateSha256: string
+  checkedAt: string | null
+  report: JsonObject
+}
+export interface ReleaseArtifact {
+  kind: 'BUNDLE' | 'MANIFEST' | 'CONTEXT_PACK' | 'KNOWLEDGE_INDEX'
+  sha256: string | null
+  size: number | null
+  ready: boolean
+}
+export interface Publication {
+  candidateId: string
+  candidateSha256: string
+  draftRev: number
+  status: PublicationStatus
+  preReleaseId: string | null
+  preVersionNo: number | null
+  checks: PublicationCheck[]
+  waivers: {
+    candidateSha256: string
+    reason: string
+    actorId: string
+    createdAt: string
+    [key: string]: unknown
+  }[]
+  artifacts: ReleaseArtifact[]
+  review: { actorId: string; reason: string; reviewedAt: string } | null
+  releaseId: string | null
+}
+export interface Release {
+  id: string
+  spaceId: string
+  versionNo: number
+  candidateId: string
+  status: 'READY' | 'DEPRECATED' | 'CORRUPTED'
+  bundleSha256: string
+  manifestSha256: string
+  publishedAt: string
+  publishedBy: string
+}
+export interface Endpoint {
+  id: string
+  releaseId: string
+  opCode: string
+  route: string
+  status: 'ACTIVE' | 'DISABLED'
+  execAttrs: JsonObject
+}
+export interface ReleaseDetail {
+  release: Release
+  artifacts: ReleaseArtifact[]
+  endpoints: Endpoint[]
+  checks: PublicationCheck[]
+}
+export type ReleaseEntityKind =
+  | 'CLASS'
+  | 'PROPERTY'
+  | 'RELATION'
+  | 'OPERATION'
+  | 'RULE'
+  | 'STRATEGY'
+  | 'KNOWLEDGE'
+  | 'MAPPING'
+export interface ReleaseEntity {
+  kind: ReleaseEntityKind
+  key: string
+  value: JsonObject
+}
+export interface ReleaseDiffItem {
+  kind: string
+  key: string
+  before?: unknown
+  after?: unknown
+}
+export interface ReleaseDiff {
+  fromReleaseId?: string | null
+  toReleaseId?: string | null
+  added: ReleaseDiffItem[]
+  removed: ReleaseDiffItem[]
+  changed: ReleaseDiffItem[]
+}
+export interface EndpointGrant {
+  userId: string
+  username: string
+  displayName: string
+  dataScope: JsonObject | null
+  expiresAt: string | null
+  status: 'ACTIVE' | 'REVOKED'
+}
+export interface ApiCredential {
+  id: string
+  spaceId: string
+  principalId: string
+  name: string
+  status: 'ACTIVE' | 'REVOKED'
+  createdAt: string
+  expiresAt: string | null
+}
+export interface ReleaseEvent {
+  id: number
+  spaceId: string
+  releaseId: string
+  type: string
+  boundStatus: string
+  releaseStatus: Release['status']
+  status: 'PENDING' | 'SENT' | 'DEAD'
+  retryCount: number
+  nextRetryAt: string | null
+  lastError: string | null
+  createdAt: string
+}
+export interface EventReceipt {
+  eventId: number
+  releaseId: string
+  type: string
+  receivedAt: string
+  receipt: JsonObject
+}
+/** 旧记录缺失的字段保持 null；不能补造授权或执行时间。 */
+export type TracedExecution = Omit<Execution, 'subjectType' | 'subjectId'> & {
+  subjectType: 'CANDIDATE' | 'RELEASE'
+  subjectId: string | null
+  caller: string | null
+}
+export interface TraceGraphData {
+  nodes: { id: string; label: string; kind: string; ref?: string | null }[]
+  edges: { id: string; from: string; to: string; label: string }[]
+}
+export interface ExecutionTrace {
+  execution: TracedExecution
+  authorization: { order: number; kind: string; passed: boolean | null; detail: unknown }[]
+  steps: Execution['steps']
+  evidence: {
+    id: string
+    type: string
+    ref: string | null
+    sha256: string | null
+    detail: JsonObject
+  }[]
+  timeline: { id: string; at: string | null; kind: string; title: string; detail: unknown }[]
+  graph: TraceGraphData
+}
+export interface AuditPage {
+  items: {
+    id: number
+    spaceId: string
+    actorId: string
+    action: string
+    subjectId: string | null
+    detail: unknown
+    createdAt: string
+  }[]
+  nextBeforeId: number | null
+}
+export interface ReleaseInvocationMeta {
+  spaceCode: string
+  releaseId: string
+  version: string
+  contentDigest: string
+  preview: false
+}
+
+
+## web/packages/api-client/src/index.ts
+export * from './types'
+export * from './supply'
+export * from './data'
+export * from './release'
+export type { components, paths } from './generated'
+
+/** 所有 HTTP、信封与网络失败共用此错误，页面据此提供刷新或重新登录。 */
+export class ApiError extends Error {
+  constructor(
+    public readonly code: string,
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}
+export interface Envelope<T> {
+  code: string
+  message?: string
+  data: T
+  meta?: unknown
+}
+export class ApiClient {
+  constructor(
+    private readonly token: () => string | null,
+    private readonly expired: () => void,
+    private readonly fetcher: typeof fetch = fetch,
+  ) {}
+  /** 令牌仅在请求时读取内存；不接触 localStorage/sessionStorage。 */
+  async request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
+    return (await this.requestEnvelope<T>(path, method, body)).data
+  }
+  /** 内部候选调用需保留 preview 与摘要元数据，业务结果仍独立置于 data。 */
+  async requestEnvelope<T>(path: string, method = 'GET', body?: unknown): Promise<Envelope<T>> {
+    const headers = new Headers({ Accept: 'application/json' })
+    const token = this.token()
+    if (token) headers.set('Authorization', `Bearer ${token}`)
+    // multipart boundary 由浏览器生成；否则受管文件会被误序列化为空 JSON。
+    const multipart = body instanceof FormData
+    if (body !== undefined && !multipart) headers.set('Content-Type', 'application/json')
+    let response: Response
+    try {
+      // 原生 fetch 按全局函数调用，避免实例代理改变浏览器要求的调用上下文。
+      const fetcher = this.fetcher
+      response = await fetcher(`/onto${path}`, {
+        method,
+        headers,
+        body: body === undefined ? undefined : multipart ? body : JSON.stringify(body),
+      })
+    } catch {
+      throw new ApiError('NETWORK_ERROR', '无法连接服务，请检查网络后重试。', 0)
+    }
+    // 旧会话的迟到响应只能使旧请求失败，不能注销用户重新登录后的新会话。
+    if (response.status === 401 && token === this.token()) this.expired()
+    let envelope: Envelope<T>
+    try {
+      const parsed: unknown = await response.json()
+      if (
+        typeof parsed !== 'object' ||
+        parsed === null ||
+        !('code' in parsed) ||
+        typeof parsed.code !== 'string' ||
+        ('message' in parsed && typeof parsed.message !== 'string') ||
+        (parsed.code !== 'OK' && !('message' in parsed)) ||
+        !('data' in parsed)
+      )
+        throw new Error('Invalid envelope')
+      envelope = parsed as Envelope<T>
+    } catch {
+      throw new ApiError('INVALID_RESPONSE', '服务响应无法读取，请稍后重试。', response.status)
+    }
+    if (!response.ok || envelope.code !== 'OK')
+      throw new ApiError(
+        envelope.code || 'HTTP_ERROR',
+        envelope.message ||
+          (response.status === 403 ? '当前账号没有此操作权限。' : '操作失败，请重试。'),
+        response.status,
+      )
+    return envelope
+  }
+  get<T>(path: string) {
+    return this.request<T>(path)
+  }
+  post<T>(path: string, body: unknown) {
+    return this.request<T>(path, 'POST', body)
+  }
+  put<T>(path: string, body: unknown) {
+    return this.request<T>(path, 'PUT', body)
+  }
+  delete<T>(path: string) {
+    return this.request<T>(path, 'DELETE')
+  }
+}
+
+
+## web/apps/onto-admin/src/router.ts
+import { createRouter, createWebHistory } from 'vue-router'
+import { useSession } from './stores/session'
+export const router = createRouter({
+  history: createWebHistory(),
+  routes: [
+    { path: '/login', component: () => import('./views/LoginView.vue') },
+    {
+      path: '/',
+      component: () => import('./layouts/WorkbenchLayout.vue'),
+      children: [
+        { path: '', redirect: '/spaces' },
+        { path: 'spaces', component: () => import('./views/SpacesView.vue') },
+        { path: 'spaces/:spaceId', redirect: (to) => `/spaces/${String(to.params.spaceId)}/model` },
+        { path: 'spaces/:spaceId/model', component: () => import('./views/ModelView.vue') },
+        {
+          path: 'spaces/:spaceId/codebooks',
+          component: () => import('./features/p1/CodebooksView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/relations',
+          component: () => import('./features/p1/RelationsView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/constraints',
+          component: () => import('./features/p1/ConstraintsView.vue'),
+        },
+        { path: 'spaces/:spaceId/rules', component: () => import('./features/p1/RulesView.vue') },
+        {
+          path: 'spaces/:spaceId/strategies',
+          component: () => import('./features/p1/StrategiesView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/imports',
+          component: () => import('./features/p1/ImportsView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/test-cases',
+          component: () => import('./features/p1/TestCasesView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/operations',
+          component: () => import('./views/OperationsView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/assistant',
+          component: () => import('./features/p2/AssistantView.vue'),
+        },
+        { path: 'spaces/:spaceId/guards', component: () => import('./features/p2/GuardsView.vue') },
+        { path: 'spaces/:spaceId/grants', component: () => import('./features/p2/GrantsView.vue') },
+        {
+          path: 'spaces/:spaceId/knowledge',
+          component: () => import('./features/p2/KnowledgeView.vue'),
+        },
+        { path: 'spaces/:spaceId/supply', component: () => import('./features/p2/SupplyView.vue') },
+        {
+          path: 'spaces/:spaceId/datasources',
+          component: () => import('./features/p3/SourcesView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/mappings',
+          component: () => import('./features/p3/MappingsView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/data-query',
+          component: () => import('./features/p3/DataQueryView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/suggestions',
+          component: () => import('./features/p3/SuggestionsView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/data-catalog',
+          component: () => import('./features/p3/DataCatalogView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/candidates',
+          component: () => import('./views/CandidatesView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/executions',
+          component: () => import('./views/ExecutionsView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/publication',
+          component: () => import('./features/p4/PublicationView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/releases',
+          component: () => import('./features/p4/ReleasesView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/consumption',
+          component: () => import('./features/p4/ConsumptionView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/events',
+          component: () => import('./features/p4/EventsView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/audit',
+          component: () => import('./features/p4/AuditView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/executions/:executionId/trace',
+          component: () => import('./features/p4/TraceView.vue'),
+        },
+      ],
+    },
+    { path: '/:pathMatch(.*)*', redirect: '/spaces' },
+  ],
+})
+router.beforeEach((to) => (!useSession().token && to.path !== '/login' ? '/login' : true))
+
+
+## web/apps/onto-admin/src/layouts/WorkbenchLayout.vue
+<script setup lang="ts">
+/** 共享工作台导航与空间授权上下文；切空间先撤销旧上下文，序号隔离迟到结果及错误。 */
+import { computed, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useSession } from '../stores/session'
+import { useWorkspace } from '../stores/workspace'
+import { errorMessage } from '../composables/useResource'
+import { roleLabels } from '../composables/labels'
+import AsyncState from '@onto/shared-ui/AsyncState.vue'
+const route = useRoute(),
+  router = useRouter(),
+  session = useSession(),
+  workspace = useWorkspace()
+const loading = ref(false),
+  error = ref(''),
+  signingOut = ref(false)
+const spaceId = computed(() =>
+  typeof route.params.spaceId === 'string' ? route.params.spaceId : '',
+)
+let sequence = 0
+async function loadSpace() {
+  const ticket = ++sequence
+  error.value = ''
+  loading.value = !!spaceId.value
+  if (!spaceId.value) {
+    workspace.clear()
+    return
+  }
+  try {
+    await workspace.load(spaceId.value)
+  } catch (cause) {
+    if (ticket === sequence) error.value = errorMessage(cause)
+  } finally {
+    if (ticket === sequence) loading.value = false
+  }
+}
+watch(spaceId, loadSpace, { immediate: true })
+const tabs = [
+  { path: 'model', label: '对象与属性' },
+  { path: 'codebooks', label: '码表管理' },
+  { path: 'relations', label: '关系与逆关系' },
+  { path: 'constraints', label: '约束管理' },
+  { path: 'rules', label: '规则与评分' },
+  { path: 'strategies', label: '执行策略' },
+  { path: 'operations', label: '模型操作' },
+  { path: 'assistant', label: '助手声明' },
+  { path: 'knowledge', label: '知识管理' },
+  { path: 'guards', label: '空间守卫' },
+  { path: 'grants', label: '主体授权', ownerOnly: true },
+  { path: 'datasources', label: '数据源管理' },
+  { path: 'mappings', label: '三层映射' },
+  { path: 'data-query', label: '操作数据查询' },
+  { path: 'suggestions', label: '三来源建模抽取' },
+  { path: 'data-catalog', label: '数据目录' },
+  { path: 'imports', label: 'TTL / OWL 导入导出' },
+  { path: 'test-cases', label: '用例管理' },
+  { path: 'candidates', label: '候选与试执行' },
+  { path: 'supply', label: '候选供给' },
+  { path: 'executions', label: '执行记录' },
+]
+const publicationTabs = [
+  { path: 'publication', label: '候选发布' },
+  { path: 'releases', label: '正式版本' },
+  { path: 'consumption', label: '服务消费' },
+  { path: 'events', label: '事件与收件箱' },
+  { path: 'audit', label: '审计记录' },
+]
+const publicationOpen = ref(false)
+// 直接进入发布子路由时展开所在组，导航仍可由用户手动折叠。
+watch(
+  () => route.path,
+  () => {
+    if (publicationTabs.some((tab) => route.path.endsWith(`/${tab.path}`)))
+      publicationOpen.value = true
+  },
+  { immediate: true },
+)
+async function logout() {
+  if (signingOut.value) return
+  signingOut.value = true
+  try {
+    await session.logout()
+  } catch {
+    /* 即使撤销请求失败，本地令牌也已在 finally 清理。 */
+  } finally {
+    signingOut.value = false
+    await router.replace('/login')
+  }
+}
+</script>
+<template>
+  <div class="workbench">
+    <aside class="navigation">
+      <router-link to="/spaces" class="brand">
+        <span class="brand-symbol">本</span>
+        <span>
+          领域本体
+          <small>建模工作台</small>
+        </span>
+      </router-link>
+      <div class="nav-label">工作空间</div>
+      <router-link to="/spaces" class="nav-item">空间管理</router-link>
+      <template v-if="spaceId">
+        <div class="nav-label">{{ workspace.space?.name || '当前空间' }}</div>
+        <router-link
+          v-for="tab in tabs.filter((tab) => !tab.ownerOnly || workspace.space?.role === 'OWNER')"
+          :key="tab.path"
+          :to="`/spaces/${spaceId}/${tab.path}`"
+          class="nav-item"
+        >
+          {{ tab.label }}
+        </router-link>
+        <details
+          class="nav-group"
+          :open="publicationOpen"
+          @toggle="publicationOpen = ($event.target as HTMLDetailsElement).open"
+        >
+          <summary>发布与消费</summary>
+          <router-link
+            v-for="tab in publicationTabs"
+            :key="tab.path"
+            :to="`/spaces/${spaceId}/${tab.path}`"
+            class="nav-item"
+          >
+            {{ tab.label }}
+          </router-link>
+        </details>
+      </template>
+      <div class="nav-foot">
+        本体全流程工作台
+        <br />
+        草稿 · 冻结候选 · 正式版本
+      </div>
+    </aside>
+    <div class="work-area">
+      <header class="topbar">
+        <span class="muted">
+          {{ workspace.space?.name || '工作空间' }}
+          <template v-if="workspace.space">
+            /
+            <span class="mono">r{{ workspace.space.draftRev }}</span>
+            <span class="pill">{{ roleLabels[workspace.space.role] }}</span>
+          </template>
+        </span>
+        <div class="row">
+          <span class="muted">{{ session.user?.displayName }}</span>
+          <el-button text :loading="signingOut" @click="logout">退出登录</el-button>
+        </div>
+      </header>
+      <main class="main-content">
+        <div v-if="workspace.stale" class="readonly-note" role="alert">
+          草稿已被其他编辑更新，当前空间已暂停写入。请关闭编辑框，并使用页面的刷新按钮载入最新内容后重新编辑。
+        </div>
+        <AsyncState :loading="loading" :error="error" @retry="loadSpace">
+          <template v-if="workspace.space?.status === 'ARCHIVED'">
+            <div class="readonly-note">此空间已归档，可浏览已有模型、候选与执行记录。</div>
+          </template>
+          <template v-else-if="workspace.space?.role === 'VIEWER'">
+            <div class="readonly-note">你拥有查看权限，编辑与试执行需要空间编辑者授权。</div>
+          </template>
+          <router-view v-if="!spaceId || workspace.space" :key="spaceId" />
+        </AsyncState>
+      </main>
+    </div>
+  </div>
+</template>
+<style scoped>
+.workbench {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+}
+.navigation {
+  background: var(--nav);
+  color: #bed0e5;
+  padding: 28px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.brand {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  color: white;
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0 8px 34px;
+}
+.brand small {
+  display: block;
+  font-size: 11px;
+  color: #98b2d0;
+  letter-spacing: 2px;
+  margin-top: 5px;
+}
+.brand-symbol {
+  display: grid;
+  place-items: center;
+  border: 1px solid #6887b4;
+  border-radius: 6px;
+  width: 36px;
+  height: 40px;
+  font-size: 22px;
+}
+.nav-label {
+  font-size: 11px;
+  color: #8ea8c6;
+  padding: 20px 14px 8px;
+  overflow-wrap: anywhere;
+}
+.nav-item {
+  padding: 12px 14px;
+  border-radius: 6px;
+  color: #c4d2e4;
+  font-size: 14px;
+}
+.nav-item:hover {
+  background: #203c60;
+}
+.nav-item.router-link-active {
+  background: #284f80;
+  color: #fff;
+  box-shadow: inset 3px 0 #7ca7ff;
+}
+.nav-foot {
+  margin-top: auto;
+  padding: 40px 14px 0;
+  font-size: 11px;
+  line-height: 1.8;
+  color: #8ea8c6;
+}
+.nav-group {
+  width: 100%;
+  border-top: 1px solid #34506f;
+  margin-top: 12px;
+  padding-top: 8px;
+}
+.nav-group summary {
+  cursor: pointer;
+  padding: 12px 14px;
+  color: #dce8f5;
+  font-size: 14px;
+}
+.nav-group .nav-item {
+  display: block;
+  margin-top: 4px;
+}
+.work-area {
+  min-width: 0;
+}
+.topbar {
+  height: 66px;
+  background: #fff;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 32px;
+  gap: 12px;
+}
+.topbar .pill {
+  margin-left: 8px;
+}
+.main-content {
+  padding: 30px 32px;
+  max-width: 1600px;
+  margin: auto;
+}
+@media (max-width: 900px) {
+  .workbench {
+    grid-template-columns: 176px minmax(0, 1fr);
+  }
+  .main-content {
+    padding: 24px 18px;
+  }
+  .topbar {
+    padding: 0 18px;
+  }
+}
+@media (max-width: 650px) {
+  .workbench {
+    display: block;
+  }
+  .navigation {
+    padding: 14px;
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+  }
+  .brand {
+    font-size: 16px;
+    margin: 0 16px 0 0;
+  }
+  .brand-symbol {
+    width: 28px;
+    height: 32px;
+    font-size: 18px;
+  }
+  .brand small,
+  .nav-label,
+  .nav-foot {
+    display: none;
+  }
+  .nav-item {
+    font-size: 12px;
+    padding: 9px;
+  }
+  .nav-group {
+    flex-basis: 100%;
+    margin-top: 8px;
+  }
+  .nav-group summary {
+    font-size: 12px;
+    padding: 8px;
+  }
+  .nav-group .nav-item {
+    display: inline-block;
+    margin: 0 4px 4px 0;
+  }
+  .topbar {
+    height: auto;
+    min-height: 58px;
+    flex-wrap: wrap;
+    padding: 10px 16px;
+  }
+  .main-content {
+    padding: 22px 12px;
+  }
+}
+</style>
+
+
+## web/apps/onto-admin/src/views/ExecutionsView.vue
+<script setup lang="ts">
+/** 候选和正式服务共用持久执行目录；追溯入口不将历史缺失字段补造成证据。 */
+import { onMounted, ref } from 'vue'
+import type { TracedExecution } from '@onto/api-client'
+import AsyncState from '@onto/shared-ui/AsyncState.vue'
+import { useWorkspace } from '../stores/workspace'
+import { useSession } from '../stores/session'
+import { useResource } from '../composables/useResource'
+import ExecutionResult from '../components/ExecutionResult.vue'
+const workspace = useWorkspace(),
+  api = useSession().api,
+  executions = useResource<TracedExecution[]>([]),
+  selected = ref<TracedExecution | null>(null)
+function load() {
+  const id = workspace.space?.id
+  return id
+    ? executions.load(() => api.get<TracedExecution[]>(`/spaces/${id}/executions`))
+    : Promise.resolve()
+}
+onMounted(load)
+</script>
+<template>
+  <div class="page-heading">
+    <div>
+      <h1>执行记录</h1>
+      <p class="muted">最近 50 次候选与正式服务执行，保留冻结摘要、结果与追溯入口。</p>
+    </div>
+    <el-button @click="load">刷新记录</el-button>
+  </div>
+  <section class="panel">
+    <AsyncState
+      :loading="executions.loading.value"
+      :error="executions.error.value"
+      :empty="!executions.data.value.length"
+      empty-text="暂无执行记录。可前往“候选与试执行”验证冻结操作。"
+      @retry="load"
+    >
+      <div class="overflow">
+        <el-table :data="executions.data.value">
+          <el-table-column prop="opCode" label="操作编码" min-width="150" />
+          <el-table-column prop="subjectType" label="对象类型" min-width="120" />
+          <el-table-column label="执行对象" min-width="170">
+            <template #default="{ row }">
+              <span class="mono">{{ row.subjectId ?? '历史记录未保存' }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="调用入口" min-width="120">
+            <template #default="{ row }">{{ row.caller ?? '历史记录未保存' }}</template>
+          </el-table-column>
+          <el-table-column label="结果" width="100">
+            <template #default="{ row }">
+              <el-tag :type="row.status === 'SUCCEEDED' ? 'success' : 'danger'" size="small">
+                {{ row.status === 'SUCCEEDED' ? '成功' : '失败' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="用时" width="100">
+            <template #default="{ row }">{{ row.elapsedMs }} ms</template>
+          </el-table-column>
+          <el-table-column label="执行时间" min-width="170">
+            <template #default="{ row }">
+              {{ new Date(row.createdAt).toLocaleString('zh-CN') }}
+            </template>
+          </el-table-column>
+          <el-table-column label="冻结摘要" min-width="160">
+            <template #default="{ row }">
+              <span class="mono">{{ row.candidateSha256.slice(0, 16) }}…</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="170">
+            <template #default="{ row }">
+              <el-button link type="primary" @click="selected = row">查看详情</el-button>
+              <RouterLink :to="`/spaces/${workspace.space?.id}/executions/${row.id}/trace`">
+                执行追溯
+              </RouterLink>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+    </AsyncState>
+  </section>
+  <el-dialog :model-value="!!selected" title="执行记录详情" width="900px" @close="selected = null">
+    <ExecutionResult v-if="selected" :execution="selected" />
+  </el-dialog>
+</template>
+
+
+## web/apps/onto-admin/src/components/ExecutionResult.vue
+<script setup lang="ts">
+import type { Execution, TracedExecution } from '@onto/api-client'
+/** 冻结摘要、执行步骤与结果同屏呈现；FAILED 仍是有效执行记录，不冒充请求失败。 */
+defineProps<{ execution: Execution | TracedExecution }>()
+</script>
+<template>
+  <div class="execution-result stack">
+    <div class="row spread">
+      <h3>执行结果</h3>
+      <div class="row">
+        <el-tag :type="execution.status === 'SUCCEEDED' ? 'success' : 'danger'">
+          {{ execution.status === 'SUCCEEDED' ? '执行成功' : '执行失败' }}
+        </el-tag>
+        <span class="muted">{{ execution.elapsedMs }} ms</span>
+      </div>
+    </div>
+    <p v-if="execution.errorCode" class="error-text" role="alert">
+      错误码：{{ execution.errorCode }}
+    </p>
+    <dl class="details-grid">
+      <dt>操作编码</dt>
+      <dd class="mono">{{ execution.opCode }}</dd>
+      <dt>跟踪标识</dt>
+      <dd class="mono">{{ execution.traceId }}</dd>
+      <dt>冻结摘要</dt>
+      <dd class="mono">{{ execution.candidateSha256 }}</dd>
+      <dt>执行时间</dt>
+      <dd>{{ new Date(execution.createdAt).toLocaleString('zh-CN') }}</dd>
+    </dl>
+    <div>
+      <h3>执行步骤</h3>
+      <ol class="execution-steps">
+        <li v-for="(step, index) in execution.steps" :key="`${index}-${step.kind}`">
+          <div class="row spread">
+            <b>{{ step.kind }}</b>
+            <el-tag size="small" :type="step.status === 'FAILED' ? 'danger' : 'info'">
+              {{ step.status }}
+            </el-tag>
+          </div>
+          <p>{{ step.detail }}</p>
+        </li>
+      </ol>
+      <p v-if="!execution.steps.length" class="muted">没有步骤记录。</p>
+    </div>
+    <div>
+      <h3>
+        结果数据
+        <span class="muted">{{ execution.rows.length }} 行</span>
+      </h3>
+      <div v-if="execution.columns.length" class="overflow">
+        <el-table :data="execution.rows" border max-height="400">
+          <el-table-column
+            v-for="column in execution.columns"
+            :key="column"
+            :prop="column"
+            :label="column"
+            min-width="180"
+          >
+            <template #default="{ row }">
+              <span class="mono result-value">{{ row[column] ?? '—' }}</span>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+      <p v-else class="muted">本次执行没有返回结果列。</p>
+    </div>
+  </div>
+</template>
+<style scoped>
+.execution-result h3 {
+  margin: 0;
+}
+.execution-steps {
+  padding: 0;
+  margin: 14px 0;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+  counter-reset: step;
+}
+.execution-steps li {
+  padding: 14px 16px;
+  background: var(--canvas);
+  border-left: 3px solid #a8bfdf;
+  border-radius: 0 4px 4px 0;
+  font-size: 12px;
+}
+.execution-steps p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.result-value {
+  font-size: 12px;
+}
+.execution-result .details-grid {
+  margin: 0;
+}
+</style>
+

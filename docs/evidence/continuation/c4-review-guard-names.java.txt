@@ -1,0 +1,17 @@
+import cn.ontorepo.contract.GuardValidator;
+import cn.ontorepo.data.domain.LabelScope;
+import cn.ontorepo.data.domain.DataProblem;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+public class GuardNameProbe {
+  public static void main(String[] args) throws Exception {
+    ObjectMapper json=new ObjectMapper();
+    for(String name:new String[]{"region","_region","r".repeat(81)}) {
+      System.out.print("PROBE guardName="+name+" acceptedGuard="+GuardValidator.identifier(name));
+      try {
+        LabelScope.parse(json.readTree("{\"attr\":\""+name+"\",\"in\":[\"A\"]}"));
+        System.out.println(" scope=ACCEPTED");
+      } catch(DataProblem e) {System.out.println(" scope="+e.code());}
+    }
+  }
+}

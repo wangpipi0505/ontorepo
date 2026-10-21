@@ -1,0 +1,14 @@
+[
+  {
+    "file": "web/apps/onto-admin/src/features/p4/PublicationPanel.vue",
+    "sha256": "A2E05C7A4A749D91C0843FDF951DD540329C7DBA7BE0674D35D0934EAC41DA38"
+  },
+  {
+    "file": "web/apps/onto-admin/src/features/p4/PublicationView.vue",
+    "sha256": "95F438D2151569A4C75BC2732328BCCFAA35EA8E4B0FD240D35646B4AC84C579"
+  },
+  {
+    "file": "web/apps/onto-admin/src/features/p4/publication-sync.test.ts",
+    "sha256": "752D35F94B17B54FC26CFA4E3EBE93C9EC10C3F96060DBFA8CF9BA05E9A764DA"
+  }
+]

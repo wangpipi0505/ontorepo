@@ -1,0 +1,33 @@
+{
+  "checkedAt": "2026-10-20T15:19:10.980Z",
+  "spaceId": "76aa1161-16ec-4467-a190-f53115305aeb",
+  "candidateId": "3daac177-8b4c-4529-9846-dd1de6655f0f",
+  "invalidCandidateId": "2e65b153-ea31-4e7a-8309-9168200cee7a",
+  "candidateSha256": "fcb167d566e71c881cde7f47b5b6151c51aa9b68c1460a7aa59bfdcbf96be31e",
+  "checks": [
+    {
+      "name": "候选契约四元组为null且外层摘要匹配",
+      "status": "PASSED"
+    },
+    {
+      "name": "内部候选调用返回业务结果和真实预览摘要",
+      "status": "PASSED"
+    },
+    {
+      "name": "冻结知识包和Lucene结果含真实来源关联",
+      "status": "PASSED"
+    },
+    {
+      "name": "Schema失败无成功meta且实际失败事实可追溯",
+      "status": "PASSED"
+    },
+    {
+      "name": "修改声明与知识草稿后旧候选仍保持原供给",
+      "status": "PASSED"
+    },
+    {
+      "name": "tenant_label无绑定三入口拒绝且不产生查询执行步骤",
+      "status": "PASSED"
+    }
+  ]
+}

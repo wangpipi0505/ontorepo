@@ -1,0 +1,4 @@
+task_id,task_name,algo_code,region
+T-B,华北检测任务,ALG-B,B
+T-NULL,未分类任务,ALG-A,
+T-A,华东分类任务,ALG-A,A

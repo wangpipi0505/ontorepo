@@ -1,0 +1,3232 @@
+diff --git "a/.runtime\\continuation-baseline\\web\\packages\\shared-ui\\src\\tokens.css" "b/web\\packages\\shared-ui\\src\\tokens.css"
+index 87bb0b7..2b00dcb 100644
+--- "a/.runtime\\continuation-baseline\\web\\packages\\shared-ui\\src\\tokens.css"
++++ "b/web\\packages\\shared-ui\\src\\tokens.css"
+@@ -159,6 +159,15 @@ code {
+ .overflow {
+   overflow-x: auto;
+ }
++.form-columns {
++  display: grid;
++  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
++  gap: 16px;
++}
++.el-select {
++  max-width: 100%;
++  width: 100%;
++}
+ .details-grid {
+   display: grid;
+   grid-template-columns: 140px 1fr;
+@@ -182,6 +191,10 @@ code {
+   font-size: 13px;
+ }
+ @media (max-width: 700px) {
++  .form-columns {
++    grid-template-columns: minmax(0, 1fr);
++    gap: 0;
++  }
+   .panel {
+     padding: 16px;
+   }
+diff --git "a/.runtime\\continuation-baseline\\web\\packages\\api-client\\src\\types.ts" "b/web\\packages\\api-client\\src\\types.ts"
+index 55f8fbd..c6b6ea3 100644
+--- "a/.runtime\\continuation-baseline\\web\\packages\\api-client\\src\\types.ts"
++++ "b/web\\packages\\api-client\\src\\types.ts"
+@@ -10,8 +10,140 @@ export type Space = Omit<Schema<'Space'>, 'status' | 'role'> & {
+ }
+ export type OntClass = Omit<Schema<'OntClass'>, 'parentId'> & { parentId: string | null }
+ export type RangeType = 'STRING' | 'INTEGER' | 'DECIMAL' | 'BOOLEAN' | 'DATE'
+-export type OntProperty = Omit<Schema<'OntProperty'>, 'rangeType'> & { rangeType: RangeType }
+-export type Operation = Omit<Schema<'Operation'>, 'kind'> & { kind: 'OBJECT_QUERY' }
++export type Scalar = string | number | boolean
++export interface PropertyFacets {
++  unitCodebookId?: string
++  unitCode?: string
++  codebookId?: string
++  defaultValue?: Scalar
++  enumValues?: Scalar[]
++  minimum?: number
++  maximum?: number
++  primaryKey?: boolean
++}
++export type OntProperty = Omit<Schema<'OntProperty'>, 'rangeType'> & {
++  rangeType: RangeType
++  facets?: PropertyFacets
++}
++export type OperationKind = 'OBJECT_QUERY' | 'RELATION_QUERY' | 'RULE_CHECK' | 'SCORING'
++export type Operation = Omit<Schema<'Operation'>, 'kind'> & {
++  kind: OperationKind
++  strategyRef?: string | null
++  ruleIds?: string[]
++}
++/** P1 扩展类型由 contracts/p1-extension.md 约束，生成文档更新前显式维护新增结构。 */
++export interface Codebook {
++  id: string
++  spaceId: string
++  code: string
++  name: string
++  kind: 'UNIT' | 'VALUE'
++  entries: { code: string; label: string }[]
++}
++export interface Relation {
++  id: string
++  spaceId: string
++  name: string
++  fromClassId: string
++  toClassId: string
++  cardinality: 'ONE_TO_ONE' | 'ONE_TO_MANY' | 'MANY_TO_ONE' | 'MANY_TO_MANY'
++  inverseOf: string | null
++  transitive: boolean
++  symmetric: boolean
++  description: string
++}
++export interface Constraint {
++  id: string
++  spaceId: string
++  name: string
++  kind: 'RANGE' | 'CARDINALITY' | 'MUTEX' | 'DEPENDENCY'
++  targetType: 'CLASS' | 'PROPERTY' | 'RELATION'
++  targetRef: string
++  expr: Record<string, unknown>
++}
++export interface Rule {
++  id: string
++  spaceId: string
++  name: string
++  applicableClassId: string
++  kind: 'VALIDATION' | 'SCORING'
++  condition: string
++  action: Record<string, unknown>
++  scoring: Record<string, unknown> | null
++  severity: 'WARN' | 'ERROR'
++}
++export interface Strategy {
++  id: string
++  spaceId: string
++  name: string
++  policy: {
++    maxRows: number
++    timeoutMs: number
++    resultLimit: number
++    failureMode: 'FAIL'
++    readScope: Record<string, unknown> | null
++  }
++  boundOps: string[]
++}
++export interface Conflict {
++  kind: 'REFERENCE' | 'TYPE' | 'CONSTRAINT' | 'LOGIC'
++  message: string
++  entityIds: string[]
++}
++export interface Conflicts {
++  errors: Conflict[]
++  warnings: Conflict[]
++}
++export interface ImportIssue {
++  line: number
++  message: string
++  construct?: string
++}
++export interface ImportPreview {
++  id: string
++  status: 'PREVIEW' | 'FAILED'
++  targetDraftRev: number
++  added: number
++  updated: number
++  conflicts: ImportIssue[]
++  unsupported: ImportIssue[]
++  errors: ImportIssue[]
++}
++export interface TestCase {
++  id: string
++  spaceId: string
++  name: string
++  question: string
++  operationId: string
++  input: Record<string, unknown>
++  expected: Record<string, unknown>
++  matchMode: 'EXACT' | 'CONTAINS'
++  enabled: boolean
++}
++export interface CandidateCheck {
++  kind: string
++  conclusion: string
++  reason: string
++  message: string
++  details: Record<string, unknown>
++}
++export interface CandidateChecks {
++  candidateSha256: string
++  eligible: boolean
++  checks: CandidateCheck[]
++}
++export interface CandidateTests {
++  candidateSha256: string
++  passed: boolean
++  results: { caseId: string; name: string; passed: boolean; executionId: string; message: string }[]
++}
++export interface Waiver {
++  id: string
++  candidateSha256: string
++  kind: 'SUBSET_EXCEEDED'
++  reason: string
++  approver: string
++}
+ /** 候选只可试执行，不能作为正式发布版本消费。 */
+ export type Candidate = Omit<Schema<'Candidate'>, 'status'> & { status: 'TESTING' }
+ /** 当前 springdoc 字符串可空标记不完整，以下按已批准契约明确 null 语义。 */
+diff --git "a/.runtime\\continuation-baseline\\web\\evidence.md" "b/web\\evidence.md"
+index 95e509e..018a28b 100644
+--- "a/.runtime\\continuation-baseline\\web\\evidence.md"
++++ "b/web\\evidence.md"
+@@ -1,5 +1,7 @@
+ # 前端验证记录
+ 
++2026-10-20 21:21 C2：P1 剩余前端页面、属性分面、四类操作绑定、导入人工确认、候选检查 / 豁免及用例已实现。先执行关键输入边界、提交与旧属性修订 RED，再完成实现；最终 `pnpm test --maxWorkers=2` 共 10 文件 43 条通过，`pnpm typecheck`、`pnpm format:check`、`pnpm build` 全部退出 0。原有 18 条回归保留。真实服务和浏览器联合验收由主执行者统一进行。完整范围与证据见 [C2 前端报告](../docs/evidence/continuation/c2-frontend-report.md)。
++
+ 2026-10-20 RED：在 API 客户端与树逻辑实现前运行 `pnpm test`，测试套件因缺少 `packages/api-client/src/index` 失败（退出 1）。预先写入 401 清理、409 冲突、网络失败、树防环及输入不变性断言。后续 GREEN 与构建结果见本文末尾。
+ 
+ 2026-10-20 20:29 RED：新增非法信封测试后，`Response('null')` 导致原生 TypeError，预期统一 INVALID_RESPONSE，测试失败；补充信封结构校验后通过。
+diff --git "a/.runtime\\continuation-baseline\\web\\apps\\onto-admin\\src\\views\\OperationsView.vue" "b/web\\apps\\onto-admin\\src\\views\\OperationsView.vue"
+index 710e339..acfa0ed 100644
+--- "a/.runtime\\continuation-baseline\\web\\apps\\onto-admin\\src\\views\\OperationsView.vue"
++++ "b/web\\apps\\onto-admin\\src\\views\\OperationsView.vue"
+@@ -16,6 +16,12 @@ const workspace = useWorkspace(),
+ const dialog = ref(false),
+   selected = ref<Operation | null>(null),
+   preview = ref<Operation | null>(null)
++const kindLabels = {
++  OBJECT_QUERY: '对象查询',
++  RELATION_QUERY: '关系查询',
++  RULE_CHECK: '规则检查',
++  SCORING: '评分',
++}
+ async function load() {
+   const id = workspace.space?.id
+   if (!id) return
+@@ -54,7 +60,7 @@ onMounted(load)
+   <div class="page-heading">
+     <div>
+       <h1>模型操作</h1>
+-      <p class="muted">编写受限 SELECT 查询，冻结后在候选上验证结果。</p>
++      <p class="muted">维护对象查询、关系查询、规则检查和评分，冻结后在候选中验证。</p>
+     </div>
+     <div class="row">
+       <el-button @click="load">刷新操作</el-button>
+@@ -74,8 +80,8 @@ onMounted(load)
+         <el-table :data="operations.data.value">
+           <el-table-column prop="name" label="操作名称" min-width="160" />
+           <el-table-column prop="code" label="操作编码" min-width="150" />
+-          <el-table-column label="查询类型" width="120">
+-            <template #default>模型元查询</template>
++          <el-table-column label="操作类型" width="120">
++            <template #default="{ row }">{{ kindLabels[row.kind as Operation['kind']] }}</template>
+           </el-table-column>
+           <el-table-column prop="maxRows" label="行数上限" width="100" />
+           <el-table-column label="超时" width="100">
+@@ -83,7 +89,7 @@ onMounted(load)
+           </el-table-column>
+           <el-table-column label="操作" min-width="170">
+             <template #default="{ row }">
+-              <el-button link type="primary" @click="preview = row">查看语句</el-button>
++              <el-button link type="primary" @click="preview = row">查看定义</el-button>
+               <template v-if="workspace.canWrite">
+                 <el-button link type="primary" @click="edit(row)">编辑</el-button>
+                 <el-button
+@@ -101,10 +107,19 @@ onMounted(load)
+       </div>
+     </AsyncState>
+   </section>
+-  <div class="muted scope-note">模型操作查询当前候选的对象与属性，不连接外部数据源。</div>
++  <div class="muted scope-note">
++    查询类操作仅查询候选内的模型；规则检查和评分执行冻结规则与输入。
++  </div>
+   <OperationDialog v-model="dialog" :item="selected" @saved="load" />
+   <el-dialog :model-value="!!preview" :title="preview?.name" width="760px" @close="preview = null">
+-    <pre class="query-preview">{{ preview?.queryTemplate }}</pre>
++    <p>类型：{{ preview ? kindLabels[preview.kind] : '' }}</p>
++    <pre v-if="preview?.queryTemplate" class="query-preview">{{ preview.queryTemplate }}</pre>
++    <dl class="details-grid">
++      <dt>策略标识</dt>
++      <dd class="mono">{{ preview?.strategyRef || '未绑定' }}</dd>
++      <dt>规则标识</dt>
++      <dd class="mono">{{ preview?.ruleIds?.join('，') || '未绑定' }}</dd>
++    </dl>
+   </el-dialog>
+ </template>
+ <style scoped>
+diff --git "a/.runtime\\continuation-baseline\\web\\apps\\onto-admin\\src\\views\\CandidatesView.vue" "b/web\\apps\\onto-admin\\src\\views\\CandidatesView.vue"
+index cebd69f..05ba5e3 100644
+--- "a/.runtime\\continuation-baseline\\web\\apps\\onto-admin\\src\\views\\CandidatesView.vue"
++++ "b/web\\apps\\onto-admin\\src\\views\\CandidatesView.vue"
+@@ -8,6 +8,8 @@ import { useSession } from '../stores/session'
+ import { useResource } from '../composables/useResource'
+ import { useMutation, confirmAction } from '../composables/useMutation'
+ import ExecutionResult from '../components/ExecutionResult.vue'
++import CandidateChecksPanel from '../features/p1/CandidateChecksPanel.vue'
++import { parseObject } from '../features/p1/inputs'
+ const workspace = useWorkspace(),
+   api = useSession().api,
+   candidates = useResource<Candidate[]>([]),
+@@ -17,6 +19,7 @@ const freeze = useMutation(),
+   selectedId = ref(''),
+   operationId = ref(''),
+   execution = ref<Execution | null>(null)
++const inputText = ref('{}')
+ const selected = computed(() => candidates.data.value.find((item) => item.id === selectedId.value))
+ async function load() {
+   const id = workspace.space?.id
+@@ -43,6 +46,7 @@ function loadOperations() {
+ watch(selectedId, () => {
+   operationId.value = ''
+   execution.value = null
++  inputText.value = '{}'
+   operations.reset()
+   trial.error.value = ''
+   void loadOperations()
+@@ -71,7 +75,10 @@ async function execute() {
+   if (!id || !opId || !workspace.canWrite) return
+   execution.value = null
+   await trial.run(async () => {
+-    const result = await api.post<Execution>(`/candidates/${id}/trial`, { operationId: opId })
++    const result = await api.post<Execution>(`/candidates/${id}/trial`, {
++      operationId: opId,
++      input: parseObject(inputText.value, '试执行输入'),
++    })
+     if (selectedId.value === id) execution.value = result
+   })
+ }
+@@ -163,6 +170,14 @@ onMounted(load)
+                 />
+               </el-select>
+             </el-form-item>
++            <el-form-item label="试执行输入（JSON 对象）">
++              <el-input
++                v-model="inputText"
++                type="textarea"
++                :rows="5"
++                :disabled="trial.pending.value || !workspace.canWrite"
++              />
++            </el-form-item>
+             <el-button
+               v-if="workspace.canWrite"
+               type="primary"
+@@ -179,6 +194,7 @@ onMounted(load)
+           {{ trial.error.value }} 可以重新选择操作后重试。
+         </p>
+         <ExecutionResult v-if="execution" :execution="execution" />
++        <CandidateChecksPanel :key="selected.id" :candidate="selected" />
+       </section>
+     </div>
+   </AsyncState>
+diff --git "a/.runtime\\continuation-baseline\\web\\apps\\onto-admin\\src\\router.ts" "b/web\\apps\\onto-admin\\src\\router.ts"
+index c80c571..c8e7c59 100644
+--- "a/.runtime\\continuation-baseline\\web\\apps\\onto-admin\\src\\router.ts"
++++ "b/web\\apps\\onto-admin\\src\\router.ts"
+@@ -12,6 +12,31 @@ export const router = createRouter({
+         { path: 'spaces', component: () => import('./views/SpacesView.vue') },
+         { path: 'spaces/:spaceId', redirect: (to) => `/spaces/${String(to.params.spaceId)}/model` },
+         { path: 'spaces/:spaceId/model', component: () => import('./views/ModelView.vue') },
++        {
++          path: 'spaces/:spaceId/codebooks',
++          component: () => import('./features/p1/CodebooksView.vue'),
++        },
++        {
++          path: 'spaces/:spaceId/relations',
++          component: () => import('./features/p1/RelationsView.vue'),
++        },
++        {
++          path: 'spaces/:spaceId/constraints',
++          component: () => import('./features/p1/ConstraintsView.vue'),
++        },
++        { path: 'spaces/:spaceId/rules', component: () => import('./features/p1/RulesView.vue') },
++        {
++          path: 'spaces/:spaceId/strategies',
++          component: () => import('./features/p1/StrategiesView.vue'),
++        },
++        {
++          path: 'spaces/:spaceId/imports',
++          component: () => import('./features/p1/ImportsView.vue'),
++        },
++        {
++          path: 'spaces/:spaceId/test-cases',
++          component: () => import('./features/p1/TestCasesView.vue'),
++        },
+         {
+           path: 'spaces/:spaceId/operations',
+           component: () => import('./views/OperationsView.vue'),
+diff --git "a/.runtime\\continuation-baseline\\web\\apps\\onto-admin\\src\\layouts\\WorkbenchLayout.vue" "b/web\\apps\\onto-admin\\src\\layouts\\WorkbenchLayout.vue"
+index a203b4a..51bd4c6 100644
+--- "a/.runtime\\continuation-baseline\\web\\apps\\onto-admin\\src\\layouts\\WorkbenchLayout.vue"
++++ "b/web\\apps\\onto-admin\\src\\layouts\\WorkbenchLayout.vue"
+@@ -37,7 +37,14 @@ async function loadSpace() {
+ watch(spaceId, loadSpace, { immediate: true })
+ const tabs = [
+   { path: 'model', label: '对象与属性' },
++  { path: 'codebooks', label: '码表管理' },
++  { path: 'relations', label: '关系与逆关系' },
++  { path: 'constraints', label: '约束管理' },
++  { path: 'rules', label: '规则与评分' },
++  { path: 'strategies', label: '执行策略' },
+   { path: 'operations', label: '模型操作' },
++  { path: 'imports', label: 'TTL / OWL 导入导出' },
++  { path: 'test-cases', label: '用例管理' },
+   { path: 'candidates', label: '候选与试执行' },
+   { path: 'executions', label: '执行记录' },
+ ]
++++ 新增 web\apps\onto-admin\src\features\p1\useReferences.ts
+import { useResource } from '../../composables/useResource'
+import { readDraftSnapshot } from '../../composables/readDraftSnapshot'
+import { useSession } from '../../stores/session'
+import { useWorkspace } from '../../stores/workspace'
+interface NamedReference {
+  id: string
+  name: string
+}
+/** 选择器只读服务端同空间条目；失败直接展示，不提供本地演示条目，也不解锁旧表单。 */
+export function useReferences(paths: string[]) {
+  const resource = useResource<Record<string, NamedReference[]>>({})
+  async function load() {
+    const id = useWorkspace().space?.id,
+      api = useSession().api
+    if (!id) return
+    return resource.load(async () => {
+      const result = await readDraftSnapshot(api, id, async () => {
+        // 原属性列表要求 classId；全空间选择器必须使用独立只读入口，保留旧接口400语义。
+        const pairs = await Promise.all(
+          paths.map(
+            async (path) =>
+              [
+                path,
+                await api.get<NamedReference[]>(
+                  path === 'properties' ? `/spaces/${id}/properties` : `/${path}?spaceId=${id}`,
+                ),
+              ] as const,
+          ),
+        )
+        return Object.fromEntries(pairs)
+      })
+      return result.items
+    })
+  }
+  return { ...resource, load }
+}
+
++++ 新增 web\apps\onto-admin\src\features\p1\useDraftCollection.ts
+import { ref, shallowRef } from 'vue'
+import type { Space } from '@onto/api-client'
+import { useWorkspace } from '../../stores/workspace'
+import { useSession } from '../../stores/session'
+import { useResource } from '../../composables/useResource'
+import { useDraftRevision } from '../../composables/useDraftRevision'
+import { useMutation, confirmAction, notifySaved } from '../../composables/useMutation'
+import { readDraftSnapshot } from '../../composables/readDraftSnapshot'
+
+/** 仅复用列表的并发/提交不变量；领域字段仍由独立业务表单维护，避免通用巨型表单。 */
+export function useDraftCollection<T extends { id: string; name: string }>(path: string) {
+  const workspace = useWorkspace(),
+    api = useSession().api
+  const items = useResource<T[]>([]),
+    mutation = useMutation(),
+    draft = useDraftRevision()
+  const open = ref(false),
+    editing = shallowRef<T | null>(null)
+  let loadedRev: number | undefined
+  async function load() {
+    const spaceId = workspace.space?.id
+    if (!spaceId) return
+    let current: Space | undefined
+    const result = await items.load(async () => {
+      const snapshot = await readDraftSnapshot(api, spaceId, () =>
+        api.get<T[]>(`${path}?spaceId=${spaceId}`),
+      )
+      current = snapshot.space
+      return snapshot.items
+    })
+    if (result && current) {
+      loadedRev = current.draftRev
+      workspace.refreshed(current)
+    }
+  }
+  function edit(item: T | null) {
+    if (!workspace.canWrite) return
+    editing.value = item
+    draft.start(loadedRev ?? workspace.space?.draftRev ?? 0)
+    mutation.error.value = ''
+    open.value = true
+  }
+  async function save(body: Record<string, unknown>) {
+    const space = workspace.space
+    if (!space || !workspace.canWrite) return false
+    const ok = await mutation.run(() =>
+      draft.submit(async (expectedDraftRev) => {
+        const request = { ...body, spaceId: space.id, expectedDraftRev }
+        const next = editing.value
+          ? await api.put<Space>(`${path}/${editing.value.id}`, request)
+          : await api.post<Space>(path, request)
+        workspace.accept(next)
+      }),
+    )
+    if (ok) {
+      open.value = false
+      notifySaved()
+      await load()
+    }
+    return ok
+  }
+  async function remove(item: T) {
+    const space = workspace.space
+    if (!space || !workspace.canWrite || loadedRev === undefined) return
+    if (!(await confirmAction(`删除“${item.name}”？受引用条目可能被服务端阻止。`))) return
+    await mutation.run(async () => {
+      workspace.accept(
+        await api.delete<Space>(
+          `${path}/${item.id}?spaceId=${space.id}&expectedDraftRev=${loadedRev}`,
+        ),
+      )
+      await load()
+    })
+  }
+  return { workspace, api, items, mutation, draft, open, editing, load, edit, save, remove }
+}
+
++++ 新增 web\apps\onto-admin\src\features\p1\useDraftCollection.test.ts
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { effectScope, type EffectScope } from 'vue'
+import { createPinia, setActivePinia } from 'pinia'
+import { ApiError, type Space } from '@onto/api-client'
+import { useSession } from '../../stores/session'
+import { useWorkspace } from '../../stores/workspace'
+import { useDraftCollection } from './useDraftCollection'
+const space = { id: 's', role: 'OWNER', status: 'ACTIVE', draftRev: 5 } as Space
+describe('P1 草稿提交与错误恢复', () => {
+  let scope: EffectScope
+  beforeEach(() => {
+    scope = effectScope()
+    setActivePinia(createPinia())
+    useWorkspace().space = space
+  })
+  afterEach(() => scope.stop())
+  it('保存携带打开时修订；409保留表单与输入，刷新空间不能解锁旧表单', async () => {
+    const page = scope.run(() => useDraftCollection<{ id: string; name: string }>('/codebooks'))!
+    const post = vi
+      .spyOn(useSession().api, 'post')
+      .mockRejectedValue(new ApiError('DRAFT_REV_CONFLICT', '草稿已更新', 409))
+    page.edit(null)
+    const body = { name: '保留的输入' }
+    await page.save(body)
+    expect(post).toHaveBeenCalledWith('/codebooks', {
+      name: '保留的输入',
+      spaceId: 's',
+      expectedDraftRev: 5,
+    })
+    expect(page.open.value).toBe(true)
+    expect(page.draft.stale.value).toBe(true)
+    expect(useWorkspace().stale).toBe(true)
+    useWorkspace().refreshed({ ...space, draftRev: 6 })
+    await page.save(body)
+    expect(post).toHaveBeenCalledTimes(1)
+    expect(body.name).toBe('保留的输入')
+  })
+  it('VIEWER无法打开或直接调用保存', async () => {
+    useWorkspace().space = { ...space, role: 'VIEWER' }
+    const post = vi.spyOn(useSession().api, 'post')
+    const page = scope.run(() => useDraftCollection<{ id: string; name: string }>('/rules'))!
+    page.edit(null)
+    await page.save({ name: '不可写' })
+    expect(page.open.value).toBe(false)
+    expect(post).not.toHaveBeenCalled()
+  })
+})
+
++++ 新增 web\apps\onto-admin\src\features\p1\TestCasesView.vue
+<script setup lang="ts">
+/** 默认精确匹配；包含匹配是逐用例的显式选择。冻结后的用例只由候选执行接口读取。 */
+import { onMounted, reactive } from 'vue'
+import type { TestCase } from '@onto/api-client'
+import AsyncState from '@onto/shared-ui/AsyncState.vue'
+import { useDraftCollection } from './useDraftCollection'
+import { useReferences } from './useReferences'
+import { parseObject } from './inputs'
+import EditorActions from './EditorActions.vue'
+import EntityDetails from './EntityDetails.vue'
+const page = useDraftCollection<TestCase>('/test-cases'),
+  references = useReferences(['operations'])
+const form = reactive({
+  name: '',
+  question: '',
+  operationId: '',
+  input: '{}',
+  expected: '{}',
+  matchMode: 'EXACT' as TestCase['matchMode'],
+  enabled: true,
+})
+async function load() {
+  await Promise.all([page.load(), references.load()])
+}
+function edit(item: TestCase | null) {
+  page.edit(item)
+  Object.assign(form, {
+    name: item?.name || '',
+    question: item?.question || '',
+    operationId: item?.operationId || '',
+    input: JSON.stringify(item?.input || {}, null, 2),
+    expected: JSON.stringify(item?.expected || {}, null, 2),
+    matchMode: item?.matchMode || 'EXACT',
+    enabled: item?.enabled ?? true,
+  })
+}
+async function save() {
+  try {
+    if (!form.name.trim() || !form.question.trim() || !form.operationId)
+      throw new Error('请填写名称、问题并选择预期命中操作。')
+    await page.save({
+      ...form,
+      input: parseObject(form.input, '用例输入'),
+      expected: parseObject(form.expected, '预期结果'),
+    })
+  } catch (cause) {
+    page.mutation.error.value = cause instanceof Error ? cause.message : '用例无法读取。'
+  }
+}
+onMounted(load)
+</script>
+<template>
+  <div class="page-heading">
+    <div>
+      <h1>用例管理</h1>
+      <p class="muted">定义问题、命中操作及确定性结果断言，随候选冻结后执行。</p>
+    </div>
+    <div class="row">
+      <el-button @click="load">刷新</el-button>
+      <el-button v-if="page.workspace.canWrite" type="primary" @click="edit(null)">
+        新建用例
+      </el-button>
+    </div>
+  </div>
+  <p v-if="references.error.value" class="error-text" role="alert">
+    操作读取失败：{{ references.error.value }}
+    <el-button text @click="references.load">重试</el-button>
+  </p>
+  <p v-if="page.mutation.error.value && !page.open.value" class="error-text" role="alert">
+    {{ page.mutation.error.value }}
+  </p>
+  <AsyncState
+    :loading="page.items.loading.value"
+    :error="page.items.error.value"
+    :empty="!page.items.data.value.length"
+    empty-text="暂无测试用例。添加问题与结果断言，然后冻结候选运行。"
+    @retry="load"
+  >
+    <section class="panel overflow">
+      <el-table :data="page.items.data.value">
+        <el-table-column type="expand">
+          <template #default="{ row }"><EntityDetails :item="row" /></template>
+        </el-table-column>
+        <el-table-column prop="name" label="名称" min-width="140" />
+        <el-table-column prop="question" label="问题" min-width="220" />
+        <el-table-column prop="matchMode" label="匹配" width="110" />
+        <el-table-column label="启用" width="80">
+          <template #default="{ row }">{{ row.enabled ? '是' : '否' }}</template>
+        </el-table-column>
+        <el-table-column v-if="page.workspace.canWrite" label="操作" width="130">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="edit(row)">编辑</el-button>
+            <el-button
+              link
+              type="danger"
+              :disabled="page.mutation.pending.value"
+              @click="page.remove(row)"
+            >
+              删除
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </section>
+  </AsyncState>
+  <el-dialog
+    destroy-on-close
+    v-model="page.open.value"
+    title="维护测试用例"
+    width="760px"
+    :close-on-click-modal="false"
+    :show-close="!page.mutation.pending.value"
+    :close-on-press-escape="!page.mutation.pending.value"
+  >
+    <el-form label-position="top" @submit.prevent="save">
+      <el-form-item label="名称" required><el-input v-model="form.name" /></el-form-item>
+      <el-form-item label="问题" required>
+        <el-input v-model="form.question" type="textarea" :rows="2" />
+      </el-form-item>
+      <el-form-item label="预期命中操作" required>
+        <el-select v-model="form.operationId" filterable>
+          <el-option
+            v-for="item in references.data.value.operations || []"
+            :key="item.id"
+            :value="item.id"
+            :label="item.name"
+          />
+        </el-select>
+      </el-form-item>
+      <div class="form-columns">
+        <el-form-item label="用例输入（JSON 对象）">
+          <el-input v-model="form.input" type="textarea" :rows="7" />
+        </el-form-item>
+        <el-form-item label="预期结果（JSON 对象）">
+          <el-input v-model="form.expected" type="textarea" :rows="7" />
+        </el-form-item>
+      </div>
+      <el-form-item label="结果匹配模式">
+        <el-select v-model="form.matchMode">
+          <el-option value="EXACT" label="精确匹配（默认）" />
+          <el-option value="CONTAINS" label="包含匹配（显式放宽）" />
+        </el-select>
+      </el-form-item>
+      <el-checkbox v-model="form.enabled">启用此用例</el-checkbox>
+      <p class="muted">只有候选中已冻结且启用的用例会执行，当前草稿变更不改变旧候选。</p>
+      <EditorActions
+        :pending="page.mutation.pending.value"
+        :error="page.mutation.error.value"
+        :stale="page.draft.stale.value"
+        :can-write="page.workspace.canWrite && !references.error.value"
+        @cancel="page.open.value = false"
+      />
+    </el-form>
+  </el-dialog>
+</template>
+
++++ 新增 web\apps\onto-admin\src\features\p1\StrategiesView.vue
+<script setup lang="ts">
+import { onMounted, reactive } from 'vue'
+import type { Strategy } from '@onto/api-client'
+import AsyncState from '@onto/shared-ui/AsyncState.vue'
+import { useDraftCollection } from './useDraftCollection'
+import { useReferences } from './useReferences'
+import { parseObject } from './inputs'
+import EditorActions from './EditorActions.vue'
+import EntityDetails from './EntityDetails.vue'
+const page = useDraftCollection<Strategy>('/strategies'),
+  references = useReferences(['operations'])
+const form = reactive({
+  name: '',
+  maxRows: 100,
+  timeoutMs: 3000,
+  resultLimit: 100,
+  readScope: '',
+  boundOps: [] as string[],
+})
+async function load() {
+  await Promise.all([page.load(), references.load()])
+}
+function edit(item: Strategy | null) {
+  page.edit(item)
+  Object.assign(form, {
+    name: item?.name || '',
+    maxRows: item?.policy.maxRows ?? 100,
+    timeoutMs: item?.policy.timeoutMs ?? 3000,
+    resultLimit: item?.policy.resultLimit ?? 100,
+    readScope: item?.policy.readScope ? JSON.stringify(item.policy.readScope, null, 2) : '',
+    boundOps: [...(item?.boundOps || [])],
+  })
+}
+async function save() {
+  try {
+    if (!form.name.trim()) throw new Error('请输入策略名称。')
+    if (
+      ![form.maxRows, form.timeoutMs, form.resultLimit].every(
+        (value) => Number.isInteger(value) && value > 0,
+      )
+    )
+      throw new Error('资源上限须为正整数。')
+    await page.save({
+      name: form.name,
+      policy: {
+        maxRows: form.maxRows,
+        timeoutMs: form.timeoutMs,
+        resultLimit: form.resultLimit,
+        failureMode: 'FAIL',
+        readScope: form.readScope.trim() ? parseObject(form.readScope, '读取范围') : null,
+      },
+      boundOps: form.boundOps,
+    })
+  } catch (cause) {
+    page.mutation.error.value = cause instanceof Error ? cause.message : '策略配置无法读取。'
+  }
+}
+onMounted(load)
+</script>
+<template>
+  <div class="page-heading">
+    <div>
+      <h1>执行策略</h1>
+      <p class="muted">策略与操作取更严格的资源上限，调用输入不能放大限制。</p>
+    </div>
+    <div class="row">
+      <el-button @click="load">刷新</el-button>
+      <el-button v-if="page.workspace.canWrite" type="primary" @click="edit(null)">
+        新建策略
+      </el-button>
+    </div>
+  </div>
+  <p v-if="references.error.value" class="error-text" role="alert">
+    操作读取失败：{{ references.error.value }}
+    <el-button text @click="references.load">重试</el-button>
+  </p>
+  <p v-if="page.mutation.error.value && !page.open.value" class="error-text" role="alert">
+    {{ page.mutation.error.value }}
+  </p>
+  <AsyncState
+    :loading="page.items.loading.value"
+    :error="page.items.error.value"
+    :empty="!page.items.data.value.length"
+    empty-text="暂无执行策略。可创建统一的资源约束并绑定操作。"
+    @retry="load"
+  >
+    <section class="panel overflow">
+      <el-table :data="page.items.data.value">
+        <el-table-column type="expand">
+          <template #default="{ row }"><EntityDetails :item="row" /></template>
+        </el-table-column>
+        <el-table-column prop="name" label="名称" min-width="160" />
+        <el-table-column prop="policy.maxRows" label="行数上限" width="110" />
+        <el-table-column prop="policy.timeoutMs" label="超时毫秒" width="110" />
+        <el-table-column prop="policy.resultLimit" label="结果上限" width="110" />
+        <el-table-column label="绑定操作" min-width="180">
+          <template #default="{ row }">
+            {{
+              row.boundOps
+                .map(
+                  (id: string) =>
+                    references.data.value.operations?.find((item) => item.id === id)?.name || id,
+                )
+                .join('，') || '未绑定'
+            }}
+          </template>
+        </el-table-column>
+        <el-table-column v-if="page.workspace.canWrite" label="操作" width="130">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="edit(row)">编辑</el-button>
+            <el-button
+              link
+              type="danger"
+              :disabled="page.mutation.pending.value"
+              @click="page.remove(row)"
+            >
+              删除
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </section>
+  </AsyncState>
+  <el-dialog
+    destroy-on-close
+    v-model="page.open.value"
+    title="维护执行策略"
+    width="640px"
+    :close-on-click-modal="false"
+    :show-close="!page.mutation.pending.value"
+    :close-on-press-escape="!page.mutation.pending.value"
+  >
+    <el-form label-position="top" @submit.prevent="save">
+      <el-form-item label="名称" required><el-input v-model="form.name" /></el-form-item>
+      <div class="form-columns">
+        <el-form-item label="最大行数">
+          <el-input-number v-model="form.maxRows" :min="1" />
+        </el-form-item>
+        <el-form-item label="超时毫秒">
+          <el-input-number v-model="form.timeoutMs" :min="1" />
+        </el-form-item>
+        <el-form-item label="结果数量上限">
+          <el-input-number v-model="form.resultLimit" :min="1" />
+        </el-form-item>
+      </div>
+      <p class="muted">失败处理固定为 FAIL，达到限制时不会悄悄降级。</p>
+      <el-form-item label="读取范围（可选 JSON 对象）">
+        <el-input v-model="form.readScope" type="textarea" :rows="4" />
+      </el-form-item>
+      <el-form-item label="绑定操作">
+        <el-select v-model="form.boundOps" multiple filterable>
+          <el-option
+            v-for="item in references.data.value.operations || []"
+            :key="item.id"
+            :value="item.id"
+            :label="item.name"
+          />
+        </el-select>
+      </el-form-item>
+      <EditorActions
+        :pending="page.mutation.pending.value"
+        :error="page.mutation.error.value"
+        :stale="page.draft.stale.value"
+        :can-write="page.workspace.canWrite && !references.error.value"
+        @cancel="page.open.value = false"
+      />
+    </el-form>
+  </el-dialog>
+</template>
+
++++ 新增 web\apps\onto-admin\src\features\p1\ScoringFields.vue
+<script setup lang="ts">
+import { reactive, watch } from 'vue'
+import { parseObject } from './inputs'
+const props = defineProps<{
+  value: Record<string, unknown> | null
+  properties: { id: string; name: string }[]
+}>()
+const form = reactive({
+  metrics: '[]',
+  missingValue: 'REJECT',
+  forbiddenProperties: [] as string[],
+  explain: true,
+})
+watch(
+  () => props.value,
+  (value) =>
+    Object.assign(form, {
+      metrics: JSON.stringify(value?.metrics || [], null, 2),
+      missingValue: value?.missingValue || 'REJECT',
+      forbiddenProperties: value?.forbiddenProperties || [],
+      explain: value?.explain ?? true,
+    }),
+  { immediate: true },
+)
+/** 指标保留结构化 JSON，避免将区间边界、权重转为字符串；服务端负责完整评分校验。 */
+function read() {
+  const value = parseObject(`{"metrics":${form.metrics}}`, '评分指标')
+  if (!Array.isArray(value.metrics) || !value.metrics.length)
+    throw new Error('至少填写一个评分指标。')
+  return {
+    ...value,
+    missingValue: form.missingValue,
+    tieBreak: 'STABLE_ID',
+    forbiddenProperties: form.forbiddenProperties,
+    explain: form.explain,
+  }
+}
+defineExpose({ read })
+</script>
+<template>
+  <fieldset class="scoring-fields">
+    <legend>评分配置</legend>
+    <el-form-item label="指标及分段（JSON 数组）" required>
+      <el-input
+        v-model="form.metrics"
+        type="textarea"
+        :rows="8"
+        placeholder='[{"propertyId":"属性UUID","weight":1,"bands":[{"min":0,"max":100,"score":1}]}]'
+      />
+    </el-form-item>
+    <p class="muted">权重非负、总和为 1；同指标分段不得重叠。平分时按稳定标识排序。</p>
+    <el-form-item label="缺值处理">
+      <el-select v-model="form.missingValue">
+        <el-option value="REJECT" label="拒绝评分" />
+        <el-option value="ZERO" label="按零处理" />
+      </el-select>
+    </el-form-item>
+    <el-form-item label="禁算字段">
+      <el-select v-model="form.forbiddenProperties" multiple filterable>
+        <el-option v-for="item in properties" :key="item.id" :value="item.id" :label="item.name" />
+      </el-select>
+    </el-form-item>
+    <el-checkbox v-model="form.explain">输出评分解释</el-checkbox>
+  </fieldset>
+</template>
+<style scoped>
+.scoring-fields {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 16px;
+  margin: 0 0 18px;
+}
+.scoring-fields legend {
+  font-size: 13px;
+  color: var(--muted);
+}
+</style>
+
++++ 新增 web\apps\onto-admin\src\features\p1\RulesView.vue
+<script setup lang="ts">
+/** 规则输入是声明式白名单表达式；前端不执行条件，不把结果伪装成规则验证通过。 */
+import { onMounted, reactive, ref } from 'vue'
+import type { Rule } from '@onto/api-client'
+import AsyncState from '@onto/shared-ui/AsyncState.vue'
+import { useDraftCollection } from './useDraftCollection'
+import { useReferences } from './useReferences'
+import EditorActions from './EditorActions.vue'
+import EntityDetails from './EntityDetails.vue'
+import ScoringFields from './ScoringFields.vue'
+import DraftConflictsPanel from './DraftConflictsPanel.vue'
+const page = useDraftCollection<Rule>('/rules'),
+  references = useReferences(['classes', 'properties'])
+const scoring = ref<InstanceType<typeof ScoringFields>>()
+const form = reactive({
+  name: '',
+  applicableClassId: '',
+  kind: 'VALIDATION' as Rule['kind'],
+  condition: '',
+  actionType: 'REJECT',
+  message: '',
+  severity: 'ERROR' as Rule['severity'],
+  scoring: null as Record<string, unknown> | null,
+})
+async function load() {
+  await Promise.all([page.load(), references.load()])
+}
+function edit(item: Rule | null) {
+  page.edit(item)
+  Object.assign(form, {
+    name: item?.name || '',
+    applicableClassId: item?.applicableClassId || '',
+    kind: item?.kind || 'VALIDATION',
+    condition: item?.condition || '',
+    actionType: item?.action.type || 'REJECT',
+    message: item?.action.message || '',
+    severity: item?.severity || 'ERROR',
+    scoring: item?.scoring || null,
+  })
+}
+async function save() {
+  try {
+    if (!form.name.trim() || !form.applicableClassId)
+      throw new Error('请填写规则名称并选择适用对象。')
+    await page.save({
+      name: form.name,
+      applicableClassId: form.applicableClassId,
+      kind: form.kind,
+      condition: form.condition,
+      severity: form.severity,
+      action: form.kind === 'VALIDATION' ? { type: form.actionType, message: form.message } : {},
+      scoring: form.kind === 'SCORING' ? scoring.value?.read() : null,
+    })
+  } catch (cause) {
+    page.mutation.error.value = cause instanceof Error ? cause.message : '评分配置无法读取。'
+  }
+}
+onMounted(load)
+</script>
+<template>
+  <div class="page-heading">
+    <div>
+      <h1>规则与评分</h1>
+      <p class="muted">声明校验和评分规则，在候选中执行与验证。</p>
+    </div>
+    <div class="row">
+      <el-button @click="load">刷新</el-button>
+      <el-button v-if="page.workspace.canWrite" type="primary" @click="edit(null)">
+        新建规则
+      </el-button>
+    </div>
+  </div>
+  <p v-if="references.error.value" class="error-text" role="alert">
+    引用读取失败：{{ references.error.value }}
+    <el-button text @click="references.load">重试</el-button>
+  </p>
+  <p v-if="page.mutation.error.value && !page.open.value" class="error-text" role="alert">
+    {{ page.mutation.error.value }}
+  </p>
+  <AsyncState
+    :loading="page.items.loading.value"
+    :error="page.items.error.value"
+    :empty="!page.items.data.value.length"
+    empty-text="暂无规则。建立规则后可绑定到操作，并随候选冻结。"
+    @retry="load"
+  >
+    <section class="panel overflow">
+      <el-table :data="page.items.data.value">
+        <el-table-column type="expand">
+          <template #default="{ row }"><EntityDetails :item="row" /></template>
+        </el-table-column>
+        <el-table-column prop="name" label="名称" min-width="140" />
+        <el-table-column prop="kind" label="类型" width="130" />
+        <el-table-column prop="condition" label="条件（空条件为真）" min-width="240" />
+        <el-table-column prop="severity" label="级别" width="100" />
+        <el-table-column v-if="page.workspace.canWrite" label="操作" width="130">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="edit(row)">编辑</el-button>
+            <el-button
+              link
+              type="danger"
+              :disabled="page.mutation.pending.value"
+              @click="page.remove(row)"
+            >
+              删除
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </section>
+  </AsyncState>
+  <el-dialog
+    destroy-on-close
+    v-model="page.open.value"
+    title="维护规则"
+    width="760px"
+    :close-on-click-modal="false"
+    :show-close="!page.mutation.pending.value"
+    :close-on-press-escape="!page.mutation.pending.value"
+  >
+    <el-form label-position="top" @submit.prevent="save">
+      <el-form-item label="规则名称" required>
+        <el-input v-model="form.name" maxlength="200" />
+      </el-form-item>
+      <div class="form-columns">
+        <el-form-item label="适用对象" required>
+          <el-select v-model="form.applicableClassId" filterable>
+            <el-option
+              v-for="item in references.data.value.classes || []"
+              :key="item.id"
+              :value="item.id"
+              :label="item.name"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="规则类型">
+          <el-select v-model="form.kind">
+            <el-option value="VALIDATION" label="校验" />
+            <el-option value="SCORING" label="评分" />
+          </el-select>
+        </el-form-item>
+      </div>
+      <el-form-item label="条件表达式（留空为 true）">
+        <el-input
+          v-model="form.condition"
+          type="textarea"
+          :rows="3"
+          placeholder="${属性UUID} >= 0"
+        />
+      </el-form-item>
+      <p class="muted">
+        支持属性引用、字面量、比较、逻辑、算术及白名单函数。保存时服务端校验语法、类型和引用。
+      </p>
+      <el-form-item label="级别">
+        <el-select v-model="form.severity">
+          <el-option value="ERROR" label="错误 ERROR" />
+          <el-option value="WARN" label="警告 WARN" />
+        </el-select>
+      </el-form-item>
+      <template v-if="form.kind === 'VALIDATION'">
+        <el-form-item label="命中动作">
+          <el-select v-model="form.actionType">
+            <el-option value="REJECT" label="拒绝" />
+            <el-option value="ACCEPT" label="接受" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="动作说明"><el-input v-model="form.message" /></el-form-item>
+      </template>
+      <ScoringFields
+        v-else
+        ref="scoring"
+        :value="form.scoring"
+        :properties="references.data.value.properties || []"
+      />
+      <EditorActions
+        :pending="page.mutation.pending.value"
+        :error="page.mutation.error.value"
+        :stale="page.draft.stale.value"
+        :can-write="page.workspace.canWrite && !references.error.value"
+        @cancel="page.open.value = false"
+      />
+    </el-form>
+  </el-dialog>
+  <DraftConflictsPanel />
+</template>
+
++++ 新增 web\apps\onto-admin\src\features\p1\RelationsView.vue
+<script setup lang="ts">
+/** 正向关系是维护入口，逆向名称由服务端原子创建；客户端永不写 inverseOf。 */
+import { onMounted, reactive } from 'vue'
+import type { Relation } from '@onto/api-client'
+import AsyncState from '@onto/shared-ui/AsyncState.vue'
+import { useDraftCollection } from './useDraftCollection'
+import { useReferences } from './useReferences'
+import EditorActions from './EditorActions.vue'
+import EntityDetails from './EntityDetails.vue'
+const page = useDraftCollection<Relation>('/relations'),
+  references = useReferences(['classes'])
+const form = reactive({
+  name: '',
+  fromClassId: '',
+  toClassId: '',
+  cardinality: 'ONE_TO_MANY' as Relation['cardinality'],
+  inverseName: '',
+  transitive: false,
+  symmetric: false,
+  description: '',
+})
+const cardinalities = {
+  ONE_TO_ONE: '一对一',
+  ONE_TO_MANY: '一对多',
+  MANY_TO_ONE: '多对一',
+  MANY_TO_MANY: '多对多',
+}
+async function load() {
+  await Promise.all([page.load(), references.load()])
+}
+function edit(item: Relation | null) {
+  page.edit(item)
+  Object.assign(form, {
+    name: item?.name || '',
+    fromClassId: item?.fromClassId || '',
+    toClassId: item?.toClassId || '',
+    cardinality: item?.cardinality || 'ONE_TO_MANY',
+    inverseName:
+      page.items.data.value.find((entry) => item && entry.id === item.inverseOf)?.name || '',
+    transitive: item?.transitive || false,
+    symmetric: item?.symmetric || false,
+    description: item?.description || '',
+  })
+}
+async function save() {
+  if (!form.name.trim() || !form.fromClassId || !form.toClassId) {
+    page.mutation.error.value = '请填写名称和两个关系端点。'
+    return
+  }
+  if (form.fromClassId === form.toClassId) {
+    page.mutation.error.value = '关系端点须为不同对象。'
+    return
+  }
+  await page.save({ ...form, inverseName: form.inverseName.trim() || undefined })
+}
+const label = (id: string) =>
+  references.data.value.classes?.find((item) => item.id === id)?.name || id
+onMounted(load)
+</script>
+<template>
+  <div class="page-heading">
+    <div>
+      <h1>关系与逆关系</h1>
+      <p class="muted">定义对象间的方向与基数，逆边由服务端同步维护。</p>
+    </div>
+    <div class="row">
+      <el-button @click="load">刷新</el-button>
+      <el-button v-if="page.workspace.canWrite" type="primary" @click="edit(null)">
+        新建关系
+      </el-button>
+    </div>
+  </div>
+  <p v-if="references.error.value" class="error-text" role="alert">
+    对象选项读取失败：{{ references.error.value }}
+    <el-button text @click="references.load">重试</el-button>
+  </p>
+  <p v-if="page.mutation.error.value && !page.open.value" class="error-text" role="alert">
+    {{ page.mutation.error.value }}
+  </p>
+  <AsyncState
+    :loading="page.items.loading.value"
+    :error="page.items.error.value"
+    :empty="!page.items.data.value.length"
+    empty-text="暂无关系。先建立至少两个领域对象。"
+    @retry="load"
+  >
+    <section class="panel overflow">
+      <el-table :data="page.items.data.value">
+        <el-table-column type="expand">
+          <template #default="{ row }"><EntityDetails :item="row" /></template>
+        </el-table-column>
+        <el-table-column prop="name" label="关系" min-width="130" />
+        <el-table-column label="方向" min-width="200">
+          <template #default="{ row }">
+            {{ label(row.fromClassId) }} → {{ label(row.toClassId) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="基数" width="110">
+          <template #default="{ row }">
+            {{ cardinalities[row.cardinality as Relation['cardinality']] }}
+          </template>
+        </el-table-column>
+        <el-table-column label="语义" min-width="180">
+          <template #default="{ row }">
+            {{ row.transitive ? '传递 ' : '' }}{{ row.symmetric ? '对称 ' : ''
+            }}{{ row.inverseOf ? '关联逆边' : '单向' }}
+          </template>
+        </el-table-column>
+        <el-table-column v-if="page.workspace.canWrite" label="操作" width="130">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="edit(row)">编辑</el-button>
+            <el-button
+              link
+              type="danger"
+              :disabled="page.mutation.pending.value"
+              @click="page.remove(row)"
+            >
+              删除
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </section>
+  </AsyncState>
+  <el-dialog
+    destroy-on-close
+    v-model="page.open.value"
+    :title="page.editing.value ? '编辑关系' : '新建关系'"
+    width="640px"
+    :close-on-click-modal="false"
+    :show-close="!page.mutation.pending.value"
+    :close-on-press-escape="!page.mutation.pending.value"
+  >
+    <el-form label-position="top" @submit.prevent="save">
+      <el-form-item label="关系名称" required>
+        <el-input v-model="form.name" maxlength="200" />
+      </el-form-item>
+      <div class="form-columns">
+        <el-form-item label="起点对象" required>
+          <el-select v-model="form.fromClassId" filterable>
+            <el-option
+              v-for="item in references.data.value.classes || []"
+              :key="item.id"
+              :value="item.id"
+              :label="item.name"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="终点对象" required>
+          <el-select v-model="form.toClassId" filterable>
+            <el-option
+              v-for="item in references.data.value.classes || []"
+              :key="item.id"
+              :value="item.id"
+              :label="item.name"
+            />
+          </el-select>
+        </el-form-item>
+      </div>
+      <el-form-item label="关系基数">
+        <el-select v-model="form.cardinality">
+          <el-option v-for="(label, key) in cardinalities" :key="key" :value="key" :label="label" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="逆关系名称（留空不新建逆边）">
+        <el-input v-model="form.inverseName" />
+      </el-form-item>
+      <p class="muted">修改端点和基数会同步逆边；删除关系也会删除其关联逆边。</p>
+      <div class="row">
+        <el-checkbox v-model="form.transitive">传递</el-checkbox>
+        <el-checkbox v-model="form.symmetric">对称</el-checkbox>
+      </div>
+      <el-form-item label="说明">
+        <el-input v-model="form.description" type="textarea" :rows="3" />
+      </el-form-item>
+      <EditorActions
+        :pending="page.mutation.pending.value"
+        :error="page.mutation.error.value"
+        :stale="page.draft.stale.value"
+        :can-write="page.workspace.canWrite && !references.error.value"
+        @cancel="page.open.value = false"
+      />
+    </el-form>
+  </el-dialog>
+</template>
+
++++ 新增 web\apps\onto-admin\src\features\p1\PropertyFacetsFields.vue
+<script setup lang="ts">
+/** 分面子组件不创建 form；默认值/枚举采用 JSON 以保留数字、布尔与文本的真实类型。 */
+import { computed, reactive, watch } from 'vue'
+import type { Codebook, PropertyFacets, RangeType } from '@onto/api-client'
+import { parseFacets } from './inputs'
+const props = defineProps<{
+  facets?: PropertyFacets
+  books: Codebook[]
+  rangeType: RangeType
+  required: boolean
+}>()
+const form = reactive({
+  unitCodebookId: '',
+  unitCode: '',
+  codebookId: '',
+  defaultValue: '',
+  enumValues: '',
+  minimum: undefined as number | undefined,
+  maximum: undefined as number | undefined,
+  primaryKey: false,
+})
+watch(
+  () => props.facets,
+  (facets) =>
+    Object.assign(form, {
+      unitCodebookId: facets?.unitCodebookId || '',
+      unitCode: facets?.unitCode || '',
+      codebookId: facets?.codebookId || '',
+      defaultValue: facets?.defaultValue === undefined ? '' : JSON.stringify(facets.defaultValue),
+      enumValues: facets?.enumValues === undefined ? '' : JSON.stringify(facets.enumValues),
+      minimum: facets?.minimum,
+      maximum: facets?.maximum,
+      primaryKey: facets?.primaryKey || false,
+    }),
+  { immediate: true },
+)
+const units = computed(() => props.books.filter((book) => book.kind === 'UNIT'))
+const unitEntries = computed(
+  () => units.value.find((book) => book.id === form.unitCodebookId)?.entries || [],
+)
+function read(): PropertyFacets {
+  const facets: Record<string, unknown> = { primaryKey: form.primaryKey }
+  if (form.unitCodebookId) {
+    facets.unitCodebookId = form.unitCodebookId
+    facets.unitCode = form.unitCode
+  }
+  if (form.codebookId) facets.codebookId = form.codebookId
+  try {
+    if (form.defaultValue.trim()) facets.defaultValue = JSON.parse(form.defaultValue)
+    if (form.enumValues.trim()) facets.enumValues = JSON.parse(form.enumValues)
+  } catch {
+    throw new Error('默认值和枚举须为有效 JSON；文本请加双引号。')
+  }
+  if (form.minimum !== undefined) facets.minimum = form.minimum
+  if (form.maximum !== undefined) facets.maximum = form.maximum
+  return parseFacets(props.rangeType, JSON.stringify(facets), props.required)
+}
+defineExpose({ read })
+</script>
+<template>
+  <fieldset class="facet-fields">
+    <legend>高级分面</legend>
+    <div class="form-columns">
+      <el-form-item label="单位码表">
+        <el-select v-model="form.unitCodebookId" clearable @change="form.unitCode = ''">
+          <el-option v-for="book in units" :key="book.id" :value="book.id" :label="book.name" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="单位编码">
+        <el-select v-model="form.unitCode" clearable :disabled="!form.unitCodebookId">
+          <el-option
+            v-for="entry in unitEntries"
+            :key="entry.code"
+            :value="entry.code"
+            :label="`${entry.code} · ${entry.label}`"
+          />
+        </el-select>
+      </el-form-item>
+    </div>
+    <el-form-item label="取值码表">
+      <el-select v-model="form.codebookId" clearable>
+        <el-option
+          v-for="book in books.filter((item) => item.kind === 'VALUE')"
+          :key="book.id"
+          :value="book.id"
+          :label="book.name"
+        />
+      </el-select>
+    </el-form-item>
+    <el-form-item label="默认值（JSON 标量）">
+      <el-input v-model="form.defaultValue" placeholder='例如 3、true 或 "文本"' />
+    </el-form-item>
+    <el-form-item label="枚举值（JSON 数组）">
+      <el-input v-model="form.enumValues" placeholder='例如 [1,2] 或 ["甲","乙"]' />
+    </el-form-item>
+    <div class="form-columns">
+      <el-form-item label="最小数值">
+        <el-input-number
+          v-model="form.minimum"
+          :disabled="!['INTEGER', 'DECIMAL'].includes(rangeType)"
+        />
+      </el-form-item>
+      <el-form-item label="最大数值">
+        <el-input-number
+          v-model="form.maximum"
+          :disabled="!['INTEGER', 'DECIMAL'].includes(rangeType)"
+        />
+      </el-form-item>
+    </div>
+    <el-checkbox v-model="form.primaryKey">主键（必须为必填，同对象至多一个）</el-checkbox>
+  </fieldset>
+</template>
+<style scoped>
+.facet-fields {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 16px;
+  margin: 0 0 18px;
+}
+.facet-fields legend {
+  color: var(--muted);
+  font-size: 13px;
+  padding: 0 8px;
+}
+</style>
+
++++ 新增 web\apps\onto-admin\src\features\p1\inputs.ts
+import type { RangeType, PropertyFacets, Scalar } from '@onto/api-client'
+/** JSON 编辑器不执行表达式；非法输入保留原文并阻止提交，不以空对象兜底。 */
+export function parseObject(text: string, label: string): Record<string, unknown> {
+  try {
+    const value: unknown = JSON.parse(text)
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error()
+    return value as Record<string, unknown>
+  } catch {
+    throw new Error(`${label}须为有效的 JSON 对象。`)
+  }
+}
+/** 保留 JSON 标量类型。服务端仍负责码表同空间、引用、单类唯一主键等权威校验。 */
+export function parseFacets(type: RangeType, text: string, required: boolean): PropertyFacets {
+  const value = parseObject(text, '高级分面')
+  const valid = (item: unknown): item is Scalar => {
+    if (type === 'INTEGER') return typeof item === 'number' && Number.isInteger(item)
+    if (type === 'DECIMAL') return typeof item === 'number' && Number.isFinite(item)
+    if (type === 'BOOLEAN') return typeof item === 'boolean'
+    return typeof item === 'string' && (type !== 'DATE' || /^\d{4}-\d{2}-\d{2}$/.test(item))
+  }
+  if ('defaultValue' in value && !valid(value.defaultValue))
+    throw new Error('默认值与属性类型不匹配。')
+  if ('enumValues' in value && (!Array.isArray(value.enumValues) || !value.enumValues.every(valid)))
+    throw new Error('枚举值与属性类型不匹配。')
+  for (const key of ['minimum', 'maximum'])
+    if (key in value && (typeof value[key] !== 'number' || !['INTEGER', 'DECIMAL'].includes(type)))
+      throw new Error('数值范围仅用于数值类型。')
+  if (
+    typeof value.minimum === 'number' &&
+    typeof value.maximum === 'number' &&
+    value.minimum > value.maximum
+  )
+    throw new Error('最小范围不能大于最大范围。')
+  if (value.primaryKey === true && !required) throw new Error('主键必须设为必填。')
+  if (
+    'defaultValue' in value &&
+    Array.isArray(value.enumValues) &&
+    !value.enumValues.includes(value.defaultValue)
+  )
+    throw new Error('默认值必须属于枚举。')
+  if (
+    typeof value.defaultValue === 'number' &&
+    ((typeof value.minimum === 'number' && value.defaultValue < value.minimum) ||
+      (typeof value.maximum === 'number' && value.defaultValue > value.maximum))
+  )
+    throw new Error('默认值超出范围。')
+  return value as PropertyFacets
+}
+export function parseEntries(text: string) {
+  const seen = new Set<string>()
+  const entries = text
+    .split(/\r?\n/)
+    .filter((line) => line.trim())
+    .map((line) => {
+      const index = line.indexOf('=')
+      const code = line.slice(0, index).trim(),
+        label = line.slice(index + 1).trim()
+      if (index <= 0 || !code || !label) throw new Error('每行填写 编码=名称，二者不可为空。')
+      if (seen.has(code)) throw new Error(`编码重复：${code}`)
+      seen.add(code)
+      return { code, label }
+    })
+  if (!entries.length) throw new Error('至少填写一个码表条目。')
+  return entries
+}
+export function canWaive(
+  role: string,
+  checks: { kind: string; conclusion: string; reason: string }[],
+) {
+  return (
+    role === 'OWNER' &&
+    checks.some(
+      (item) =>
+        item.kind === 'CONSISTENCY' &&
+        item.conclusion === 'NOT_CHECKED' &&
+        item.reason === 'SUBSET_EXCEEDED',
+    )
+  )
+}
+
++++ 新增 web\apps\onto-admin\src\features\p1\ImportsView.vue
+<script setup lang="ts">
+/** 预览和应用是两个明确动作；内容改变即撤销确认，不解析外部 imports，也不在本地模拟导入成功。 */
+import { computed, reactive, ref, watch } from 'vue'
+import type { ImportPreview, Space } from '@onto/api-client'
+import { useSession } from '../../stores/session'
+import { useWorkspace } from '../../stores/workspace'
+import { useDraftRevision } from '../../composables/useDraftRevision'
+import { useMutation } from '../../composables/useMutation'
+const api = useSession().api,
+  workspace = useWorkspace(),
+  mutation = useMutation(),
+  exporting = useMutation(),
+  draft = useDraftRevision()
+const form = reactive({ kind: 'TTL' as 'TTL' | 'OWL', content: '' }),
+  preview = ref<ImportPreview | null>(null),
+  confirmed = ref(false),
+  exported = ref('')
+const canApply = computed(
+  () =>
+    workspace.canWrite &&
+    !draft.stale.value &&
+    preview.value?.status === 'PREVIEW' &&
+    !preview.value.errors.length &&
+    !preview.value.conflicts.length &&
+    confirmed.value &&
+    preview.value.targetDraftRev === workspace.space?.draftRev,
+)
+watch(
+  () => [form.kind, form.content],
+  () => {
+    preview.value = null
+    confirmed.value = false
+  },
+)
+async function makePreview() {
+  const space = workspace.space
+  if (!space || !workspace.canWrite) return
+  if (!form.content.trim()) {
+    mutation.error.value = '请粘贴或选择 TTL / OWL 内容。'
+    return
+  }
+  preview.value = null
+  confirmed.value = false
+  draft.start(space.draftRev)
+  await mutation.run(() =>
+    draft.submit(async (expectedDraftRev) => {
+      preview.value = await api.post<ImportPreview>(`/spaces/${space.id}/imports/preview`, {
+        ...form,
+        expectedDraftRev,
+      })
+    }),
+  )
+}
+async function apply() {
+  if (!canApply.value || !preview.value) return
+  const id = preview.value.id
+  await mutation.run(() =>
+    draft.submit(async (expectedDraftRev) => {
+      workspace.accept(await api.post<Space>(`/imports/${id}/apply`, { expectedDraftRev }))
+      preview.value = null
+      confirmed.value = false
+    }),
+  )
+}
+async function readFile(event: Event) {
+  const input = event.target as HTMLInputElement,
+    file = input.files?.[0]
+  if (!file) return
+  await mutation.run(async () => {
+    form.content = await file.text()
+  })
+  input.value = ''
+}
+async function exportTtl() {
+  const space = workspace.space
+  if (!space) return
+  exported.value = ''
+  await exporting.run(async () => {
+    const result = await api.get<{ content: string; format: 'TTL' }>(`/spaces/${space.id}/export`)
+    exported.value = result.content
+  })
+}
+function download() {
+  const url = URL.createObjectURL(new Blob([exported.value], { type: 'text/turtle;charset=utf-8' }))
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `${workspace.space?.code || 'ontology'}.ttl`
+  link.click()
+  URL.revokeObjectURL(url)
+}
+</script>
+<template>
+  <div class="page-heading">
+    <div>
+      <h1>TTL / OWL 导入导出</h1>
+      <p class="muted">先预览差异和不支持构造，人工确认后再写入草稿。</p>
+    </div>
+    <el-button :loading="exporting.pending.value" @click="exportTtl">读取 TTL 导出</el-button>
+  </div>
+  <section class="panel stack">
+    <el-form label-position="top" @submit.prevent="makePreview">
+      <div class="row">
+        <el-form-item label="格式">
+          <el-select v-model="form.kind" :disabled="mutation.pending.value || !workspace.canWrite">
+            <el-option value="TTL" label="Turtle / TTL" />
+            <el-option value="OWL" label="OWL / RDF XML" />
+          </el-select>
+        </el-form-item>
+        <label v-if="workspace.canWrite" class="plain-button">
+          选择本地文件
+          <input
+            type="file"
+            accept=".ttl,.owl,.rdf,.xml,text/turtle,application/rdf+xml"
+            :disabled="mutation.pending.value"
+            class="file-input"
+            @change="readFile"
+          />
+        </label>
+      </div>
+      <el-form-item label="原始内容" required>
+        <el-input
+          v-model="form.content"
+          type="textarea"
+          :rows="14"
+          :disabled="mutation.pending.value || !workspace.canWrite"
+          spellcheck="false"
+        />
+      </el-form-item>
+      <el-button
+        v-if="workspace.canWrite"
+        type="primary"
+        native-type="submit"
+        :loading="mutation.pending.value"
+      >
+        预览导入
+      </el-button>
+      <p v-else class="muted">当前账号只可查看和导出。</p>
+    </el-form>
+    <p v-if="draft.stale.value" class="error-text" role="alert">
+      预览修订已过期；请保留原文并刷新空间后重新预览。
+    </p>
+    <p v-if="mutation.error.value" class="error-text" role="alert">{{ mutation.error.value }}</p>
+    <section v-if="preview" class="stack">
+      <div class="row spread">
+        <h2>预览结果 · {{ preview.status }}</h2>
+        <span class="pill">
+          目标 r{{ preview.targetDraftRev }} · 新增 {{ preview.added }} · 更新 {{ preview.updated }}
+        </span>
+      </div>
+      <p class="muted">
+        未确认前草稿保持不变。不支持构造会保留原文进入候选；它们不代表已执行相应推理。
+      </p>
+      <section
+        v-for="group in [
+          { name: '语法 / 解析错误', items: preview.errors },
+          { name: '导入冲突', items: preview.conflicts },
+          { name: '不支持的构造（保留原文）', items: preview.unsupported },
+        ]"
+        :key="group.name"
+      >
+        <h3>{{ group.name }} · {{ group.items.length }}</h3>
+        <el-table v-if="group.items.length" :data="group.items">
+          <el-table-column prop="line" label="行" width="70" />
+          <el-table-column prop="construct" label="构造" min-width="120" />
+          <el-table-column prop="message" label="说明" min-width="240" />
+        </el-table>
+        <p v-else class="muted">无</p>
+      </section>
+      <el-checkbox
+        v-model="confirmed"
+        :disabled="
+          preview.status !== 'PREVIEW' ||
+          !!preview.errors.length ||
+          !!preview.conflicts.length ||
+          !workspace.canWrite ||
+          mutation.pending.value
+        "
+      >
+        我已核对差异、冲突和不支持构造，确认写入当前草稿
+      </el-checkbox>
+      <el-button
+        type="primary"
+        :disabled="!canApply"
+        :loading="mutation.pending.value"
+        @click="apply"
+      >
+        确认应用导入
+      </el-button>
+    </section>
+  </section>
+  <p v-if="exporting.error.value" class="error-text" role="alert">{{ exporting.error.value }}</p>
+  <section v-if="exported" class="panel export-panel">
+    <div class="row spread">
+      <h2>导出内容 · TTL</h2>
+      <el-button @click="download">下载 .ttl</el-button>
+    </div>
+    <el-input :model-value="exported" type="textarea" :rows="12" readonly />
+  </section>
+</template>
+<style scoped>
+.file-input {
+  display: block;
+  font-size: 12px;
+  max-width: 220px;
+  margin-top: 6px;
+}
+.export-panel {
+  margin-top: 16px;
+}
+</style>
+
++++ 新增 web\apps\onto-admin\src\features\p1\forms.test.ts
+// @vitest-environment jsdom
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
+import { defineComponent, h } from 'vue'
+import { createPinia, setActivePinia } from 'pinia'
+import ElementPlus from 'element-plus'
+import type { Space } from '@onto/api-client'
+import { useSession } from '../../stores/session'
+import { useWorkspace } from '../../stores/workspace'
+import CodebooksView from './CodebooksView.vue'
+import RelationsView from './RelationsView.vue'
+import ConstraintsView from './ConstraintsView.vue'
+import RulesView from './RulesView.vue'
+import StrategiesView from './StrategiesView.vue'
+import TestCasesView from './TestCasesView.vue'
+import OperationDialog from '../../components/OperationDialog.vue'
+import PropertyDialog from '../../components/PropertyDialog.vue'
+
+// 下拉使用原生select隔离jsdom浮层限制；el-form、输入和提交按钮保持真实组件。
+const select = defineComponent({
+  props: { modelValue: [String, Array], multiple: Boolean },
+  emits: ['update:modelValue'],
+  setup(props, { emit, slots }) {
+    return () =>
+      h(
+        'select',
+        {
+          multiple: props.multiple,
+          value: props.modelValue,
+          onChange: (event: Event) => {
+            const target = event.target as HTMLSelectElement
+            emit(
+              'update:modelValue',
+              props.multiple
+                ? Array.from(target.selectedOptions, (item) => item.value)
+                : target.value,
+            )
+          },
+        },
+        slots.default?.(),
+      )
+  },
+})
+const option = defineComponent({
+  props: { value: String, label: String },
+  setup(props) {
+    return () => h('option', { value: props.value }, props.label)
+  },
+})
+const space = { id: 's', role: 'OWNER', status: 'ACTIVE', draftRev: 5 } as Space
+async function choose(wrapper: VueWrapper, index: number, value: string) {
+  await wrapper.findAll('select')[index]!.setValue(value)
+}
+describe('P1 独立业务表单提交', () => {
+  it('旧属性列表必须使用列表读取修订，不能借工作区新修订覆盖', async () => {
+    const request = vi.spyOn(useSession().api, 'post').mockResolvedValue({ ...space, draftRev: 6 })
+    const wrapper = mount(PropertyDialog, {
+      props: { modelValue: false, item: null, classId: 'a', revision: 4 },
+      attachTo: document.body,
+      global: {
+        plugins: [ElementPlus],
+        stubs: { teleport: true, ElSelect: select, ElOption: option },
+      },
+    })
+    await wrapper.setProps({ modelValue: true })
+    await flushPromises()
+    await wrapper.findAll('input[type=text]')[0]!.setValue('属性')
+    wrapper.get<HTMLButtonElement>('button[type=submit]').element.click()
+    await flushPromises()
+    expect(request).toHaveBeenCalledWith(
+      '/properties',
+      expect.objectContaining({ expectedDraftRev: 4 }),
+    )
+    wrapper.unmount()
+  })
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    useWorkspace().space = { ...space }
+    document.body.innerHTML = ''
+    vi.spyOn(useSession().api, 'get').mockImplementation(async <T>(path: string): Promise<T> => {
+      const result: unknown =
+        path === '/spaces/s'
+          ? space
+          : path.startsWith('/classes?')
+            ? [
+                { id: 'a', name: '设备' },
+                { id: 'b', name: '部件' },
+              ]
+            : path === '/spaces/s/properties'
+              ? [{ id: 'p', name: '功率' }]
+              : path.startsWith('/operations?')
+                ? [{ id: 'o', name: '查询' }]
+                : []
+      return result as T
+    })
+  })
+  it.each([
+    {
+      name: '码表',
+      component: CodebooksView,
+      path: '/codebooks',
+      prepare: async (wrapper: VueWrapper) => {
+        await wrapper.findAll('input[type=text]')[0]!.setValue('units')
+        await wrapper.findAll('input[type=text]')[1]!.setValue('示例')
+        await wrapper.get('textarea').setValue('kg=千克')
+      },
+      expected: { code: 'units', entries: [{ code: 'kg', label: '千克' }] },
+    },
+    {
+      name: '关系',
+      component: RelationsView,
+      path: '/relations',
+      prepare: async (wrapper: VueWrapper) => {
+        await wrapper.findAll('input[type=text]')[0]!.setValue('示例')
+        await choose(wrapper, 0, 'a')
+        await choose(wrapper, 1, 'b')
+      },
+      expected: { fromClassId: 'a', toClassId: 'b', cardinality: 'ONE_TO_MANY' },
+    },
+    {
+      name: '约束',
+      component: ConstraintsView,
+      path: '/constraints',
+      prepare: async (wrapper: VueWrapper) => {
+        await wrapper.findAll('input[type=text]')[0]!.setValue('示例')
+        await choose(wrapper, 1, 'p')
+      },
+      expected: { kind: 'RANGE', targetType: 'PROPERTY', targetRef: 'p', expr: { min: 0, max: 1 } },
+    },
+    {
+      name: '规则',
+      component: RulesView,
+      path: '/rules',
+      prepare: async (wrapper: VueWrapper) => {
+        await wrapper.findAll('input[type=text]')[0]!.setValue('示例')
+        await choose(wrapper, 0, 'a')
+      },
+      expected: {
+        kind: 'VALIDATION',
+        applicableClassId: 'a',
+        action: { type: 'REJECT', message: '' },
+        scoring: null,
+      },
+    },
+    {
+      name: '策略',
+      component: StrategiesView,
+      path: '/strategies',
+      prepare: async (wrapper: VueWrapper) => {
+        await wrapper.findAll('input[type=text]')[0]!.setValue('示例')
+      },
+      expected: {
+        policy: {
+          maxRows: 100,
+          timeoutMs: 3000,
+          resultLimit: 100,
+          failureMode: 'FAIL',
+          readScope: null,
+        },
+      },
+    },
+    {
+      name: '用例',
+      component: TestCasesView,
+      path: '/test-cases',
+      prepare: async (wrapper: VueWrapper) => {
+        await wrapper.findAll('input[type=text]')[0]!.setValue('示例')
+        await wrapper.findAll('textarea')[0]!.setValue('列出对象')
+        await choose(wrapper, 0, 'o')
+      },
+      expected: { operationId: 'o', matchMode: 'EXACT', input: {}, expected: {}, enabled: true },
+    },
+  ])(
+    '$name保持唯一form并提交结构化字段和打开时修订',
+    async ({ component, path, prepare, expected }) => {
+      const request = vi
+        .spyOn(useSession().api, 'post')
+        .mockResolvedValue({ ...space, draftRev: 6 })
+      const wrapper = mount(component, {
+        attachTo: document.body,
+        global: {
+          plugins: [ElementPlus],
+          stubs: { teleport: true, ElSelect: select, ElOption: option },
+        },
+      })
+      await flushPromises()
+      await wrapper
+        .findAll('button')
+        .find((button) => button.text().startsWith('新建'))!
+        .trigger('click')
+      await flushPromises()
+      expect(wrapper.findAll('form')).toHaveLength(1)
+      expect(wrapper.find('form form').exists()).toBe(false)
+      await prepare(wrapper)
+      wrapper.get<HTMLButtonElement>('button[type=submit]').element.click()
+      await flushPromises()
+      expect(request).toHaveBeenCalledWith(
+        path,
+        expect.objectContaining({ ...expected, spaceId: 's', expectedDraftRev: 5 }),
+      )
+      wrapper.unmount()
+    },
+  )
+  it.each(['OBJECT_QUERY', 'RELATION_QUERY', 'RULE_CHECK', 'SCORING'] as const)(
+    '四类操作 %s 提交规则策略绑定，规则执行不要求SELECT',
+    async (kind) => {
+      vi.spyOn(useSession().api, 'get').mockImplementation(async <T>(path: string): Promise<T> => {
+        const value: unknown =
+          path === '/spaces/s'
+            ? space
+            : path.startsWith('/rules?')
+              ? [{ id: 'r', name: '冻结规则' }]
+              : path.startsWith('/strategies?')
+                ? [{ id: 't', name: '资源策略' }]
+                : []
+        return value as T
+      })
+      const request = vi
+        .spyOn(useSession().api, 'post')
+        .mockResolvedValue({ ...space, draftRev: 6 })
+      const wrapper = mount(OperationDialog, {
+        props: { modelValue: false, item: null },
+        attachTo: document.body,
+        global: {
+          plugins: [ElementPlus],
+          stubs: { teleport: true, ElSelect: select, ElOption: option },
+        },
+      })
+      await wrapper.setProps({ modelValue: true })
+      await flushPromises()
+      await wrapper.findAll('input[type=text]')[0]!.setValue('test_operation')
+      await wrapper.findAll('input[type=text]')[1]!.setValue('测试操作')
+      await choose(wrapper, 0, kind)
+      await choose(wrapper, 1, 't')
+      await wrapper.findAll('select')[2]!.setValue(['r'])
+      wrapper.get<HTMLButtonElement>('button[type=submit]').element.click()
+      await flushPromises()
+      expect(request).toHaveBeenCalledWith(
+        '/operations',
+        expect.objectContaining({ kind, strategyRef: 't', ruleIds: ['r'], expectedDraftRev: 5 }),
+      )
+      const body = request.mock.calls[0]?.[1] as { queryTemplate: string }
+      if (kind === 'RULE_CHECK' || kind === 'SCORING') expect(body.queryTemplate).toBe('')
+      wrapper.unmount()
+    },
+  )
+})
+
++++ 新增 web\apps\onto-admin\src\features\p1\flows.test.ts
+// @vitest-environment jsdom
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
+import ElementPlus from 'element-plus'
+import { ApiError, type Candidate, type ImportPreview, type Space } from '@onto/api-client'
+import { useSession } from '../../stores/session'
+import { useWorkspace } from '../../stores/workspace'
+import ImportsView from './ImportsView.vue'
+import CandidateChecksPanel from './CandidateChecksPanel.vue'
+import CandidatesView from '../../views/CandidatesView.vue'
+const space = { id: 's', role: 'OWNER', status: 'ACTIVE', draftRev: 5 } as Space
+const candidate = {
+  id: 'c',
+  draftRev: 5,
+  sha256: 'frozen-sha',
+  createdAt: '2026-10-20T00:00:00Z',
+} as Candidate
+const preview: ImportPreview = {
+  id: 'preview',
+  status: 'PREVIEW',
+  targetDraftRev: 5,
+  added: 2,
+  updated: 0,
+  errors: [],
+  conflicts: [],
+  unsupported: [],
+}
+const global = { plugins: [ElementPlus], stubs: { teleport: true, ElSelect: true, ElOption: true } }
+function button(wrapper: VueWrapper, text: string) {
+  return wrapper.findAll('button').find((item) => item.text() === text)!
+}
+describe('P1 导入确认与冻结候选边界', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    useWorkspace().space = { ...space }
+    document.body.innerHTML = ''
+  })
+  it('导入预览不写草稿，只有显式人工确认才应用预览修订', async () => {
+    const request = vi
+      .spyOn(useSession().api, 'post')
+      .mockImplementation(
+        async <T>(path: string): Promise<T> =>
+          (path.endsWith('/preview') ? preview : { ...space, draftRev: 6 }) as T,
+      )
+    const wrapper = mount(ImportsView, { global, attachTo: document.body })
+    await wrapper.get('textarea').setValue('@prefix ex: <https://example.org/> .')
+    wrapper.get<HTMLButtonElement>('button[type=submit]').element.click()
+    await flushPromises()
+    expect(request).toHaveBeenCalledTimes(1)
+    expect(request).toHaveBeenCalledWith('/spaces/s/imports/preview', {
+      kind: 'TTL',
+      content: '@prefix ex: <https://example.org/> .',
+      expectedDraftRev: 5,
+    })
+    expect(useWorkspace().space?.draftRev).toBe(5)
+    expect(button(wrapper, '确认应用导入').attributes('disabled')).toBeDefined()
+    await wrapper.get('input[type=checkbox]').setValue(true)
+    await button(wrapper, '确认应用导入').trigger('click')
+    await flushPromises()
+    expect(request).toHaveBeenCalledWith('/imports/preview/apply', { expectedDraftRev: 5 })
+    expect(useWorkspace().space?.draftRev).toBe(6)
+    wrapper.unmount()
+  })
+  it('修改原文撤销预览确认，409保留原文并暂停写入', async () => {
+    const request = vi.spyOn(useSession().api, 'post').mockResolvedValue(preview)
+    const wrapper = mount(ImportsView, { global })
+    await wrapper.get('textarea').setValue('原始内容')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    await wrapper.get('input[type=checkbox]').setValue(true)
+    await wrapper.get('textarea').setValue('修改后的原文')
+    expect(wrapper.find('input[type=checkbox]').exists()).toBe(false)
+    request.mockRejectedValueOnce(new ApiError('DRAFT_REV_CONFLICT', '草稿已更新', 409))
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(wrapper.get<HTMLTextAreaElement>('textarea').element.value).toBe('修改后的原文')
+    expect(useWorkspace().stale).toBe(true)
+    expect(wrapper.text()).toContain('预览修订已过期')
+    wrapper.unmount()
+  })
+  it('语法失败预览永远不能应用', async () => {
+    const request = vi.spyOn(useSession().api, 'post').mockResolvedValue({
+      ...preview,
+      status: 'FAILED',
+      errors: [{ line: 1, message: '语法错误' }],
+    })
+    const wrapper = mount(ImportsView, { global })
+    await wrapper.get('textarea').setValue('非法内容')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(button(wrapper, '确认应用导入').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('input[type=checkbox]').attributes('disabled')).toBeDefined()
+    expect(request).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+  it('旧候选操作读取失败不回退草稿操作清单', async () => {
+    const read = vi
+      .spyOn(useSession().api, 'get')
+      .mockImplementation(async <T>(path: string): Promise<T> => {
+        if (path === '/spaces/s/candidates') return [candidate] as T
+        if (path === '/spaces/s') return space as T
+        throw new ApiError('CANDIDATE_OPERATIONS_UNAVAILABLE', '冻结操作不可读', 404)
+      })
+    const wrapper = mount(CandidatesView, { global })
+    await flushPromises()
+    expect(read).toHaveBeenCalledWith('/candidates/c/operations')
+    expect(read.mock.calls.some(([path]) => path.startsWith('/operations?'))).toBe(false)
+    expect(wrapper.text()).toContain('冻结操作不可读')
+    wrapper.unmount()
+  })
+  it('检查结果摘要错误时展示失败，不显示成功门禁', async () => {
+    vi.spyOn(useSession().api, 'post').mockResolvedValue({
+      candidateSha256: 'wrong-sha',
+      eligible: true,
+      checks: [],
+    })
+    const wrapper = mount(CandidateChecksPanel, { props: { candidate }, global })
+    await button(wrapper, '运行冲突 / 一致性 / 用例门禁').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('摘要与当前候选不符')
+    expect(wrapper.text()).not.toContain('初期检查通过')
+    wrapper.unmount()
+  })
+  it('OWNER真实超范围允许留痕豁免并重新运行检查', async () => {
+    const check = {
+      candidateSha256: 'frozen-sha',
+      eligible: false,
+      checks: [
+        {
+          kind: 'CONSISTENCY',
+          conclusion: 'NOT_CHECKED',
+          reason: 'SUBSET_EXCEEDED',
+          message: '超范围',
+          details: {},
+        },
+      ],
+    }
+    const request = vi.spyOn(useSession().api, 'post').mockImplementation(
+      async <T>(path: string): Promise<T> =>
+        (path.endsWith('/waivers')
+          ? {
+              id: 'w',
+              candidateSha256: 'frozen-sha',
+              kind: 'SUBSET_EXCEEDED',
+              reason: '保留人工审查',
+              approver: 'owner',
+            }
+          : check) as T,
+    )
+    const wrapper = mount(CandidateChecksPanel, { props: { candidate }, global })
+    await button(wrapper, '运行冲突 / 一致性 / 用例门禁').trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('form')).toHaveLength(1)
+    await wrapper.get('textarea').setValue('保留人工审查')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(request).toHaveBeenCalledWith('/candidates/c/waivers', {
+      kind: 'SUBSET_EXCEEDED',
+      reason: '保留人工审查',
+    })
+    expect(request.mock.calls.filter(([path]) => path.endsWith('/checks'))).toHaveLength(2)
+    wrapper.unmount()
+  })
+  it('VIEWER不发起候选写操作', async () => {
+    useWorkspace().space = { ...space, role: 'VIEWER' }
+    const request = vi.spyOn(useSession().api, 'post')
+    const wrapper = mount(CandidateChecksPanel, { props: { candidate }, global })
+    expect(wrapper.find('button').exists()).toBe(false)
+    expect(wrapper.find('form').exists()).toBe(false)
+    expect(request).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+})
+
++++ 新增 web\apps\onto-admin\src\features\p1\EntityDetails.vue
+<script setup lang="ts">
+/** 结构化定义按文本转义展示，查看者也能检查评分、断言与读取范围的完整内容。 */
+defineProps<{ item: unknown }>()
+</script>
+<template>
+  <pre class="entity-details">{{ JSON.stringify(item, null, 2) }}</pre>
+</template>
+<style scoped>
+.entity-details {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--canvas);
+  padding: 16px;
+  font-size: 12px;
+  margin: 0;
+  line-height: 1.7;
+}
+</style>
+
++++ 新增 web\apps\onto-admin\src\features\p1\EditorActions.vue
+<script setup lang="ts">
+/** 不渲染 form；由业务表单作为唯一原生提交边界。 */
+defineProps<{ pending: boolean; error: string; stale: boolean; canWrite: boolean }>()
+defineEmits<{ cancel: [] }>()
+</script>
+<template>
+  <p v-if="stale" class="error-text" role="alert">
+    表单已过期。请复制保留输入，关闭后刷新本页，再重新编辑。
+  </p>
+  <p v-if="error" class="error-text" role="alert">{{ error }}</p>
+  <div class="row">
+    <el-button
+      type="primary"
+      native-type="submit"
+      :loading="pending"
+      :disabled="!canWrite || stale"
+    >
+      保存
+    </el-button>
+    <el-button :disabled="pending" @click="$emit('cancel')">取消</el-button>
+  </div>
+</template>
+
++++ 新增 web\apps\onto-admin\src\features\p1\DraftConflictsPanel.vue
+<script setup lang="ts">
+import { watch } from 'vue'
+import type { Conflicts } from '@onto/api-client'
+import AsyncState from '@onto/shared-ui/AsyncState.vue'
+import { useResource } from '../../composables/useResource'
+import { readDraftSnapshot } from '../../composables/readDraftSnapshot'
+import { useSession } from '../../stores/session'
+import { useWorkspace } from '../../stores/workspace'
+const workspace = useWorkspace(),
+  api = useSession().api,
+  resource = useResource<Conflicts | null>(null)
+const names = { REFERENCE: '引用', TYPE: '类型', CONSTRAINT: '约束', LOGIC: '逻辑' }
+async function load() {
+  const id = workspace.space?.id
+  if (!id) return
+  await resource.load(
+    async () =>
+      (await readDraftSnapshot(api, id, () => api.get<Conflicts>(`/spaces/${id}/conflicts`))).items,
+  )
+}
+// 新修订使旧检查失效，页面不会继续把旧结论呈现为当前草稿状态。
+watch(() => workspace.space?.draftRev, resource.reset)
+</script>
+<template>
+  <section class="panel stack conflicts-panel">
+    <div class="row spread">
+      <div>
+        <h2>草稿冲突检查</h2>
+        <p class="muted">检查引用、类型、约束和逻辑。结果来自服务端条件分析。</p>
+      </div>
+      <el-button :loading="resource.loading.value" @click="load">检查当前草稿</el-button>
+    </div>
+    <div class="row">
+      <span v-for="(name, kind) in names" :key="kind" class="pill">{{ name }}</span>
+    </div>
+    <AsyncState :loading="resource.loading.value" :error="resource.error.value" @retry="load">
+      <template v-if="resource.data.value">
+        <section
+          v-for="group in [
+            { name: '错误', items: resource.data.value.errors },
+            { name: '警告', items: resource.data.value.warnings },
+          ]"
+          :key="group.name"
+        >
+          <h3>{{ group.name }} · {{ group.items.length }}</h3>
+          <el-table v-if="group.items.length" :data="group.items">
+            <el-table-column label="类别" width="100">
+              <template #default="{ row }">{{ names[row.kind as keyof typeof names] }}</template>
+            </el-table-column>
+            <el-table-column prop="message" label="说明" min-width="240" />
+            <el-table-column label="关联标识" min-width="230">
+              <template #default="{ row }">
+                <span class="mono">{{ row.entityIds.join('，') }}</span>
+              </template>
+            </el-table-column>
+          </el-table>
+          <p v-else class="muted">无{{ group.name }}</p>
+        </section>
+      </template>
+      <p v-else class="muted">尚未检查。点击“检查当前草稿”获取真实结论。</p>
+    </AsyncState>
+  </section>
+</template>
+<style scoped>
+.conflicts-panel {
+  margin-top: 20px;
+}
+.conflicts-panel h2 {
+  margin-bottom: 6px;
+}
+</style>
+
++++ 新增 web\apps\onto-admin\src\features\p1\contracts.test.ts
+import { describe, expect, it } from 'vitest'
+import { parseFacets, parseObject, canWaive, parseEntries } from './inputs'
+
+describe('P1 编辑边界', () => {
+  it('分面保持标量真实类型，不把文本自动转成数字', () => {
+    expect(
+      parseFacets('INTEGER', '{"defaultValue":3,"minimum":0,"enumValues":[3,4]}', true),
+    ).toEqual({ defaultValue: 3, minimum: 0, enumValues: [3, 4] })
+    expect(() => parseFacets('INTEGER', '{"defaultValue":"3"}', true)).toThrow('类型')
+    expect(() => parseFacets('BOOLEAN', '{"enumValues":[true,"false"]}', false)).toThrow('类型')
+  })
+  it('拒绝倒置范围、无效默认值与非必填主键', () => {
+    expect(() => parseFacets('DECIMAL', '{"minimum":5,"maximum":1}', false)).toThrow('范围')
+    expect(() => parseFacets('INTEGER', '{"defaultValue":8,"enumValues":[1,2]}', true)).toThrow(
+      '枚举',
+    )
+    expect(() => parseFacets('STRING', '{"primaryKey":true}', false)).toThrow('必填')
+  })
+  it('JSON输入拒绝数组、null和非法文本，且不伪造空对象成功', () => {
+    for (const text of ['[]', 'null', '{']) expect(() => parseObject(text, '输入')).toThrow('输入')
+    expect(parseObject('{"count":0}', '输入')).toEqual({ count: 0 })
+  })
+  it('码表条目拒绝空编码与重复编码', () => {
+    expect(parseEntries('kg=千克\nm=米')).toEqual([
+      { code: 'kg', label: '千克' },
+      { code: 'm', label: '米' },
+    ])
+    expect(() => parseEntries('kg=千克\nkg=公斤')).toThrow('重复')
+    expect(() => parseEntries('=空')).toThrow('编码')
+  })
+  it('只有OWNER且真实超范围未检查时显示豁免，禁止错误和超时', () => {
+    const check = {
+      kind: 'CONSISTENCY',
+      conclusion: 'NOT_CHECKED',
+      reason: 'SUBSET_EXCEEDED',
+      message: '',
+      details: {},
+    }
+    expect(canWaive('OWNER', [check])).toBe(true)
+    expect(canWaive('EDITOR', [check])).toBe(false)
+    expect(canWaive('OWNER', [{ ...check, reason: 'TIMEOUT' }])).toBe(false)
+    expect(canWaive('OWNER', [{ ...check, conclusion: 'INCONSISTENT' }])).toBe(false)
+  })
+})
+
++++ 新增 web\apps\onto-admin\src\features\p1\ConstraintsView.vue
+<script setup lang="ts">
+/** 四类约束使用固定目标类型；表达式字段独立展示，避免让用户拼写 targetType。 */
+import { computed, onMounted, reactive, watch } from 'vue'
+import type { Constraint } from '@onto/api-client'
+import AsyncState from '@onto/shared-ui/AsyncState.vue'
+import { useDraftCollection } from './useDraftCollection'
+import { useReferences } from './useReferences'
+import EditorActions from './EditorActions.vue'
+import EntityDetails from './EntityDetails.vue'
+const page = useDraftCollection<Constraint>('/constraints'),
+  references = useReferences(['classes', 'properties', 'relations'])
+const form = reactive({
+  name: '',
+  kind: 'RANGE' as Constraint['kind'],
+  targetRef: '',
+  minimum: 0,
+  maximum: 1,
+  refs: [] as string[],
+})
+const kinds = {
+  RANGE: '数值范围',
+  CARDINALITY: '关系基数',
+  MUTEX: '对象互斥',
+  DEPENDENCY: '属性依赖',
+}
+const targetType = computed(() =>
+  form.kind === 'MUTEX' ? 'CLASS' : form.kind === 'CARDINALITY' ? 'RELATION' : 'PROPERTY',
+)
+const options = computed(
+  () =>
+    references.data.value[
+      targetType.value === 'CLASS'
+        ? 'classes'
+        : targetType.value === 'RELATION'
+          ? 'relations'
+          : 'properties'
+    ] || [],
+)
+watch(
+  () => form.kind,
+  () => {
+    form.targetRef = ''
+    form.refs = []
+  },
+)
+async function load() {
+  await Promise.all([page.load(), references.load()])
+}
+async function edit(item: Constraint | null) {
+  page.edit(item)
+  form.kind = item?.kind || 'RANGE'
+  // kind watcher先清理旧目标；下一个微任务再恢复编辑值。
+  await Promise.resolve()
+  Object.assign(form, {
+    name: item?.name || '',
+    targetRef: item?.targetRef || '',
+    minimum: item?.expr.min ?? 0,
+    maximum: item?.expr.max ?? 1,
+    refs: (item?.expr.classIds || item?.expr.requires || []) as string[],
+  })
+}
+async function save() {
+  if (!form.name.trim() || !form.targetRef) {
+    page.mutation.error.value = '请填写名称并选择约束目标。'
+    return
+  }
+  const numeric = form.kind === 'RANGE' || form.kind === 'CARDINALITY'
+  if (
+    numeric &&
+    (form.minimum > form.maximum ||
+      (form.kind === 'CARDINALITY' &&
+        (!Number.isInteger(form.minimum) || !Number.isInteger(form.maximum) || form.minimum < 0)))
+  ) {
+    page.mutation.error.value = '请检查范围；基数必须为非负整数。'
+    return
+  }
+  if (!numeric && (!form.refs.length || form.refs.includes(form.targetRef))) {
+    page.mutation.error.value = '请选择非空关联集合，且不能引用目标自身。'
+    return
+  }
+  const expr = numeric
+    ? { min: form.minimum, max: form.maximum }
+    : form.kind === 'MUTEX'
+      ? { classIds: form.refs }
+      : { requires: form.refs }
+  await page.save({
+    name: form.name,
+    kind: form.kind,
+    targetType: targetType.value,
+    targetRef: form.targetRef,
+    expr,
+  })
+}
+onMounted(load)
+</script>
+<template>
+  <div class="page-heading">
+    <div>
+      <h1>约束管理</h1>
+      <p class="muted">维护范围、基数、互斥和依赖，服务端校验同空间引用及可满足性。</p>
+    </div>
+    <div class="row">
+      <el-button @click="load">刷新</el-button>
+      <el-button v-if="page.workspace.canWrite" type="primary" @click="edit(null)">
+        新建约束
+      </el-button>
+    </div>
+  </div>
+  <p v-if="references.error.value" class="error-text" role="alert">
+    引用读取失败：{{ references.error.value }}
+    <el-button text @click="references.load">重试</el-button>
+  </p>
+  <p v-if="page.mutation.error.value && !page.open.value" class="error-text" role="alert">
+    {{ page.mutation.error.value }}
+  </p>
+  <AsyncState
+    :loading="page.items.loading.value"
+    :error="page.items.error.value"
+    :empty="!page.items.data.value.length"
+    empty-text="暂无约束。可在属性分面之外添加领域限制。"
+    @retry="load"
+  >
+    <section class="panel overflow">
+      <el-table :data="page.items.data.value">
+        <el-table-column type="expand">
+          <template #default="{ row }"><EntityDetails :item="row" /></template>
+        </el-table-column>
+        <el-table-column prop="name" label="名称" min-width="140" />
+        <el-table-column prop="kind" label="类型" width="140" />
+        <el-table-column prop="targetType" label="目标类型" width="120" />
+        <el-table-column label="表达式" min-width="240">
+          <template #default="{ row }">
+            <code>{{ JSON.stringify(row.expr) }}</code>
+          </template>
+        </el-table-column>
+        <el-table-column v-if="page.workspace.canWrite" label="操作" width="130">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="edit(row)">编辑</el-button>
+            <el-button
+              link
+              type="danger"
+              :disabled="page.mutation.pending.value"
+              @click="page.remove(row)"
+            >
+              删除
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </section>
+  </AsyncState>
+  <el-dialog
+    destroy-on-close
+    v-model="page.open.value"
+    title="维护约束"
+    width="640px"
+    :close-on-click-modal="false"
+    :show-close="!page.mutation.pending.value"
+    :close-on-press-escape="!page.mutation.pending.value"
+  >
+    <el-form label-position="top" @submit.prevent="save">
+      <el-form-item label="名称" required><el-input v-model="form.name" /></el-form-item>
+      <el-form-item label="约束类型">
+        <el-select v-model="form.kind">
+          <el-option v-for="(label, key) in kinds" :key="key" :value="key" :label="label" />
+        </el-select>
+      </el-form-item>
+      <el-form-item :label="`目标 ${targetType}`" required>
+        <el-select v-model="form.targetRef" filterable>
+          <el-option v-for="item in options" :key="item.id" :value="item.id" :label="item.name" />
+        </el-select>
+      </el-form-item>
+      <div v-if="form.kind === 'RANGE' || form.kind === 'CARDINALITY'" class="form-columns">
+        <el-form-item label="最小值"><el-input-number v-model="form.minimum" /></el-form-item>
+        <el-form-item label="最大值"><el-input-number v-model="form.maximum" /></el-form-item>
+      </div>
+      <el-form-item
+        v-else
+        :label="form.kind === 'MUTEX' ? '互斥对象集合' : '同类依赖属性集合'"
+        required
+      >
+        <el-select v-model="form.refs" multiple filterable>
+          <el-option
+            v-for="item in references.data.value[
+              form.kind === 'MUTEX' ? 'classes' : 'properties'
+            ] || []"
+            :key="item.id"
+            :value="item.id"
+            :label="item.name"
+            :disabled="item.id === form.targetRef"
+          />
+        </el-select>
+      </el-form-item>
+      <EditorActions
+        :pending="page.mutation.pending.value"
+        :error="page.mutation.error.value"
+        :stale="page.draft.stale.value"
+        :can-write="page.workspace.canWrite && !references.error.value"
+        @cancel="page.open.value = false"
+      />
+    </el-form>
+  </el-dialog>
+</template>
+
++++ 新增 web\apps\onto-admin\src\features\p1\CodebooksView.vue
+<script setup lang="ts">
+import { onMounted, reactive } from 'vue'
+import type { Codebook } from '@onto/api-client'
+import AsyncState from '@onto/shared-ui/AsyncState.vue'
+import { useDraftCollection } from './useDraftCollection'
+import { parseEntries } from './inputs'
+import EditorActions from './EditorActions.vue'
+import EntityDetails from './EntityDetails.vue'
+const page = useDraftCollection<Codebook>('/codebooks')
+const form = reactive({ code: '', name: '', kind: 'VALUE' as Codebook['kind'], entries: '' })
+function edit(item: Codebook | null) {
+  page.edit(item)
+  Object.assign(form, {
+    code: item?.code || '',
+    name: item?.name || '',
+    kind: item?.kind || 'VALUE',
+    entries: item?.entries.map((entry) => `${entry.code}=${entry.label}`).join('\n') || '',
+  })
+}
+async function save() {
+  try {
+    if (!form.code.trim() || !form.name.trim()) throw new Error('请填写编码和名称。')
+    await page.save({ ...form, entries: parseEntries(form.entries) })
+  } catch (cause) {
+    page.mutation.error.value = cause instanceof Error ? cause.message : '条目无法读取。'
+  }
+}
+onMounted(page.load)
+</script>
+<template>
+  <div class="page-heading">
+    <div>
+      <h1>码表管理</h1>
+      <p class="muted">统一维护单位和取值编码，属性仅引用同空间码表。</p>
+    </div>
+    <div class="row">
+      <el-button @click="page.load">刷新</el-button>
+      <el-button v-if="page.workspace.canWrite" type="primary" @click="edit(null)">
+        新建码表
+      </el-button>
+    </div>
+  </div>
+  <p v-if="page.mutation.error.value && !page.open.value" class="error-text" role="alert">
+    {{ page.mutation.error.value }}
+  </p>
+  <AsyncState
+    :loading="page.items.loading.value"
+    :error="page.items.error.value"
+    :empty="!page.items.data.value.length"
+    empty-text="暂无码表。新建单位或取值码表以规范属性。"
+    @retry="page.load"
+  >
+    <section class="panel overflow">
+      <el-table :data="page.items.data.value">
+        <el-table-column type="expand">
+          <template #default="{ row }"><EntityDetails :item="row" /></template>
+        </el-table-column>
+        <el-table-column prop="code" label="编码" min-width="120" />
+        <el-table-column prop="name" label="名称" min-width="140" />
+        <el-table-column label="用途" width="100">
+          <template #default="{ row }">{{ row.kind === 'UNIT' ? '单位' : '取值' }}</template>
+        </el-table-column>
+        <el-table-column label="条目" min-width="220">
+          <template #default="{ row }">
+            {{
+              row.entries
+                .map((entry: { code: string; label: string }) => `${entry.code} · ${entry.label}`)
+                .join('，')
+            }}
+          </template>
+        </el-table-column>
+        <el-table-column v-if="page.workspace.canWrite" label="操作" width="120">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="edit(row)">编辑</el-button>
+            <el-button
+              link
+              type="danger"
+              :disabled="page.mutation.pending.value"
+              @click="page.remove(row)"
+            >
+              删除
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </section>
+  </AsyncState>
+  <el-dialog
+    destroy-on-close
+    v-model="page.open.value"
+    :title="page.editing.value ? '编辑码表' : '新建码表'"
+    width="620px"
+    :close-on-click-modal="false"
+    :show-close="!page.mutation.pending.value"
+    :close-on-press-escape="!page.mutation.pending.value"
+  >
+    <el-form label-position="top" @submit.prevent="save">
+      <el-form-item label="编码" required>
+        <el-input v-model="form.code" maxlength="80" />
+      </el-form-item>
+      <el-form-item label="名称" required>
+        <el-input v-model="form.name" maxlength="200" />
+      </el-form-item>
+      <el-form-item label="码表用途">
+        <el-select v-model="form.kind">
+          <el-option value="UNIT" label="单位" />
+          <el-option value="VALUE" label="取值" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="条目（每行 编码=名称）" required>
+        <el-input v-model="form.entries" type="textarea" :rows="8" placeholder="kg=千克&#10;m=米" />
+      </el-form-item>
+      <EditorActions
+        :pending="page.mutation.pending.value"
+        :error="page.mutation.error.value"
+        :stale="page.draft.stale.value"
+        :can-write="page.workspace.canWrite"
+        @cancel="page.open.value = false"
+      />
+    </el-form>
+  </el-dialog>
+</template>
+
++++ 新增 web\apps\onto-admin\src\features\p1\CandidateChecksPanel.vue
+<script setup lang="ts">
+/** 只调用候选端点；检查结果必须与当前冻结摘要相符，任何失败都不以草稿内容补齐。 */
+import { computed, ref } from 'vue'
+import {
+  ApiError,
+  type Candidate,
+  type CandidateChecks,
+  type CandidateTests,
+  type Waiver,
+} from '@onto/api-client'
+import { useWorkspace } from '../../stores/workspace'
+import { useSession } from '../../stores/session'
+import { useMutation } from '../../composables/useMutation'
+import { canWaive } from './inputs'
+const props = defineProps<{ candidate: Candidate }>(),
+  workspace = useWorkspace(),
+  api = useSession().api,
+  mutation = useMutation()
+const checks = ref<CandidateChecks | null>(null),
+  tests = ref<CandidateTests | null>(null),
+  waiver = ref<Waiver | null>(null),
+  reason = ref('')
+const allowWaiver = computed(
+  () =>
+    workspace.canWrite &&
+    props.candidate.draftRev === workspace.space?.draftRev &&
+    canWaive(workspace.space?.role || '', checks.value?.checks || []),
+)
+function verifyHash(hash: string) {
+  if (hash !== props.candidate.sha256)
+    throw new ApiError(
+      'CANDIDATE_HASH_MISMATCH',
+      '检查结果摘要与当前候选不符，请重新读取候选。',
+      409,
+    )
+}
+async function runChecks() {
+  if (!workspace.canWrite) return
+  await mutation.run(async () => {
+    const result = await api.post<CandidateChecks>(`/candidates/${props.candidate.id}/checks`, {})
+    verifyHash(result.candidateSha256)
+    checks.value = result
+  })
+}
+async function runTests() {
+  if (!workspace.canWrite) return
+  await mutation.run(async () => {
+    const result = await api.post<CandidateTests>(`/candidates/${props.candidate.id}/tests`, {})
+    verifyHash(result.candidateSha256)
+    tests.value = result
+  })
+}
+async function waive() {
+  if (!allowWaiver.value) return
+  if (!reason.value.trim()) {
+    mutation.error.value = '请输入超范围豁免原因。'
+    return
+  }
+  const ok = await mutation.run(async () => {
+    const result = await api.post<Waiver>(`/candidates/${props.candidate.id}/waivers`, {
+      kind: 'SUBSET_EXCEEDED',
+      reason: reason.value.trim(),
+    })
+    verifyHash(result.candidateSha256)
+    waiver.value = result
+  })
+  if (ok) await runChecks()
+}
+</script>
+<template>
+  <section class="stack checks-panel">
+    <div class="row spread">
+      <h3>候选检查</h3>
+      <div v-if="workspace.canWrite" class="row">
+        <el-button :loading="mutation.pending.value" @click="runChecks">
+          运行冲突 / 一致性 / 用例门禁
+        </el-button>
+        <el-button :disabled="mutation.pending.value" @click="runTests">单独运行冻结用例</el-button>
+      </div>
+    </div>
+    <p class="muted">
+      初期门禁结果仅供候选验证；通过不代表正式发布资格。用例从此候选的冻结副本读取。
+    </p>
+    <p v-if="mutation.error.value" class="error-text" role="alert">{{ mutation.error.value }}</p>
+    <template v-if="checks">
+      <div class="row">
+        <el-tag :type="checks.eligible ? 'success' : 'warning'">
+          {{ checks.eligible ? '初期检查通过' : '检查未通过' }}
+        </el-tag>
+        <span class="mono muted">{{ checks.candidateSha256 }}</span>
+      </div>
+      <article
+        v-for="(check, index) in checks.checks"
+        :key="`${check.kind}-${index}`"
+        class="check-row"
+      >
+        <div class="row spread">
+          <b>{{ check.kind }}</b>
+          <el-tag
+            :type="
+              ['PASSED', 'CONSISTENT'].includes(check.conclusion)
+                ? 'success'
+                : check.conclusion === 'NOT_CHECKED'
+                  ? 'warning'
+                  : 'danger'
+            "
+          >
+            {{ check.conclusion }}
+          </el-tag>
+        </div>
+        <p>{{ check.message }}</p>
+        <p class="muted">原因：{{ check.reason || '无' }}</p>
+        <details>
+          <summary>查看检查详情</summary>
+          <pre class="json-details">{{ JSON.stringify(check.details, null, 2) }}</pre>
+        </details>
+      </article>
+    </template>
+    <template v-if="tests">
+      <h3>冻结用例结果 · {{ tests.passed ? '通过' : '未通过' }}</h3>
+      <el-table :data="tests.results">
+        <el-table-column prop="name" label="用例" min-width="140" />
+        <el-table-column label="结论" width="90">
+          <template #default="{ row }">{{ row.passed ? '通过' : '失败' }}</template>
+        </el-table-column>
+        <el-table-column prop="message" label="说明" min-width="180" />
+        <el-table-column prop="executionId" label="执行留痕" min-width="240" />
+      </el-table>
+    </template>
+    <el-form v-if="allowWaiver" label-position="top" @submit.prevent="waive">
+      <div class="readonly-note">
+        OWNER 可对真实 NOT_CHECKED / SUBSET_EXCEEDED 留痕豁免。不一致、超时和引擎错误不能豁免。
+      </div>
+      <el-form-item label="超范围豁免原因" required>
+        <el-input v-model="reason" type="textarea" :rows="3" />
+      </el-form-item>
+      <el-button native-type="submit" type="warning" :loading="mutation.pending.value">
+        确认超范围豁免
+      </el-button>
+    </el-form>
+    <p v-else-if="checks && candidate.draftRev !== workspace.space?.draftRev" class="muted">
+      此候选对应旧修订，不能对当前草稿申请豁免。
+    </p>
+    <p v-if="waiver" class="readonly-note">
+      已记录豁免：{{ waiver.reason }} · 审批人 {{ waiver.approver }} · {{ waiver.id }}
+    </p>
+  </section>
+</template>
+<style scoped>
+.checks-panel {
+  border-top: 1px solid var(--line);
+  padding-top: 20px;
+}
+.check-row {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 14px;
+  min-width: 0;
+}
+.check-row p {
+  margin: 10px 0;
+}
+.json-details {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  background: var(--canvas);
+  padding: 12px;
+}
+</style>
+
+diff --git "a/.runtime\\continuation-baseline\\web\\apps\\onto-admin\\src\\components\\PropertyPanel.vue" "b/web\\apps\\onto-admin\\src\\components\\PropertyPanel.vue"
+index 0e6e10d..8be9f7b 100644
+--- "a/.runtime\\continuation-baseline\\web\\apps\\onto-admin\\src\\components\\PropertyPanel.vue"
++++ "b/web\\apps\\onto-admin\\src\\components\\PropertyPanel.vue"
+@@ -7,6 +7,7 @@ import { useSession } from '../stores/session'
+ import { useResource } from '../composables/useResource'
+ import { useMutation, confirmAction } from '../composables/useMutation'
+ import PropertyDialog from './PropertyDialog.vue'
++import { readDraftSnapshot } from '../composables/readDraftSnapshot'
+ /** 面板只加载当前类的属性；类变更时立即清空旧属性、关闭旧编辑框。 */
+ const props = defineProps<{ item: OntClass }>(),
+   emit = defineEmits<{ edit: []; remove: [] }>()
+@@ -16,17 +17,26 @@ const api = useSession().api,
+   mutation = useMutation()
+ const dialog = ref(false),
+   selected = ref<OntProperty | null>(null)
+-function load() {
++const loadedRev = ref<number>()
++async function load() {
+   const { spaceId, id } = props.item
+-  return properties.load(() =>
+-    api.get<OntProperty[]>(`/properties?spaceId=${spaceId}&classId=${id}`),
+-  )
++  let revision: number | undefined
++  const result = await properties.load(async () => {
++    const snapshot = await readDraftSnapshot(api, spaceId, () =>
++      api.get<OntProperty[]>(`/properties?spaceId=${spaceId}&classId=${id}`),
++    )
++    revision = snapshot.space.draftRev
++    return snapshot.items
++  })
++  // 局部读取只更新列表修订，不恢复因409撤销的整个工作区写权限。
++  if (result && revision !== undefined) loadedRev.value = revision
+ }
+ watch(
+   () => props.item.id,
+   () => {
+     dialog.value = false
+     selected.value = null
++    loadedRev.value = undefined
+     void load()
+   },
+   { immediate: true },
+@@ -36,17 +46,24 @@ function edit(item: OntProperty | null) {
+   dialog.value = true
+ }
+ async function remove(item: OntProperty) {
+-  if (!workspace.canWrite || !workspace.space) return
++  if (!workspace.canWrite || !workspace.space || loadedRev.value === undefined) return
+   const space = workspace.space
+-  if (await confirmAction(`删除属性“${item.name}”？此操作会更新草稿。`))
+-    await mutation.run(async () => {
+-      workspace.accept(
+-        await api.delete<Space>(
+-          `/properties/${item.id}?spaceId=${space.id}&expectedDraftRev=${space.draftRev}`,
+-        ),
++  await mutation.run(async () => {
++    const impact = await api.get<{ references: { kind: string; id: string; name: string }[] }>(
++      `/properties/${item.id}/impact?spaceId=${space.id}`,
++    )
++    if (impact.references.length)
++      throw new Error(
++        `此属性仍被引用，不能删除：${impact.references.map((entry) => `${entry.kind} · ${entry.name}`).join('，')}`,
+       )
+-      await load()
+-    })
++    if (!(await confirmAction(`删除属性“${item.name}”？此操作会更新草稿。`))) return
++    workspace.accept(
++      await api.delete<Space>(
++        `/properties/${item.id}?spaceId=${space.id}&expectedDraftRev=${loadedRev.value}`,
++      ),
++    )
++    await load()
++  })
+ }
+ </script>
+ <template>
+@@ -91,6 +108,11 @@ async function remove(item: OntProperty) {
+             <template #default="{ row }">{{ row.required ? '是' : '否' }}</template>
+           </el-table-column>
+           <el-table-column prop="description" label="说明" min-width="160" />
++          <el-table-column label="高级分面" min-width="220">
++            <template #default="{ row }">
++              <code>{{ JSON.stringify(row.facets || {}) }}</code>
++            </template>
++          </el-table-column>
+           <el-table-column v-if="workspace.canWrite" label="操作" width="115">
+             <template #default="{ row }">
+               <el-button link type="primary" @click="edit(row)">编辑</el-button>
+@@ -102,7 +124,13 @@ async function remove(item: OntProperty) {
+         </el-table>
+       </div>
+     </AsyncState>
+-    <PropertyDialog v-model="dialog" :item="selected" :class-id="item.id" @saved="load" />
++    <PropertyDialog
++      v-model="dialog"
++      :item="selected"
++      :class-id="item.id"
++      :revision="loadedRev"
++      @saved="load"
++    />
+   </section>
+ </template>
+ <style scoped>
+diff --git "a/.runtime\\continuation-baseline\\web\\apps\\onto-admin\\src\\components\\PropertyDialog.vue" "b/web\\apps\\onto-admin\\src\\components\\PropertyDialog.vue"
+index 459f0f5..155ed75 100644
+--- "a/.runtime\\continuation-baseline\\web\\apps\\onto-admin\\src\\components\\PropertyDialog.vue"
++++ "b/web\\apps\\onto-admin\\src\\components\\PropertyDialog.vue"
+@@ -1,18 +1,42 @@
+ <script setup lang="ts">
+ /** 维护当前类的基础属性；写入携带草稿修订，失败不关闭表单，权限变化立即禁用保存。 */
+-import { reactive, watch } from 'vue'
+-import type { OntProperty, RangeType, Space } from '@onto/api-client'
++import { reactive, ref, watch } from 'vue'
++import type { OntProperty, RangeType, Space, Codebook } from '@onto/api-client'
++import PropertyFacetsFields from '../features/p1/PropertyFacetsFields.vue'
++import { useResource } from '../composables/useResource'
++import { readDraftSnapshot } from '../composables/readDraftSnapshot'
+ import { useDraftRevision } from '../composables/useDraftRevision'
+ import { useSession } from '../stores/session'
+ import { useWorkspace } from '../stores/workspace'
+ import { useMutation, notifySaved } from '../composables/useMutation'
+-const props = defineProps<{ item: OntProperty | null; classId: string }>()
++const props = defineProps<{ item: OntProperty | null; classId: string; revision?: number }>()
+ const open = defineModel<boolean>({ required: true }),
+   emit = defineEmits<{ saved: [] }>()
+ const workspace = useWorkspace(),
+   api = useSession().api,
+   { pending, error, run } = useMutation()
+ const draft = useDraftRevision()
++const fields = ref<InstanceType<typeof PropertyFacetsFields>>()
++const references = useResource<{
++  books: Codebook[]
++  impact: { references: { kind: string; id: string; name: string }[] }
++}>({ books: [], impact: { references: [] } })
++async function loadReferences() {
++  const id = workspace.space?.id
++  if (!id) return
++  return references.load(async () => {
++    const snapshot = await readDraftSnapshot(api, id, async () => {
++      const books = await api.get<Codebook[]>(`/codebooks?spaceId=${id}`)
++      const impact = props.item
++        ? await api.get<{ references: { kind: string; id: string; name: string }[] }>(
++            `/properties/${props.item.id}/impact?spaceId=${id}`,
++          )
++        : { references: [] }
++      return { books, impact }
++    })
++    return snapshot.items
++  })
++}
+ const form = reactive({
+   name: '',
+   rangeType: 'STRING' as RangeType,
+@@ -28,7 +52,8 @@ const types: { value: RangeType; label: string }[] = [
+ ]
+ watch(open, (value) => {
+   if (value) {
+-    draft.start(workspace.space?.draftRev || 0)
++    // 属性面板可能仍显示旧列表；只能使用读取该列表时的修订，不能借类树刷新后的新修订写旧实体。
++    draft.start(props.revision ?? workspace.space?.draftRev ?? 0)
+     Object.assign(form, {
+       name: props.item?.name || '',
+       rangeType: props.item?.rangeType || 'STRING',
+@@ -36,6 +61,7 @@ watch(open, (value) => {
+       description: props.item?.description || '',
+     })
+     error.value = ''
++    void loadReferences()
+   }
+ })
+ async function save() {
+@@ -52,6 +78,7 @@ async function save() {
+         spaceId: space.id,
+         domainClassId: props.classId,
+         expectedDraftRev,
++        facets: fields.value?.read() || {},
+       }
+       const next = props.item
+         ? await api.put<Space>(`/properties/${props.item.id}`, body)
+@@ -68,9 +95,10 @@ async function save() {
+ </script>
+ <template>
+   <el-dialog
++    destroy-on-close
+     v-model="open"
+     :title="item ? '编辑属性' : '新建属性'"
+-    width="500px"
++    width="680px"
+     :show-close="!pending"
+     :close-on-click-modal="!pending"
+     :close-on-press-escape="!pending"
+@@ -93,6 +121,26 @@ async function save() {
+       <el-form-item label="属性说明">
+         <el-input v-model="form.description" type="textarea" :rows="3" maxlength="4000" />
+       </el-form-item>
++      <p v-if="references.loading.value" class="muted">正在读取码表与引用影响…</p>
++      <p v-if="references.error.value" class="error-text" role="alert">
++        {{ references.error.value }}
++        <el-button text @click="loadReferences">重试读取</el-button>
++      </p>
++      <div v-if="references.data.value.impact.references.length" class="readonly-note">
++        此属性被引用，修改类型或删除可能被阻止：
++        <ul>
++          <li v-for="reference in references.data.value.impact.references" :key="reference.id">
++            {{ reference.kind }} · {{ reference.name }}
++          </li>
++        </ul>
++      </div>
++      <PropertyFacetsFields
++        ref="fields"
++        :facets="item?.facets"
++        :books="references.data.value.books"
++        :range-type="form.rangeType"
++        :required="form.required"
++      />
+       <p v-if="draft.stale.value" class="error-text" role="alert">
+         表单已过期。可复制当前输入，关闭后刷新本页，再重新打开以载入最新内容。
+       </p>
+@@ -102,7 +150,12 @@ async function save() {
+           native-type="submit"
+           type="primary"
+           :loading="pending"
+-          :disabled="!workspace.canWrite || draft.stale.value"
++          :disabled="
++            !workspace.canWrite ||
++            draft.stale.value ||
++            references.loading.value ||
++            !!references.error.value
++          "
+         >
+           保存属性
+         </el-button>
+diff --git "a/.runtime\\continuation-baseline\\web\\apps\\onto-admin\\src\\components\\OperationDialog.vue" "b/web\\apps\\onto-admin\\src\\components\\OperationDialog.vue"
+index 7f199fa..470e976 100644
+--- "a/.runtime\\continuation-baseline\\web\\apps\\onto-admin\\src\\components\\OperationDialog.vue"
++++ "b/web\\apps\\onto-admin\\src\\components\\OperationDialog.vue"
+@@ -1,7 +1,8 @@
+ <script setup lang="ts">
+ /** 维护受限模型查询与资源上限；模板是可编辑起点，后端负责语法、授权及查询边界校验。 */
+-import { reactive, watch } from 'vue'
+-import type { Operation, Space } from '@onto/api-client'
++import { computed, reactive, watch } from 'vue'
++import type { Operation, OperationKind, Space } from '@onto/api-client'
++import { useReferences } from '../features/p1/useReferences'
+ import { useDraftRevision } from '../composables/useDraftRevision'
+ import { useSession } from '../stores/session'
+ import { useWorkspace } from '../stores/workspace'
+@@ -14,7 +15,18 @@ const workspace = useWorkspace(),
+   api = useSession().api,
+   { pending, error, run } = useMutation()
+ const draft = useDraftRevision()
+-const form = reactive({ code: '', name: '', queryTemplate: '', maxRows: 100, timeoutMs: 3000 })
++const references = useReferences(['rules', 'strategies'])
++const form = reactive({
++  code: '',
++  name: '',
++  kind: 'OBJECT_QUERY' as OperationKind,
++  queryTemplate: '',
++  maxRows: 100,
++  timeoutMs: 3000,
++  strategyRef: '',
++  ruleIds: [] as string[],
++})
++const isQuery = computed(() => form.kind === 'OBJECT_QUERY' || form.kind === 'RELATION_QUERY')
+ watch(open, (value) => {
+   if (value) {
+     draft.start(workspace.space?.draftRev || 0)
+@@ -24,8 +36,12 @@ watch(open, (value) => {
+       queryTemplate: props.item?.queryTemplate || queryTemplates[0]!.query,
+       maxRows: props.item?.maxRows ?? 100,
+       timeoutMs: props.item?.timeoutMs ?? 3000,
++      kind: props.item?.kind || 'OBJECT_QUERY',
++      strategyRef: props.item?.strategyRef || '',
++      ruleIds: [...(props.item?.ruleIds || [])],
+     })
+     error.value = ''
++    void references.load()
+   }
+ })
+ function applyTemplate(index: number) {
+@@ -41,8 +57,8 @@ function applyTemplate(index: number) {
+ async function save() {
+   const space = workspace.space
+   if (!space || !workspace.canWrite) return
+-  if (!form.name.trim() || !form.code.trim() || !form.queryTemplate.trim()) {
+-    error.value = '请填写操作编码、名称和查询语句。'
++  if (!form.name.trim() || !form.code.trim() || (isQuery.value && !form.queryTemplate.trim())) {
++    error.value = '请填写操作编码、名称；查询类操作还须填写 SELECT 语句。'
+     return
+   }
+   if (!/^[A-Za-z][A-Za-z0-9_-]{0,79}$/.test(form.code.trim())) {
+@@ -62,7 +78,13 @@ async function save() {
+   }
+   const ok = await run(() =>
+     draft.submit(async (expectedDraftRev) => {
+-      const body = { ...form, spaceId: space.id, expectedDraftRev }
++      const body = {
++        ...form,
++        queryTemplate: isQuery.value ? form.queryTemplate : '',
++        strategyRef: form.strategyRef || null,
++        spaceId: space.id,
++        expectedDraftRev,
++      }
+       const next = props.item
+         ? await api.put<Space>(`/operations/${props.item.id}`, body)
+         : await api.post<Space>('/operations', body)
+@@ -94,7 +116,15 @@ async function save() {
+           <el-input v-model="form.name" maxlength="200" />
+         </el-form-item>
+       </div>
+-      <div class="row spread template-toolbar">
++      <el-form-item label="操作类型" required>
++        <el-select v-model="form.kind">
++          <el-option value="OBJECT_QUERY" label="对象查询" />
++          <el-option value="RELATION_QUERY" label="关系查询" />
++          <el-option value="RULE_CHECK" label="规则检查" />
++          <el-option value="SCORING" label="评分" />
++        </el-select>
++      </el-form-item>
++      <div v-if="isQuery" class="row spread template-toolbar">
+         <span class="muted">可编辑查询模板</span>
+         <div class="row">
+           <el-button
+@@ -107,7 +137,7 @@ async function save() {
+           </el-button>
+         </div>
+       </div>
+-      <el-form-item label="SPARQL SELECT" required>
++      <el-form-item v-if="isQuery" label="SPARQL SELECT" required>
+         <el-input
+           v-model="form.queryTemplate"
+           type="textarea"
+@@ -118,9 +148,37 @@ async function save() {
+           spellcheck="false"
+         />
+       </el-form-item>
+-      <p class="muted">
++      <p v-if="isQuery" class="muted">
+         查询范围是冻结候选中的对象与属性。仅支持 SELECT；外部 SERVICE、FROM 及扩展函数会被拒绝。
+       </p>
++      <p v-else class="muted">规则检查与评分使用候选中冻结的规则和试执行输入。</p>
++      <p v-if="form.kind === 'RELATION_QUERY'" class="readonly-note">
++        P1 仅查询包内模型关系；外部实例关系查询由后续数据映射阶段提供。
++      </p>
++      <p v-if="references.error.value" class="error-text" role="alert">
++        绑定选项读取失败：{{ references.error.value }}
++        <el-button text @click="references.load">重试</el-button>
++      </p>
++      <el-form-item label="绑定执行策略">
++        <el-select v-model="form.strategyRef" clearable filterable>
++          <el-option
++            v-for="item in references.data.value.strategies || []"
++            :key="item.id"
++            :value="item.id"
++            :label="item.name"
++          />
++        </el-select>
++      </el-form-item>
++      <el-form-item label="绑定规则">
++        <el-select v-model="form.ruleIds" multiple filterable>
++          <el-option
++            v-for="item in references.data.value.rules || []"
++            :key="item.id"
++            :value="item.id"
++            :label="item.name"
++          />
++        </el-select>
++      </el-form-item>
+       <div class="form-columns">
+         <el-form-item label="最多返回行数（1～500）" required>
+           <el-input-number v-model="form.maxRows" :min="1" :max="500" />
+@@ -138,7 +196,12 @@ async function save() {
+           native-type="submit"
+           type="primary"
+           :loading="pending"
+-          :disabled="!workspace.canWrite || draft.stale.value"
++          :disabled="
++            !workspace.canWrite ||
++            draft.stale.value ||
++            references.loading.value ||
++            !!references.error.value
++          "
+         >
+           保存操作
+         </el-button>
+diff --git "a/.runtime\\continuation-baseline\\web\\apps\\onto-admin\\src\\components\\forms.test.ts" "b/web\\apps\\onto-admin\\src\\components\\forms.test.ts"
+index fd241b8..3c659ca 100644
+--- "a/.runtime\\continuation-baseline\\web\\apps\\onto-admin\\src\\components\\forms.test.ts"
++++ "b/web\\apps\\onto-admin\\src\\components\\forms.test.ts"
+@@ -67,6 +67,9 @@ describe('真实 Element Plus 表单结构与提交', () => {
+     { name: '操作', component: OperationDialog, props: { item: null } },
+   ])('$name对话框只包含一个表单，点击保存提交预期API', async ({ name, component, props }) => {
+     useWorkspace().space = { ...space }
++    vi.spyOn(useSession().api, 'get').mockImplementation(
++      async <T>(path: string): Promise<T> => (path.startsWith('/spaces/') ? { ...space } : []) as T,
++    )
+     const request = vi.spyOn(useSession().api, 'post').mockResolvedValue({ ...space, draftRev: 6 })
+     // 使用真实 el-form，不以 stub 掩盖其原生 form 根元素。
+     const wrapper = mount(component, {

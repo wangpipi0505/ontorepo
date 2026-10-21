@@ -1,0 +1,27 @@
+{
+  "checkedAt": "2026-10-20T18:41:30.922Z",
+  "runtimeJarSha256": "66F0E72C8257E7E2762CE681312A49738F818E770714CC3A3E369B6FB71291FC",
+  "checks": [
+    {
+      "name": "前端登录页",
+      "url": "http://127.0.0.1:15184/login",
+      "status": 200,
+      "actualStatus": 200,
+      "result": "PASSED"
+    },
+    {
+      "name": "后端拒绝匿名身份请求",
+      "url": "http://127.0.0.1:18182/onto/auth/me",
+      "status": 401,
+      "actualStatus": 401,
+      "result": "PASSED"
+    },
+    {
+      "name": "本工程对象存储已恢复",
+      "url": "http://127.0.0.1:19100/minio/health/ready",
+      "status": 200,
+      "actualStatus": 200,
+      "result": "PASSED"
+    }
+  ]
+}

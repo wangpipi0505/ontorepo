@@ -1,0 +1,54 @@
+[
+  {
+    "file": "web/apps/onto-admin/src/views/SpacesView.vue",
+    "sha256": "7792ED63B1B4F48BBBEEEB84723ABE0DA865008C8D6A0055F162352B7976E8A8"
+  },
+  {
+    "file": "web/apps/onto-admin/src/router.ts",
+    "sha256": "F708360768107B60DDBED42D572B1313EC0217BB4AF13DDF6FA457E0FB108ACC"
+  },
+  {
+    "file": "web/apps/onto-admin/src/layouts/WorkbenchLayout.vue",
+    "sha256": "6F6B809F2E161CA99F897B8FA5E5997B4169D3D40BD5B8C5671A46C100A16398"
+  },
+  {
+    "file": "web/apps/onto-admin/src/features/overview/overview.ts",
+    "sha256": "94854A184658CFF4E64BC0280D39FF88D54C0F80AD371CF9B1A9C072AF9966A3"
+  },
+  {
+    "file": "web/apps/onto-admin/src/features/overview/useOverviewCards.ts",
+    "sha256": "9174797FA12A4BEFF5AEB4BE56E2026133270AF542D1DC1FFBC1CE776A315001"
+  },
+  {
+    "file": "web/apps/onto-admin/src/features/overview/OverviewMetrics.vue",
+    "sha256": "061EAF7BDCF28EE8B750773DA1D844308567F60DFABD31649BB570825348DA02"
+  },
+  {
+    "file": "web/apps/onto-admin/src/features/overview/OverviewView.vue",
+    "sha256": "04FB6E65F9099F7715C2C9242667812DC339A3BB9DAA5765552113F7E5DBB3C8"
+  },
+  {
+    "file": "web/apps/onto-admin/src/features/p3/MappingWorkbench.vue",
+    "sha256": "52C4B38CFD83D179F4D7B0F95796B2F512953AA260017C752C012289AF8107BA"
+  },
+  {
+    "file": "web/apps/onto-admin/src/features/p3/MappingCanvas.vue",
+    "sha256": "911DE0DA056084DDF48747B0805C7CAA8B3E94409F541CF44964270040F0B02D"
+  },
+  {
+    "file": "web/apps/onto-admin/src/features/p3/mappingGraph.ts",
+    "sha256": "A5722B256607ADE1E51799E530E9245F4753EC9657A22210BA5A7155C958F1AE"
+  },
+  {
+    "file": "web/apps/onto-admin/src/features/p3/MappingsView.vue",
+    "sha256": "75B25095E199C70176B642B3C78209C3ED259DAEC07C74DF44FADE851B48992A"
+  },
+  {
+    "file": "web/apps/onto-admin/src/features/p3/MappingForm.vue",
+    "sha256": "964C3BCDB8D710190864F29F91CA9D4674FB92565ADFF0284333FA941D1206A4"
+  },
+  {
+    "file": "web/apps/onto-admin/src/features/p3/MappingList.vue",
+    "sha256": "4C51C2D749751745A2E71F1270B4E805F18F76B43CC0D35827A53481C0E3485D"
+  }
+]

@@ -1,0 +1,13 @@
+{
+  "checkedAt": "2026-10-21T02:49:24.856Z",
+  "candidateId": "3daac177-8b4c-4529-9846-dd1de6655f0f",
+  "candidateSha256": "fcb167d566e71c881cde7f47b5b6151c51aa9b68c1460a7aa59bfdcbf96be31e",
+  "result": "PASSED",
+  "checks": [
+    "冻结契约摘要与守卫不变",
+    "冻结词条与来源不变",
+    "草稿知识更新未污染旧候选",
+    "Lucene重建命中原词条",
+    "原候选内部执行及真实摘要保留"
+  ]
+}

@@ -1,0 +1,5 @@
+[
+  {"task_id":"T-B","task_name":"华北检测任务","algo_code":"ALG-B","region":"B","priority":2},
+  {"task_id":"T-NULL","task_name":"未分类任务","algo_code":"ALG-A","region":null,"priority":3},
+  {"task_id":"T-A","task_name":"华东分类任务","algo_code":"ALG-A","region":"A","priority":1}
+]

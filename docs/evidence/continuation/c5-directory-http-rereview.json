@@ -1,0 +1,28 @@
+{
+  "packageSha": "E2D5852EAD14145E767BD50D0F9A9E55DB8D317C76DB6F19ED4C8C31B5DE30C8",
+  "timestamp": "2026-10-20T16:46:09.334Z",
+  "checks": [
+    {
+      "name": "real.docx",
+      "status": "PASSED",
+      "archiveBytes": 2396,
+      "httpStatus": 200,
+      "code": "OK"
+    },
+    {
+      "name": "empty-directory.docx",
+      "status": "PASSED",
+      "archiveBytes": 2496,
+      "httpStatus": 200,
+      "code": "OK"
+    },
+    {
+      "name": "nonempty-directory.docx",
+      "status": "PASSED",
+      "archiveBytes": 36142,
+      "httpStatus": 400,
+      "code": "INVALID_ARGUMENT"
+    }
+  ],
+  "spaceId": "d637aeac-c74c-4070-b882-6f0af45e7377"
+}

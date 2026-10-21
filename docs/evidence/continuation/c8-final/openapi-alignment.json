@@ -1,0 +1,8 @@
+{
+  "checkedAt": "2026-10-21T02:49:13.855Z",
+  "result": "PASSED",
+  "paths": 109,
+  "stageSha256": "41b70bcc21f923d5c740e263b6234dc18ab392783df2f935d5fba8022abbe589",
+  "finalSha256": "41b70bcc21f923d5c740e263b6234dc18ab392783df2f935d5fba8022abbe589",
+  "assertion": "最终真实导出与已生成客户端所用契约全对象相等"
+}

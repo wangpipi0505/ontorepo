@@ -1,0 +1,65 @@
+{
+  "checkedAt": "2026-10-20T15:18:02.900Z",
+  "spaceId": "540d7b83-4aac-4069-aede-63da6036e504",
+  "candidateId": "f625bffb-dfdf-4c97-aa14-e4b4eeb38d39",
+  "negativeCandidateId": "e6cb249a-ccc5-466c-8bd3-3772e797639e",
+  "candidateSha256": "2bf12fb25fce705406d44651919842f93efa9ec7764b8ab75e3ffb78a7ff2811",
+  "checks": [
+    {
+      "name": "TRIAL原样接收JSON根-1",
+      "status": "PASSED"
+    },
+    {
+      "name": "SERVICE原样接收JSON根-1",
+      "status": "PASSED"
+    },
+    {
+      "name": "TRIAL原样接收JSON根-2",
+      "status": "PASSED"
+    },
+    {
+      "name": "SERVICE原样接收JSON根-2",
+      "status": "PASSED"
+    },
+    {
+      "name": "TRIAL原样接收JSON根-3",
+      "status": "PASSED"
+    },
+    {
+      "name": "SERVICE原样接收JSON根-3",
+      "status": "PASSED"
+    },
+    {
+      "name": "TRIAL原样接收JSON根-4",
+      "status": "PASSED"
+    },
+    {
+      "name": "SERVICE原样接收JSON根-4",
+      "status": "PASSED"
+    },
+    {
+      "name": "TRIAL原样接收JSON根-5",
+      "status": "PASSED"
+    },
+    {
+      "name": "SERVICE原样接收JSON根-5",
+      "status": "PASSED"
+    },
+    {
+      "name": "TRIAL原样接收JSON根-6",
+      "status": "PASSED"
+    },
+    {
+      "name": "SERVICE原样接收JSON根-6",
+      "status": "PASSED"
+    },
+    {
+      "name": "LOCAL_TEST六种JSON根全部通过完整精确断言",
+      "status": "PASSED"
+    },
+    {
+      "name": "纯标点知识不能让NL无命中用例假通过",
+      "status": "PASSED"
+    }
+  ]
+}

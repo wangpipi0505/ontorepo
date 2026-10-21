@@ -1,0 +1,40 @@
+{
+  "checkedAt": "2026-10-20T12:35:57.615Z",
+  "base": "http://127.0.0.1:18182/onto",
+  "spaceId": "1246d642-6059-44a5-bb71-0792a7e10aeb",
+  "candidateId": "9caa43c1-bab3-42aa-b6c3-58c900b605a7",
+  "checks": [
+    {
+      "name": "匿名请求不能读取空间",
+      "status": "PASSED"
+    },
+    {
+      "name": "过期草稿修订拒绝并发覆盖",
+      "status": "PASSED"
+    },
+    {
+      "name": "层级禁环且失败不增加修订",
+      "status": "PASSED"
+    },
+    {
+      "name": "查询禁止 SERVICE 访问外部网络",
+      "status": "PASSED"
+    },
+    {
+      "name": "真实候选试执行返回模型和证据摘要",
+      "status": "PASSED"
+    },
+    {
+      "name": "草稿改名和删除操作后旧候选仍可独立执行",
+      "status": "PASSED"
+    },
+    {
+      "name": "执行记录可按空间追溯",
+      "status": "PASSED"
+    },
+    {
+      "name": "注销后原令牌不可继续访问",
+      "status": "PASSED"
+    }
+  ]
+}

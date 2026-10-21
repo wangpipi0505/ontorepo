@@ -1,0 +1,17 @@
+{
+  "tasks.xlsx" : {
+    "bytes" : 3666,
+    "sha256" : "b75df9fc1c62f917e73aba1e0b376d0846678802ca0e74c99d80a0c86425ec09",
+    "roundTrip" : "PASSED"
+  },
+  "domain.docx" : {
+    "bytes" : 2490,
+    "sha256" : "3cbbda9d7f053e64cb7a2ed54f35cb7110a3bba355dd4aef3cb41eb236c25eac",
+    "roundTrip" : "PASSED"
+  },
+  "domain.pdf" : {
+    "bytes" : 979,
+    "sha256" : "005eac7a314430e69ac8d2c3fa33d5c99a35fdadfd05825b4820f405eb3a86f3",
+    "roundTrip" : "PASSED"
+  }
+}

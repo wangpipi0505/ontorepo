@@ -1,0 +1,197 @@
+{
+  "checkedAt": "2026-10-20T16:00:45.783Z",
+  "spaceId": "f7c92d1c-6d97-4aba-b74a-d2b022a7ca68",
+  "sourceId": "59d1b69b-0c60-41b6-93d0-75412509fe77",
+  "snapshotId": "46315e36-1339-46d7-b083-1284e28611a6",
+  "candidateId": "a9181315-316f-4f4e-a6ab-98fcbf1dc8b5",
+  "candidateSha256": "a437963c6cf4c59e39fa384b860a4c1ded678ed8ac79699e128f46ff05083772",
+  "operationId": "adf05182-0bf5-4b7a-b649-0583cdadf8ff",
+  "opCode": "task_algorithms",
+  "expectedRows": [
+    {
+      "classId": "e8279f4c-2f68-45d8-8603-f81902dbf3d8",
+      "objectId": "task:T-A",
+      "relationId": "132116a8-a248-478b-b835-6d3620139c75",
+      "toObjectId": "algorithm:ALG-A",
+      "fromObjectId": "task:T-A",
+      "afa5ce3a-0de3-488f-9027-04741486e72f": "ALG-A",
+      "eebfd0d6-6802-4dfa-99c5-4464ccd1fc7a": "T-A"
+    }
+  ],
+  "executionId": "625ff351-5610-49e2-8390-0113476089cf",
+  "protocolEvidence": [
+    {
+      "kind": "FILE",
+      "dialect": "csv",
+      "sourceId": "42598f15-fef8-4a25-9829-097726d9f9cc",
+      "snapshotId": "dd7c328b-9cc9-4c4e-bddd-34f74e982ba7",
+      "candidateId": "e4b83616-a2c6-40de-854f-4699db744e4f",
+      "candidateSha256": "2206986cb237866a67e7054c9004f4c254becf69b39e7159c31e2e566e006cf9",
+      "opCode": "file_csv_sample_tasks",
+      "operationId": "8df3073a-f96d-4127-a78e-1bbd4e107524",
+      "executionId": "a3632859-2a48-4c78-b1eb-bbf77661879c",
+      "resource": "e9627fdc-06cb-434c-884a-fb5030af6655.csv",
+      "expectedRows": [
+        {
+          "classId": "e8279f4c-2f68-45d8-8603-f81902dbf3d8",
+          "objectId": "task:T-A",
+          "eebfd0d6-6802-4dfa-99c5-4464ccd1fc7a": "T-A"
+        }
+      ]
+    },
+    {
+      "kind": "FILE",
+      "dialect": "json",
+      "sourceId": "b8b80835-527f-4bdf-b042-ebfc5698998f",
+      "snapshotId": "09e72ddf-a3e2-4c24-814c-c92a66044c3e",
+      "candidateId": "ee2e1013-3863-41ea-947c-1f853c0833cc",
+      "candidateSha256": "0fd9ff2b68185615fc29cd04bbc9196d1de8e133cea5c3b2a5f537e35991dbf4",
+      "opCode": "file_json_sample_tasks",
+      "operationId": "6e83a8f1-048e-4524-b400-02f2a1e0c845",
+      "executionId": "7a0ea743-aefa-4de9-bdad-c53812b7e17f",
+      "resource": "623ec74a-b66b-45b4-a35f-651ac6893518.json",
+      "expectedRows": [
+        {
+          "classId": "e8279f4c-2f68-45d8-8603-f81902dbf3d8",
+          "objectId": "task:T-A",
+          "eebfd0d6-6802-4dfa-99c5-4464ccd1fc7a": "T-A"
+        }
+      ]
+    },
+    {
+      "kind": "FILE",
+      "dialect": "excel",
+      "sourceId": "70ec264f-8da2-472f-a974-9aeb103ba6d0",
+      "snapshotId": "c3d0abf6-8a4c-44cc-aafc-b85dfb35e765",
+      "candidateId": "e52caf3b-7c2b-4a04-90f1-fd535720878b",
+      "candidateSha256": "7e635e1755afd3c2f2538513951892031983fc07b8bfbb0ec87c547740ff9097",
+      "opCode": "file_excel_sample_tasks",
+      "operationId": "d24bf122-85d6-4cc0-b1d3-d15529116364",
+      "executionId": "50d4f461-dae1-4f6c-b84f-70afee7805d3",
+      "resource": "02a79c34-6788-4bb9-9058-8369bfb1a118.xlsx",
+      "expectedRows": [
+        {
+          "classId": "e8279f4c-2f68-45d8-8603-f81902dbf3d8",
+          "objectId": "task:T-A",
+          "eebfd0d6-6802-4dfa-99c5-4464ccd1fc7a": "T-A"
+        }
+      ]
+    },
+    {
+      "kind": "HTTP",
+      "dialect": "json",
+      "sourceId": "a3e519c3-89e0-459f-8e05-6d4f88c7d746",
+      "snapshotId": "83c47ea5-bafc-47d4-8e1f-5a708d684c35",
+      "candidateId": "3e087a56-0e60-4543-a3a9-bed86b928ef7",
+      "candidateSha256": "c21959f69c191bbb889410ae5f2434caf085051c82067fe6af8d0130233bb80f",
+      "opCode": "http_json_sample_tasks",
+      "operationId": "955e16a4-51b4-44fa-854d-0914fd76469d",
+      "executionId": "94e251e5-dece-4c0d-9878-0090aa07a906",
+      "resource": "/tasks",
+      "expectedRows": [
+        {
+          "classId": "e8279f4c-2f68-45d8-8603-f81902dbf3d8",
+          "objectId": "task:T-A",
+          "eebfd0d6-6802-4dfa-99c5-4464ccd1fc7a": "T-A"
+        }
+      ]
+    },
+    {
+      "kind": "LAKE",
+      "dialect": "s3-parquet",
+      "sourceId": "6fa15d75-a911-4deb-b300-1d410ac9243c",
+      "snapshotId": "2da95834-ac09-47c5-b6a3-986154e96fa8",
+      "candidateId": "3c4ff151-4bba-4bd2-932d-1bc0e2b2379e",
+      "candidateSha256": "9c4e90321d80178c4b534bdf4402d8b74b96ae8440886f2f6e8e76d938bf6cd3",
+      "opCode": "lake_s3_parquet_sample_tasks",
+      "operationId": "1862cba4-914e-46b2-92a7-ccb527702803",
+      "executionId": "e76f1c2a-9fa4-4ed3-80f0-0a008f5aae35",
+      "resource": "acceptance/fb11a649-0cf0-4d2c-a19f-b5e8a4e8513d/tasks.parquet",
+      "expectedRows": [
+        {
+          "classId": "e8279f4c-2f68-45d8-8603-f81902dbf3d8",
+          "objectId": "task:T-A",
+          "eebfd0d6-6802-4dfa-99c5-4464ccd1fc7a": "T-A"
+        }
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "name": "源目录不泄露连接配置且真实三段探测全部通过",
+      "status": "PASSED"
+    },
+    {
+      "name": "不可变元数据包含任务算法两表真实主键及关联字段",
+      "status": "PASSED"
+    },
+    {
+      "name": "三层映射四项完整性均通过",
+      "status": "PASSED"
+    },
+    {
+      "name": "真实关系查询只返回A至A且拒绝B未分类及A至B跨标签关联",
+      "status": "PASSED"
+    },
+    {
+      "name": "SERVICE与TRIAL使用同一冻结映射和授权结果",
+      "status": "PASSED"
+    },
+    {
+      "name": "引用中的源删除被拒绝且返回可定位安全信息",
+      "status": "PASSED"
+    },
+    {
+      "name": "FILE/csv真实登记探测同步映射执行及非SQL资源守卫",
+      "status": "PASSED"
+    },
+    {
+      "name": "FILE/json真实登记探测同步映射执行及非SQL资源守卫",
+      "status": "PASSED"
+    },
+    {
+      "name": "FILE/excel真实登记探测同步映射执行及非SQL资源守卫",
+      "status": "PASSED"
+    },
+    {
+      "name": "HTTP/json真实登记探测同步映射执行及非SQL资源守卫",
+      "status": "PASSED"
+    },
+    {
+      "name": "LAKE/s3-parquet真实登记探测同步映射执行及非SQL资源守卫",
+      "status": "PASSED"
+    },
+    {
+      "name": "TABLE真实来源抽取与显式人工确认",
+      "status": "PASSED"
+    },
+    {
+      "name": "CSV真实来源抽取与显式人工确认",
+      "status": "PASSED"
+    },
+    {
+      "name": "JSON真实来源抽取与显式人工确认",
+      "status": "PASSED"
+    },
+    {
+      "name": "XLSX真实来源抽取与显式人工确认",
+      "status": "PASSED"
+    },
+    {
+      "name": "TXT真实来源抽取与显式人工确认",
+      "status": "PASSED"
+    },
+    {
+      "name": "DOCX真实来源抽取与显式人工确认",
+      "status": "PASSED"
+    },
+    {
+      "name": "PDF真实来源抽取与显式人工确认",
+      "status": "PASSED"
+    },
+    {
+      "name": "后续草稿源范围修改不污染旧候选的冻结范围映射及结果",
+      "status": "PASSED"
+    }
+  ]
+}

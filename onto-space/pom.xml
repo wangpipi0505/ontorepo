@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>cn.ontorepo</groupId>
+        <artifactId>ontorepo</artifactId>
+        <version>0.1.0</version>
+    </parent>
+    <artifactId>onto-space</artifactId>
+    <dependencies>
+        <dependency>
+            <groupId>cn.ontorepo</groupId><artifactId>onto-data</artifactId><version>${project.version}</version>
+            <!-- Hadoop旧日志绑定不能覆盖本工程Spring Boot的Logback。 -->
+            <exclusions><exclusion><groupId>org.slf4j</groupId><artifactId>slf4j-reload4j</artifactId></exclusion></exclusions>
+        </dependency>
+        <dependency>
+            <groupId>cn.ontorepo</groupId>
+            <artifactId>onto-common</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+    </dependencies>
+</project>

@@ -1,0 +1,23 @@
+[
+  {
+    "module": "onto-contract",
+    "tests": 91,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  {
+    "module": "onto-data",
+    "tests": 28,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  {
+    "module": "onto-designer-api",
+    "tests": 116,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+]

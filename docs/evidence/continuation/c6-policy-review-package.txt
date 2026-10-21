@@ -1,0 +1,537 @@
+
+--- FILE: onto-release/src\test\java\cn\ontorepo\release\domain\ReleaseGatePolicyTest.java ---
+package cn.ontorepo.release.domain;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+
+import java.util.ArrayList;
+import java.util.List;
+
+class ReleaseGatePolicyTest {
+    private static final String SHA = "a".repeat(64);
+    private static final String OTHER = "b".repeat(64);
+
+    private List<ReleaseGatePolicy.Check> passed() {
+        return new ArrayList<>(
+                java.util.Arrays.stream(ReleaseGatePolicy.Kind.values())
+                        .map(
+                                k ->
+                                        new ReleaseGatePolicy.Check(
+                                                k, SHA, ReleaseGatePolicy.Conclusion.PASSED, null))
+                        .toList());
+    }
+
+    @Test
+    void allFiveRealGatesAndCurrentRevisionAllowPreparation() {
+        assertTrue(ReleaseGatePolicy.evaluate(SHA, 8, 8, passed(), 3, null).allowed());
+    }
+
+    @Test
+    void draftChangeAndForeignTestDigestCannotReuseReports() {
+        assertFalse(ReleaseGatePolicy.evaluate(SHA, 8, 9, passed(), 3, null).allowed());
+        var checks = passed();
+        checks.set(
+                3,
+                new ReleaseGatePolicy.Check(
+                        ReleaseGatePolicy.Kind.TEST,
+                        OTHER,
+                        ReleaseGatePolicy.Conclusion.PASSED,
+                        null));
+        assertFalse(ReleaseGatePolicy.evaluate(SHA, 8, 8, checks, 3, null).allowed());
+    }
+
+    @Test
+    void missingDuplicateOrZeroCaseReportsDoNotPass() {
+        var checks = passed();
+        checks.removeLast();
+        assertFalse(ReleaseGatePolicy.evaluate(SHA, 8, 8, checks, 3, null).allowed());
+        checks = passed();
+        checks.add(checks.getFirst());
+        assertFalse(ReleaseGatePolicy.evaluate(SHA, 8, 8, checks, 3, null).allowed());
+        assertFalse(ReleaseGatePolicy.evaluate(SHA, 8, 8, passed(), 0, null).allowed());
+    }
+
+    @Test
+    void onlyOwnerWaiverBoundToSameDigestAndRevisionCanCoverSubset() {
+        var checks = passed();
+        checks.set(
+                1,
+                new ReleaseGatePolicy.Check(
+                        ReleaseGatePolicy.Kind.CONSISTENCY,
+                        SHA,
+                        ReleaseGatePolicy.Conclusion.NOT_CHECKED,
+                        "SUBSET_EXCEEDED"));
+        assertFalse(ReleaseGatePolicy.evaluate(SHA, 8, 8, checks, 3, null).allowed());
+        var accepted = new ReleaseGatePolicy.Waiver("OWNER", SHA, 8, "已人工核对完整公理");
+        assertTrue(ReleaseGatePolicy.evaluate(SHA, 8, 8, checks, 3, accepted).allowed());
+        for (var invalid :
+                List.of(
+                        new ReleaseGatePolicy.Waiver("EDITOR", SHA, 8, "理由"),
+                        new ReleaseGatePolicy.Waiver("OWNER", OTHER, 8, "理由"),
+                        new ReleaseGatePolicy.Waiver("OWNER", SHA, 7, "理由"),
+                        new ReleaseGatePolicy.Waiver("OWNER", SHA, 8, " "))) {
+            assertFalse(ReleaseGatePolicy.evaluate(SHA, 8, 8, checks, 3, invalid).allowed());
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"TIMEOUT", "ENGINE_ERROR", "INCONSISTENT", "GUARD_ATTR_UNRESOLVED"})
+    void ownerWaiverCannotCoverOtherFailureReasons(String reason) {
+        var checks = passed();
+        checks.set(
+                1,
+                new ReleaseGatePolicy.Check(
+                        ReleaseGatePolicy.Kind.CONSISTENCY,
+                        SHA,
+                        ReleaseGatePolicy.Conclusion.FAILED,
+                        reason));
+        var waiver = new ReleaseGatePolicy.Waiver("OWNER", SHA, 8, "人工确认");
+        assertFalse(ReleaseGatePolicy.evaluate(SHA, 8, 8, checks, 3, waiver).allowed());
+        checks.set(
+                1,
+                new ReleaseGatePolicy.Check(
+                        ReleaseGatePolicy.Kind.CONSISTENCY,
+                        SHA,
+                        ReleaseGatePolicy.Conclusion.NOT_CHECKED,
+                        reason));
+        assertFalse(ReleaseGatePolicy.evaluate(SHA, 8, 8, checks, 3, waiver).allowed());
+    }
+
+    @Test
+    void subsetReasonInContractGateIsNeverWaivable() {
+        var checks = passed();
+        checks.set(
+                2,
+                new ReleaseGatePolicy.Check(
+                        ReleaseGatePolicy.Kind.CONTRACT,
+                        SHA,
+                        ReleaseGatePolicy.Conclusion.NOT_CHECKED,
+                        "SUBSET_EXCEEDED"));
+        assertFalse(
+                ReleaseGatePolicy.evaluate(
+                                SHA,
+                                8,
+                                8,
+                                checks,
+                                3,
+                                new ReleaseGatePolicy.Waiver("OWNER", SHA, 8, "人工确认"))
+                        .allowed());
+    }
+}
+
+
+--- FILE: onto-release/src\test\java\cn\ontorepo\release\domain\OutboxPolicyTest.java ---
+package cn.ontorepo.release.domain;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import org.junit.jupiter.api.Test;
+
+import java.time.Instant;
+import java.util.List;
+
+class OutboxPolicyTest {
+    private static final Instant NOW = Instant.parse("2026-10-20T14:00:00Z");
+
+    private OutboxPolicy.Event event(
+            long id,
+            String release,
+            OutboxPolicy.Type type,
+            String bound,
+            OutboxPolicy.Status status,
+            int retry,
+            Instant due) {
+        return new OutboxPolicy.Event(id, release, type, bound, status, retry, due);
+    }
+
+    @Test
+    void releaseThenDeprecationWhileRelayStoppedPreservesHistoricalOrder() {
+        var released =
+                event(
+                        1,
+                        "r",
+                        OutboxPolicy.Type.RELEASED,
+                        "READY",
+                        OutboxPolicy.Status.PENDING,
+                        0,
+                        NOW);
+        var deprecated =
+                event(
+                        2,
+                        "r",
+                        OutboxPolicy.Type.DEPRECATED,
+                        "DEPRECATED",
+                        OutboxPolicy.Status.PENDING,
+                        0,
+                        NOW);
+        // 故意没有当前版本状态参数：后续弃用不能撤销已创建 RELEASED 的投递资格。
+        assertEquals(
+                List.of(new OutboxPolicy.Decision(1, OutboxPolicy.Action.DELIVER)),
+                OutboxPolicy.next(List.of(deprecated, released), NOW));
+        var sent =
+                event(
+                        1,
+                        "r",
+                        OutboxPolicy.Type.RELEASED,
+                        "READY",
+                        OutboxPolicy.Status.SENT,
+                        0,
+                        NOW);
+        assertEquals(2, OutboxPolicy.next(List.of(deprecated, sent), NOW).getFirst().eventId());
+    }
+
+    @Test
+    void deprecationRetryBlocksCorruptionUntilDeadThenCorruptionCanProceed() {
+        var deprecated =
+                event(
+                        2,
+                        "r",
+                        OutboxPolicy.Type.DEPRECATED,
+                        "DEPRECATED",
+                        OutboxPolicy.Status.PENDING,
+                        1,
+                        NOW.plusSeconds(30));
+        var corrupt =
+                event(
+                        3,
+                        "r",
+                        OutboxPolicy.Type.CORRUPTED_ALERT,
+                        "CORRUPTED",
+                        OutboxPolicy.Status.PENDING,
+                        0,
+                        NOW);
+        assertTrue(OutboxPolicy.next(List.of(deprecated, corrupt), NOW).isEmpty());
+        var failed = OutboxPolicy.failure(deprecated, NOW, 2);
+        assertEquals(OutboxPolicy.Status.DEAD, failed.status());
+        var dead =
+                event(
+                        2,
+                        "r",
+                        deprecated.type(),
+                        deprecated.boundStatus(),
+                        failed.status(),
+                        failed.retryCount(),
+                        failed.nextRetryAt());
+        assertEquals(3, OutboxPolicy.next(List.of(dead, corrupt), NOW).getFirst().eventId());
+    }
+
+    @Test
+    void independentReleasesProgressAndMalformedEventIsQuarantined() {
+        var future =
+                event(
+                        1,
+                        "a",
+                        OutboxPolicy.Type.RELEASED,
+                        "READY",
+                        OutboxPolicy.Status.PENDING,
+                        0,
+                        NOW.plusSeconds(10));
+        var invalid =
+                event(
+                        2,
+                        "b",
+                        OutboxPolicy.Type.RELEASED,
+                        "DEPRECATED",
+                        OutboxPolicy.Status.PENDING,
+                        0,
+                        NOW);
+        var valid =
+                event(
+                        3,
+                        "c",
+                        OutboxPolicy.Type.CORRUPTED_ALERT,
+                        "CORRUPTED",
+                        OutboxPolicy.Status.PENDING,
+                        0,
+                        NOW);
+        assertEquals(
+                List.of(
+                        new OutboxPolicy.Decision(2, OutboxPolicy.Action.REJECT),
+                        new OutboxPolicy.Decision(3, OutboxPolicy.Action.DELIVER)),
+                OutboxPolicy.next(List.of(valid, invalid, future), NOW));
+    }
+
+    @Test
+    void retriesAreBoundedAndRestartSelectionUsesPersistedDueTime() {
+        var pending =
+                event(
+                        1,
+                        "r",
+                        OutboxPolicy.Type.RELEASED,
+                        "READY",
+                        OutboxPolicy.Status.PENDING,
+                        0,
+                        NOW);
+        var retry = OutboxPolicy.failure(pending, NOW, 3);
+        assertEquals(1, retry.retryCount());
+        assertEquals(NOW.plusSeconds(5), retry.nextRetryAt());
+        var persisted =
+                event(
+                        1,
+                        "r",
+                        pending.type(),
+                        pending.boundStatus(),
+                        retry.status(),
+                        retry.retryCount(),
+                        retry.nextRetryAt());
+        assertTrue(OutboxPolicy.next(List.of(persisted), NOW.plusSeconds(4)).isEmpty());
+        assertEquals(1, OutboxPolicy.next(List.of(persisted), NOW.plusSeconds(5)).size());
+    }
+
+    @Test
+    void replayKeepsEventIdentityAndBecomesEarliestPendingAgain() {
+        var dead =
+                event(
+                        1,
+                        "r",
+                        OutboxPolicy.Type.RELEASED,
+                        "READY",
+                        OutboxPolicy.Status.DEAD,
+                        3,
+                        NOW.minusSeconds(10));
+        var replay = OutboxPolicy.replay(dead, NOW);
+        assertEquals(1, replay.id());
+        assertEquals(dead.type(), replay.type());
+        assertEquals(dead.boundStatus(), replay.boundStatus());
+        assertEquals(0, replay.retryCount());
+        var later =
+                event(
+                        2,
+                        "r",
+                        OutboxPolicy.Type.DEPRECATED,
+                        "DEPRECATED",
+                        OutboxPolicy.Status.PENDING,
+                        0,
+                        NOW);
+        assertEquals(1, OutboxPolicy.next(List.of(later, replay), NOW).getFirst().eventId());
+        assertThrows(IllegalArgumentException.class, () -> OutboxPolicy.replay(later, NOW));
+    }
+}
+
+
+--- FILE: onto-release/src\main\java\cn\ontorepo\release\domain\ReleaseGatePolicy.java ---
+package cn.ontorepo.release.domain;
+
+import java.util.ArrayList;
+import java.util.EnumMap;
+import java.util.List;
+
+/**
+ * 发布准备阶段的五项门禁判定。
+ *
+ * <p>数据库服务负责取同一候选各门禁的最新持久报告，并在空间锁下验证身份和修订。 本类不查询数据库、不上传制品，也不会把此处的 allowed 当作 READY；READY
+ * 还必须经过制品摘要复核和提交事务。
+ */
+public final class ReleaseGatePolicy {
+    private ReleaseGatePolicy() {}
+
+    public enum Kind {
+        CONFLICT,
+        CONSISTENCY,
+        CONTRACT,
+        TEST,
+        REVIEW
+    }
+
+    public enum Conclusion {
+        PASSED,
+        FAILED,
+        NOT_CHECKED
+    }
+
+    public record Check(Kind kind, String candidateSha256, Conclusion conclusion, String reason) {}
+
+    /** 只能由服务端从已授权审批记录构建，不接收提交请求中自报的 role。 */
+    public record Waiver(String role, String candidateSha256, long draftRev, String reason) {}
+
+    public record Violation(String code, Kind kind) {}
+
+    public record Result(boolean allowed, List<Violation> violations) {
+        public Result {
+            violations = List.copyOf(violations);
+        }
+    }
+
+    /** 草稿修订或任何报告摘要不匹配时均失败；只允许一份有效报告代表每个门禁。 */
+    public static Result evaluate(
+            String sha,
+            long candidateRev,
+            long currentRev,
+            List<Check> checks,
+            int enabledCaseCount,
+            Waiver waiver) {
+        List<Violation> violations = new ArrayList<>();
+        if (sha == null || !sha.matches("[0-9a-f]{64}") || candidateRev < 0 || currentRev < 0)
+            violations.add(new Violation("INVALID_CANDIDATE", null));
+        if (candidateRev != currentRev) violations.add(new Violation("DRAFT_CHANGED", null));
+        if (enabledCaseCount < 1) violations.add(new Violation("NO_ENABLED_TEST_CASES", Kind.TEST));
+        var byKind = new EnumMap<Kind, Check>(Kind.class);
+        if (checks != null) {
+            for (Check check : checks) {
+                if (check == null || check.kind() == null || check.conclusion() == null) {
+                    violations.add(new Violation("INVALID_GATE_REPORT", null));
+                    continue;
+                }
+                if (byKind.putIfAbsent(check.kind(), check) != null)
+                    violations.add(new Violation("DUPLICATE_GATE_REPORT", check.kind()));
+            }
+        }
+        for (Kind kind : Kind.values()) {
+            Check check = byKind.get(kind);
+            if (check == null) {
+                violations.add(new Violation("GATE_NOT_RUN", kind));
+            } else if (sha == null || !sha.equals(check.candidateSha256())) {
+                violations.add(new Violation("GATE_DIGEST_MISMATCH", kind));
+            } else if (check.conclusion() != Conclusion.PASSED
+                    && !waived(check, waiver, sha, candidateRev, currentRev)) {
+                violations.add(new Violation("GATE_BLOCKED", kind));
+            }
+        }
+        return new Result(violations.isEmpty(), violations);
+    }
+
+    private static boolean waived(
+            Check check, Waiver waiver, String sha, long candidateRev, long currentRev) {
+        return check.kind() == Kind.CONSISTENCY
+                && check.conclusion() == Conclusion.NOT_CHECKED
+                && "SUBSET_EXCEEDED".equals(check.reason())
+                && waiver != null
+                && "OWNER".equals(waiver.role())
+                && sha.equals(waiver.candidateSha256())
+                && waiver.draftRev() == candidateRev
+                && candidateRev == currentRev
+                && waiver.reason() != null
+                && !waiver.reason().isBlank();
+    }
+}
+
+
+--- FILE: onto-release/src\main\java\cn\ontorepo\release\domain\OutboxPolicy.java ---
+package cn.ontorepo.release.domain;
+
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.List;
+
+/**
+ * 只根据持久化事件锚点、顺序与重试时间决定投递资格。
+ *
+ * <p>故意不读取 release 当前状态：RELEASED 创建后发生弃用/损坏，历史通知仍有资格投递。 实际 relay 必须按本规则在数据库中原子领取，网络发送在事务外，目的地按原事件
+ * id 去重。
+ */
+public final class OutboxPolicy {
+    private OutboxPolicy() {}
+
+    public enum Type {
+        RELEASED,
+        DEPRECATED,
+        CORRUPTED_ALERT
+    }
+
+    public enum Status {
+        PENDING,
+        SENT,
+        DEAD
+    }
+
+    public enum Action {
+        DELIVER,
+        REJECT
+    }
+
+    public record Event(
+            long id,
+            String releaseId,
+            Type type,
+            String boundStatus,
+            Status status,
+            int retryCount,
+            Instant nextRetryAt) {
+        public Event {
+            if (id < 1
+                    || releaseId == null
+                    || releaseId.isBlank()
+                    || type == null
+                    || status == null
+                    || retryCount < 0
+                    || nextRetryAt == null) throw new IllegalArgumentException("事件身份、状态或重试信息无效");
+        }
+    }
+
+    public record Decision(long eventId, Action action) {}
+
+    public record Retry(Status status, int retryCount, Instant nextRetryAt) {}
+
+    /**
+     * 每个 release 只选择最早的 PENDING。即使它尚未到期，也必须阻止该 release 的后续事件越序。 非法资格返回 REJECT，由持久层记录
+     * DEAD/告警后才允许后继；绝不向目的地发出非法通知。
+     */
+    public static List<Decision> next(List<Event> events, Instant now) {
+        if (events == null || now == null) throw new IllegalArgumentException("事件列表和时间不可为空");
+        var seen = new HashSet<String>();
+        var decisions = new ArrayList<Decision>();
+        for (Event event : events.stream().sorted(Comparator.comparingLong(Event::id)).toList()) {
+            if (event.status() != Status.PENDING || !seen.add(event.releaseId())) continue;
+            if (!eligible(event)) decisions.add(new Decision(event.id(), Action.REJECT));
+            else if (!event.nextRetryAt().isAfter(now))
+                decisions.add(new Decision(event.id(), Action.DELIVER));
+        }
+        return List.copyOf(decisions);
+    }
+
+    /** 有限指数退避；到达上限后 DEAD，不再占据后继的排序屏障。 */
+    public static Retry failure(Event event, Instant now, int maxAttempts) {
+        if (event == null
+                || event.status() != Status.PENDING
+                || now == null
+                || maxAttempts < 1
+                || maxAttempts > 10) throw new IllegalArgumentException("失败重试上下文无效");
+        int retry = Math.addExact(event.retryCount(), 1);
+        if (retry >= maxAttempts) return new Retry(Status.DEAD, retry, now);
+        long delaySeconds = Math.min(300L, 5L << Math.min(retry - 1, 6));
+        return new Retry(Status.PENDING, retry, now.plusSeconds(delaySeconds));
+    }
+
+    /** 人工重放保留事件 id/锚点/载荷身份，只重置本轮重试预算。 OWNER 权限、原因和累计尝试历史由应用事务校验并另记审计。 */
+    public static Event replay(Event event, Instant now) {
+        if (event == null || event.status() != Status.DEAD || now == null || !eligible(event))
+            throw new IllegalArgumentException("只有资格有效的 DEAD 事件可以重放");
+        return new Event(
+                event.id(),
+                event.releaseId(),
+                event.type(),
+                event.boundStatus(),
+                Status.PENDING,
+                0,
+                now);
+    }
+
+    private static boolean eligible(Event event) {
+        String expected =
+                switch (event.type()) {
+                    case RELEASED -> "READY";
+                    case DEPRECATED -> "DEPRECATED";
+                    case CORRUPTED_ALERT -> "CORRUPTED";
+                };
+        return expected.equals(event.boundStatus());
+    }
+}
+
+
+--- FILE: onto-release/pom.xml ---
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+    <modelVersion>4.0.0</modelVersion>
+    <parent><groupId>cn.ontorepo</groupId><artifactId>ontorepo</artifactId><version>0.1.0</version></parent>
+    <artifactId>onto-release</artifactId>
+    <dependencies>
+        <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
+    </dependencies>
+</project>
+

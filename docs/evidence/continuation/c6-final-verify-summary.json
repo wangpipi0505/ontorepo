@@ -1,0 +1,147 @@
+{
+  "schemaVersion": 1,
+  "scope": "Only the complete current root reactor invocation; no historical test totals are accumulated.",
+  "command": "mvn -B -DargLine=-Xmx512m -Djdk.net.unixdomain.tmpdir=C:/Windows/Temp verify",
+  "log": ".runtime/c6-final-pool-verify.log",
+  "commandStartedAt": "2026-10-20T18:41:00.2868827Z",
+  "mavenFinishedAt": "2026-10-21T02:55:13+08:00",
+  "mavenDuration": " 14:12 min",
+  "buildResult": "SUCCESS",
+  "exitCode": 0,
+  "environment": {
+    "java": "21",
+    "mavenHeapMiB": 512,
+    "testForkHeapMiB": 512,
+    "database": "onto_test_p4",
+    "testHikariMaximumPoolSize": 4,
+    "testHikariMinimumIdle": 0,
+    "storage": "real MinIO",
+    "externalPlatformAcceptance": false
+  },
+  "modules": [
+    {
+      "module": "ontorepo",
+      "tests": 0,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "buildResult": "SUCCESS"
+    },
+    {
+      "module": "onto-contract",
+      "tests": 91,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "buildResult": "SUCCESS"
+    },
+    {
+      "module": "onto-artifact",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "buildResult": "SUCCESS"
+    },
+    {
+      "module": "onto-data",
+      "tests": 42,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "buildResult": "SUCCESS"
+    },
+    {
+      "module": "onto-common",
+      "tests": 0,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "buildResult": "SUCCESS"
+    },
+    {
+      "module": "onto-space",
+      "tests": 0,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "buildResult": "SUCCESS"
+    },
+    {
+      "module": "onto-model",
+      "tests": 0,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "buildResult": "SUCCESS"
+    },
+    {
+      "module": "onto-operation",
+      "tests": 0,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "buildResult": "SUCCESS"
+    },
+    {
+      "module": "onto-mapping",
+      "tests": 0,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "buildResult": "SUCCESS"
+    },
+    {
+      "module": "onto-ingest",
+      "tests": 0,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "buildResult": "SUCCESS"
+    },
+    {
+      "module": "onto-knowledge",
+      "tests": 0,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "buildResult": "SUCCESS"
+    },
+    {
+      "module": "onto-trace",
+      "tests": 0,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "buildResult": "SUCCESS"
+    },
+    {
+      "module": "onto-release",
+      "tests": 50,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "buildResult": "SUCCESS"
+    },
+    {
+      "module": "onto-designer-api",
+      "tests": 173,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "buildResult": "SUCCESS"
+    }
+  ],
+  "totals": {
+    "tests": 362,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "verification": "Module totals independently agree with the sum of current-log per-class results.",
+  "artifact": {
+    "path": "onto-designer-api/target/onto-designer-api-0.1.0-SNAPSHOT.jar",
+    "sha256": "66F0E72C8257E7E2762CE681312A49738F818E770714CC3A3E369B6FB71291FC",
+    "bytes": 194866147
+  }
+}

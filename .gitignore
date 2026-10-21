@@ -1,0 +1,14 @@
+**/target/
+**/node_modules/
+**/dist/
+.runtime/
+.tools/
+.env
+.env.local
+*.log
+web/test-results/
+web/playwright-report/
+.playwright-cli/
+
+output/
+

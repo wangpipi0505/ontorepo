@@ -1,0 +1,15 @@
+{
+  "checkedAt": "2026-10-20T18:17:32.014Z",
+  "spaceId": "1246d642-6059-44a5-bb71-0792a7e10aeb",
+  "candidateId": "9caa43c1-bab3-42aa-b6c3-58c900b605a7",
+  "candidateSha256": "47aacac0e06a11ad851500e1f3de7896b63dc6ccfa9f872af8464b5110432d94",
+  "executionId": "8e4b34fe-7b3a-40c3-8328-aef493cd3738",
+  "result": "PASSED",
+  "checks": [
+    "旧候选操作持久化",
+    "草稿删除不影响旧候选",
+    "旧模型内容保留",
+    "摘要一致",
+    "历史执行事实保留"
+  ]
+}

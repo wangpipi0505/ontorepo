@@ -1,0 +1,80 @@
+{
+  "timestamp": "2026-10-20T16:01:28.058Z",
+  "checks": [
+    {
+      "name": "合法属性映射字段更新被自身拦截",
+      "status": 400,
+      "code": "INVALID_ARGUMENT",
+      "message": "同对象属性不能有多个来源字段"
+    },
+    {
+      "name": "同对象同属性同字段重复创建被接受",
+      "status": 200,
+      "code": "OK"
+    },
+    {
+      "name": "存在重复映射时完整性仍valid",
+      "valid": true,
+      "checks": [
+        {
+          "kind": "CLASS_OBJECT",
+          "issues": [],
+          "passed": true
+        },
+        {
+          "kind": "REQUIRED_PROPERTY",
+          "issues": [],
+          "passed": true
+        },
+        {
+          "kind": "RELATION_KEYS",
+          "issues": [],
+          "passed": true
+        },
+        {
+          "kind": "REACHABLE_REFERENCE",
+          "issues": [],
+          "passed": true
+        }
+      ]
+    },
+    {
+      "name": "重复映射阻断合法操作绑定",
+      "status": 400,
+      "code": "AMBIGUOUS_PROPERTY_MAPPING",
+      "message": "本体属性未映射或跨关系两端不唯一，请拆分操作: 2e348f1e-fb9b-4621-b955-10f05535a1d2"
+    },
+    {
+      "name": "同类第二对象缺必填属性仍完整",
+      "valid": true,
+      "checks": [
+        {
+          "kind": "CLASS_OBJECT",
+          "issues": [],
+          "passed": true
+        },
+        {
+          "kind": "REQUIRED_PROPERTY",
+          "issues": [],
+          "passed": true
+        },
+        {
+          "kind": "RELATION_KEYS",
+          "issues": [],
+          "passed": true
+        },
+        {
+          "kind": "REACHABLE_REFERENCE",
+          "issues": [],
+          "passed": true
+        }
+      ],
+      "coverage": {
+        "mapped": 2,
+        "pending": 0,
+        "unmappable": 0
+      }
+    }
+  ],
+  "spaceId": "b98cd009-9dcd-4fe0-8fa4-1b3e94654c10"
+}

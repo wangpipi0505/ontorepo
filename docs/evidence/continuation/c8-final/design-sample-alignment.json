@@ -1,0 +1,31 @@
+{
+  "checkedAt": "2026-10-21T02:49:13.963Z",
+  "section": "8.8",
+  "checks": [
+    {
+      "sample": 1,
+      "parse": "PASSED",
+      "fixtureAlignment": "PASSED",
+      "sourceSha256": "2cbc7087558707ca5625484de6537b7624d338cf9e8793b95e2dd19407665766"
+    },
+    {
+      "sample": 2,
+      "parse": "PASSED",
+      "fixtureAlignment": "PASSED",
+      "sourceSha256": "b69bf8e6a7ce3ab509f55b5a2d3b515d182f808b3ff826bf5c57254a828d0f6b"
+    },
+    {
+      "sample": 3,
+      "parse": "PASSED",
+      "fixtureAlignment": "PASSED",
+      "sourceSha256": "d8c995ae438c99612f10236a99539f379b41c49a480b51b48cdb6cc48c908506"
+    },
+    {
+      "sample": 4,
+      "parse": "PASSED",
+      "fixtureAlignment": "PASSED",
+      "sourceSha256": "8d7cdc1a3f94930be51a8524d69061a95f64b5a7b4d2d1082c0f60341db7999f"
+    }
+  ],
+  "semanticValidation": "onto-contract ContractTest.fourSamplesParseAndEveryContractStageIsValidated + importedSampleMapsEveryManifestFieldAndConsumerDefault；见最新 reactor 测试结果"
+}

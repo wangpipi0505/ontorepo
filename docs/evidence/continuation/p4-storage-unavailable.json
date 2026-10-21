@@ -1,0 +1,18 @@
+{
+  "checkedAt": "2026-10-20T18:39:01.454Z",
+  "releaseId": "d3ff3e9b-1333-495c-93c8-a419a57d014b",
+  "checks": [
+    {
+      "name": "实际停机识别为不可达且保留READY及原摘要",
+      "status": "PASSED"
+    },
+    {
+      "name": "消费503且无成功meta或版本头",
+      "status": "PASSED"
+    },
+    {
+      "name": "未伪造损坏状态或损坏告警",
+      "status": "PASSED"
+    }
+  ]
+}

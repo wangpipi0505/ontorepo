@@ -1,0 +1,3628 @@
+FILE: onto-data\src\test\java\cn\ontorepo\data\infra\S3BoundaryTest.java
+package cn.ontorepo.data.infra;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import cn.ontorepo.data.domain.*;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.*;
+import org.junit.jupiter.api.Test;
+
+class S3BoundaryTest {
+  final ObjectMapper json = new ObjectMapper();
+
+  QuerySpec query(int timeout) {
+    return new QuerySpec(
+        "rows.parquet",
+        List.of("id"),
+        List.of(),
+        List.of(),
+        1,
+        timeout,
+        Map.of(),
+        LabelScope.unrestricted(),
+        Map.of("region", "region"));
+  }
+
+  @Test
+  void invalidPrefixesCannotTurnIntoWholeBucketAccess() {
+    for (String prefix : List.of("", "../", "/", "valid/../")) {
+      var source = new SourceSpec("s", "LAKE", json.createObjectNode(), Set.of(prefix));
+      assertEquals(
+          "INVALID_PREFIX",
+          assertThrows(
+                  DataProblem.class, () -> new S3ParquetSourceAdapter().query(source, query(100)))
+              .code());
+    }
+  }
+
+  @Test
+  void remainingBudgetCannotRestartPerNetworkStage() {
+    var adapter = new S3ParquetSourceAdapter();
+    long expired = System.nanoTime() - 20_000_000;
+    assertEquals(
+        "QUERY_TIMEOUT",
+        assertThrows(DataProblem.class, () -> adapter.remaining(expired, query(10))).code());
+    int remaining = adapter.remaining(System.nanoTime() - 40_000_000, query(100));
+    assertTrue(remaining > 0 && remaining <= 60);
+  }
+}
+
+FILE: onto-data\src\test\java\cn\ontorepo\data\infra\GraphPlanTest.java
+package cn.ontorepo.data.infra;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import cn.ontorepo.data.domain.*;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.*;
+import org.junit.jupiter.api.Test;
+
+class GraphPlanTest {
+  @Test
+  void relationshipTemplateGuardsBothLabelsAndBindsValues() throws Exception {
+    var json = new ObjectMapper();
+    var source = new SourceSpec("g", "GRAPH", json.createObjectNode(), Set.of("Task", "Algorithm"));
+    var options =
+        Map.of(
+            "relationship",
+            json.getNodeFactory().textNode("USES"),
+            "targetLabel",
+            json.getNodeFactory().textNode("Algorithm"));
+    var q =
+        new QuerySpec(
+            "Task",
+            List.of("id", "_targetId", "_relationshipId"),
+            List.of(),
+            List.of(),
+            1,
+            1000,
+            new HashMap<>(options),
+            LabelScope.parse(json.readTree("{\"attr\":\"region\",\"in\":[\"A' injected\"]}")),
+            Map.of("region", "region"));
+    var plan = new Neo4jSourceAdapter().plan(source, q);
+    assertFalse(plan.cypher().contains("injected"));
+    assertTrue(plan.cypher().contains("m.`region`"));
+    assertTrue(plan.cypher().contains("r:`USES`"));
+    assertTrue(
+        plan.parameters().values().stream()
+            .anyMatch(v -> v instanceof List<?> list && list.contains("A' injected")));
+    assertThrows(
+        DataProblem.class,
+        () ->
+            new Neo4jSourceAdapter()
+                .plan(new SourceSpec("g", "GRAPH", source.connection(), Set.of("Task")), q));
+  }
+}
+
+FILE: onto-data\src\test\java\cn\ontorepo\data\domain\QueryPlannerTest.java
+package cn.ontorepo.data.domain;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.*;
+import org.junit.jupiter.api.Test;
+
+class QueryPlannerTest {
+  private final ObjectMapper json = new ObjectMapper();
+  private final SourceSpec source =
+      new SourceSpec(
+          "s",
+          "RELATIONAL",
+          json.createObjectNode().put("dialect", "postgresql"),
+          Set.of("public.tasks", "public.algorithms"));
+  private final SourceMetadata metadata =
+      new SourceMetadata(
+          List.of(
+              new SourceMetadata.Resource(
+                  "public.tasks",
+                  List.of(
+                      new SourceMetadata.Field("id", "INTEGER", false),
+                      new SourceMetadata.Field("region", "VARCHAR", true),
+                      new SourceMetadata.Field("algo", "INTEGER", false)),
+                  List.of("id"),
+                  List.of(),
+                  List.of()),
+              new SourceMetadata.Resource(
+                  "public.algorithms",
+                  List.of(
+                      new SourceMetadata.Field("id", "INTEGER", false),
+                      new SourceMetadata.Field("region", "VARCHAR", true)),
+                  List.of("id"),
+                  List.of(),
+                  List.of())));
+
+  QuerySpec query(LabelScope scope, Map<String, String> guards) {
+    return new QuerySpec(
+        "public.tasks",
+        List.of("public.tasks.id"),
+        List.of(),
+        List.of(),
+        10000,
+        90000,
+        Map.of(),
+        scope,
+        guards);
+  }
+
+  @Test
+  void bindsLabelsAndCapsExecution() throws Exception {
+    var scope = LabelScope.parse(json.readTree("{\"attr\":\"region\",\"in\":[\"A' OR 1=1 --\"]}"));
+    var plan =
+        new QueryPlanner()
+            .plan(source, query(scope, Map.of("region", "public.tasks.region")), metadata);
+    assertFalse(plan.sql().contains("OR 1=1"));
+    assertTrue(plan.sql().contains("IS NOT NULL"));
+    assertEquals("A' OR 1=1 --", plan.parameters().getFirst());
+    assertEquals(500, plan.limit());
+    assertEquals(10000, plan.timeoutMs());
+  }
+
+  @Test
+  void emptyIntersectionIsFalseAndMissingGuardFails() {
+    var scope = new LabelScope(Map.of("region", Set.of()));
+    assertTrue(
+        new QueryPlanner()
+            .plan(source, query(scope, Map.of("region", "public.tasks.region")), metadata)
+            .sql()
+            .contains("1=0"));
+    assertThrows(
+        DataProblem.class, () -> new QueryPlanner().plan(source, query(scope, Map.of()), metadata));
+    assertThrows(
+        DataProblem.class,
+        () ->
+            new QueryPlanner().plan(source, query(LabelScope.unrestricted(), Map.of()), metadata));
+  }
+
+  @Test
+  void rejectsUnknownTablesColumnsAndOptions() {
+    assertThrows(
+        DataProblem.class,
+        () ->
+            new QueryPlanner()
+                .plan(
+                    source,
+                    query(LabelScope.unrestricted(), Map.of("region", "public.tasks.bad")),
+                    metadata));
+    assertThrows(
+        DataProblem.class,
+        () ->
+            new QueryPlanner()
+                .plan(
+                    new SourceSpec("s", "RELATIONAL", source.connection(), Set.of()),
+                    query(LabelScope.unrestricted(), Map.of("region", "public.tasks.region")),
+                    metadata));
+    assertThrows(
+        DataProblem.class,
+        () ->
+            new QueryPlanner()
+                .plan(
+                    source,
+                    new QuerySpec(
+                        "public.tasks;DROP",
+                        List.of("id"),
+                        List.of(),
+                        List.of(),
+                        1,
+                        1,
+                        Map.of(),
+                        LabelScope.unrestricted(),
+                        Map.of("region", "region")),
+                    metadata));
+  }
+
+  @Test
+  void joinsRequireGuardForEveryParticipatingTable() {
+    var joined =
+        new QuerySpec(
+            "public.tasks",
+            List.of("public.tasks.id", "public.algorithms.id"),
+            List.of(),
+            List.of(
+                new QuerySpec.Join(
+                    "public.algorithms", "public.tasks.algo", "public.algorithms.id")),
+            1,
+            1000,
+            Map.of(),
+            LabelScope.unrestricted(),
+            Map.of("region", "public.tasks.region"));
+    assertEquals(
+        "GUARD_ATTR_UNRESOLVED",
+        assertThrows(DataProblem.class, () -> new QueryPlanner().plan(source, joined, metadata))
+            .code());
+    var complete =
+        new QuerySpec(
+            joined.resource(),
+            joined.projection(),
+            joined.filters(),
+            joined.joins(),
+            1,
+            1000,
+            Map.of(),
+            LabelScope.unrestricted(),
+            Map.of(
+                "region",
+                "public.tasks.region",
+                "region@public.algorithms",
+                "public.algorithms.region"));
+    assertTrue(new QueryPlanner().plan(source, complete, metadata).sql().contains("JOIN"));
+  }
+}
+
+FILE: onto-data\src\test\java\cn\ontorepo\data\domain\ParquetIntegrationTest.java
+package cn.ontorepo.data.domain;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import cn.ontorepo.data.infra.S3ParquetSourceAdapter;
+import com.fasterxml.jackson.databind.*;
+import io.minio.*;
+import java.io.*;
+import java.nio.file.*;
+import java.util.*;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.parquet.example.data.simple.SimpleGroup;
+import org.apache.parquet.hadoop.example.ExampleParquetWriter;
+import org.apache.parquet.hadoop.metadata.CompressionCodecName;
+import org.apache.parquet.io.*;
+import org.apache.parquet.schema.MessageTypeParser;
+import org.junit.jupiter.api.Test;
+
+class ParquetIntegrationTest {
+  @Test
+  void realMinioParquetFiltersProjectsAndLocatesPhysicalRow() throws Exception {
+    ObjectMapper mapper = new ObjectMapper();
+    JsonNode env = mapper.readTree(Files.readString(Path.of("../.runtime/local-env.json")));
+    var config =
+        mapper
+            .createObjectNode()
+            .put("dialect", "s3-parquet")
+            .put("endpoint", env.path("ONTO_STORAGE_ENDPOINT").asText())
+            .put("accessKey", env.path("ONTO_STORAGE_ACCESS_KEY").asText())
+            .put("secretKey", env.path("ONTO_STORAGE_SECRET_KEY").asText())
+            .put("bucket", env.path("ONTO_STORAGE_BUCKET").asText());
+    MinioClient client =
+        MinioClient.builder()
+            .endpoint(config.path("endpoint").asText())
+            .credentials(config.path("accessKey").asText(), config.path("secretKey").asText())
+            .build();
+    String prefix = "c5/" + UUID.randomUUID() + "/", object = prefix + "rows.parquet";
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    OutputFile output =
+        new OutputFile() {
+          public PositionOutputStream create(long hint) {
+            return new PositionOutputStream() {
+              public long getPos() {
+                return bytes.size();
+              }
+
+              public void write(int b) {
+                bytes.write(b);
+              }
+
+              public void write(byte[] b, int o, int n) {
+                bytes.write(b, o, n);
+              }
+            };
+          }
+
+          public PositionOutputStream createOrOverwrite(long hint) {
+            return create(hint);
+          }
+
+          public boolean supportsBlockSize() {
+            return false;
+          }
+
+          public long defaultBlockSize() {
+            return 0;
+          }
+        };
+    var schema =
+        MessageTypeParser.parseMessageType(
+            "message rows { required int32 id; optional binary region (STRING); optional int64"
+                + " amount; optional binary hidden (STRING); }");
+    try (var writer =
+        ExampleParquetWriter.builder(output)
+            .withConf(new Configuration(false))
+            .withType(schema)
+            .withCompressionCodec(CompressionCodecName.UNCOMPRESSED)
+            .build()) {
+      writer.write(
+          new SimpleGroup(schema).append("id", 1).append("region", "B").append("amount", 10L));
+      writer.write(new SimpleGroup(schema).append("id", 2).append("amount", 20L));
+      writer.write(
+          new SimpleGroup(schema)
+              .append("id", 3)
+              .append("region", "A")
+              .append("amount", 30L)
+              .append("hidden", "private"));
+    }
+    byte[] body = bytes.toByteArray();
+    assertEquals("PAR1", new String(body, 0, 4, java.nio.charset.StandardCharsets.US_ASCII));
+    client.putObject(
+        PutObjectArgs.builder().bucket(config.path("bucket").asText()).object(object).stream(
+                new ByteArrayInputStream(body), (long) body.length, -1L)
+            .build());
+    try {
+      var source = new SourceSpec("lake", "LAKE", config, Set.of(prefix));
+      var adapter = new S3ParquetSourceAdapter();
+      assertEquals(1, adapter.metadata(source).resources().size());
+      var q =
+          new QuerySpec(
+              object,
+              List.of("id", "amount"),
+              List.of(),
+              List.of(),
+              1,
+              10000,
+              Map.of(),
+              LabelScope.parse(mapper.readTree("{\"attr\":\"region\",\"in\":[\"A\"]}")),
+              Map.of("region", "region"));
+      var result = adapter.query(source, q);
+      assertEquals(1, result.rows().size());
+      assertEquals(3, result.rows().getFirst().get("id"));
+      assertEquals(30L, result.rows().getFirst().get("amount"));
+      assertFalse(result.rows().getFirst().containsKey("hidden"));
+      assertEquals(2L, result.evidence().getFirst().key().get("rowIndex"));
+      assertThrows(
+          DataProblem.class,
+          () -> adapter.query(new SourceSpec("lake", "LAKE", config, Set.of("other/")), q));
+    } finally {
+      client.removeObject(
+          RemoveObjectArgs.builder().bucket(config.path("bucket").asText()).object(object).build());
+    }
+  }
+}
+
+FILE: onto-data\src\test\java\cn\ontorepo\data\domain\NativeGuardsTest.java
+package cn.ontorepo.data.domain;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import cn.ontorepo.data.infra.*;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.*;
+import org.junit.jupiter.api.Test;
+
+class NativeGuardsTest {
+  @Test
+  void allNativeAdaptersRejectUnguardedQueriesBeforeNetwork() {
+    var json = new ObjectMapper();
+    List<SourceAdapter> adapters =
+        List.of(
+            new JdbcSourceAdapter(),
+            new MongoSourceAdapter(),
+            new RedisSourceAdapter(),
+            new CassandraSourceAdapter(),
+            new Neo4jSourceAdapter(),
+            new S3ParquetSourceAdapter());
+    for (var adapter : adapters) {
+      var source = new SourceSpec("s", "unused", json.createObjectNode(), Set.of("safe"));
+      var q =
+          new QuerySpec(
+              "safe",
+              List.of("id"),
+              List.of(),
+              List.of(),
+              1,
+              1,
+              Map.of(),
+              LabelScope.unrestricted(),
+              Map.of());
+      assertEquals(
+          "GUARD_ATTR_UNRESOLVED",
+          assertThrows(DataProblem.class, () -> adapter.query(source, q)).code());
+    }
+  }
+}
+
+FILE: onto-data\src\test\java\cn\ontorepo\data\domain\LocalAdaptersTest.java
+package cn.ontorepo.data.domain;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import cn.ontorepo.data.infra.*;
+import com.fasterxml.jackson.databind.*;
+import com.sun.net.httpserver.HttpServer;
+import java.net.*;
+import java.nio.file.*;
+import java.util.*;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+class LocalAdaptersTest {
+  @TempDir Path root;
+  final ObjectMapper mapper = new ObjectMapper();
+
+  QuerySpec query(String r) throws Exception {
+    return new QuerySpec(
+        r,
+        List.of("id"),
+        List.of(),
+        List.of(),
+        1,
+        1000,
+        Map.of(),
+        LabelScope.parse(mapper.readTree("{\"attr\":\"region\",\"in\":[\"A\"]}")),
+        Map.of("region", "region"));
+  }
+
+  @Test
+  void fileFiltersBeforeLimitAndRejectsPathEscape() throws Exception {
+    Files.writeString(root.resolve("records.csv"), "id,region\n1,B\n2,\n3,A\n");
+    var source =
+        new SourceSpec(
+            "f",
+            "FILE",
+            mapper.createObjectNode().put("root", root.toString()).put("dialect", "csv"),
+            Set.of("records.csv"));
+    var adapter = new FileSourceAdapter();
+    var result = adapter.query(source, query("records.csv"));
+    assertEquals("3", result.rows().getFirst().get("id"));
+    assertEquals(1, result.rows().size());
+    assertEquals(4L, result.evidence().getFirst().key().get("line"));
+    assertThrows(
+        DataProblem.class,
+        () ->
+            adapter.query(
+                new SourceSpec("f", "FILE", source.connection(), Set.of("../bad.csv")),
+                query("../bad.csv")));
+    Path outside = Files.createTempFile("c5-outside", ".json");
+    try {
+      assertThrows(
+          DataProblem.class,
+          () ->
+              adapter.query(
+                  new SourceSpec("f", "FILE", source.connection(), Set.of(outside.toString())),
+                  query(outside.toString())));
+    } finally {
+      Files.delete(outside);
+    }
+  }
+
+  @Test
+  void httpPagesAndRejectsRedirectAndUndeclaredEndpoint() throws Exception {
+    HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    server.createContext(
+        "/records",
+        e -> {
+          String body =
+              e.getRequestURI().getQuery().contains("page=2")
+                  ? "[{\"id\":3,\"region\":\"A\"}]"
+                  : "[{\"id\":1,\"region\":\"B\"},{\"id\":2,\"region\":null}]";
+          byte[] bytes = body.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+          e.sendResponseHeaders(200, bytes.length);
+          e.getResponseBody().write(bytes);
+          e.close();
+        });
+    server.createContext(
+        "/redirect",
+        e -> {
+          e.getResponseHeaders().set("Location", "http://example.com/");
+          e.sendResponseHeaders(302, -1);
+          e.close();
+        });
+    server.start();
+    try {
+      var cfg =
+          mapper
+              .createObjectNode()
+              .put("baseUrl", "http://127.0.0.1:" + server.getAddress().getPort())
+              .put("dialect", "json")
+              .put("pageParam", "page")
+              .put("pageSize", 2)
+              .put("maxPages", 3);
+      cfg.putArray("endpoints").add("/records").add("/redirect");
+      var source = new SourceSpec("h", "HTTP", cfg, Set.of("/records", "/redirect"));
+      var adapter = new HttpSourceAdapter();
+      var r = adapter.query(source, query("/records"));
+      assertEquals(3, r.rows().getFirst().get("id"));
+      assertThrows(DataProblem.class, () -> adapter.query(source, query("/other")));
+      assertThrows(DataProblem.class, () -> adapter.query(source, query("/redirect")));
+    } finally {
+      server.stop(0);
+    }
+  }
+
+  @Test
+  void jsonAndExcelPreserveTypesAndRejectFormulas() throws Exception {
+    Files.writeString(
+        root.resolve("rows.json"),
+        "[{\"id\":1,\"region\":\"B\"},{\"id\":2,\"region\":\"A\",\"enabled\":true}]");
+    var jsonSource =
+        new SourceSpec(
+            "f",
+            "FILE",
+            mapper.createObjectNode().put("root", root.toString()).put("dialect", "json"),
+            Set.of("rows.json"));
+    var adapter = new FileSourceAdapter();
+    assertEquals(2, adapter.query(jsonSource, query("rows.json")).rows().getFirst().get("id"));
+    Path path = root.resolve("rows.xlsx");
+    try (var workbook = new org.apache.poi.xssf.usermodel.XSSFWorkbook()) {
+      var sheet = workbook.createSheet("data");
+      var header = sheet.createRow(0);
+      header.createCell(0).setCellValue("id");
+      header.createCell(1).setCellValue("region");
+      var row = sheet.createRow(1);
+      row.createCell(0).setCellValue(7);
+      row.createCell(1).setCellValue("A");
+      try (var out = Files.newOutputStream(path)) {
+        workbook.write(out);
+      }
+    }
+    var excelSource =
+        new SourceSpec(
+            "f",
+            "FILE",
+            mapper.createObjectNode().put("root", root.toString()).put("dialect", "excel"),
+            Set.of("rows.xlsx"));
+    assertEquals(7.0, adapter.query(excelSource, query("rows.xlsx")).rows().getFirst().get("id"));
+    try (var in = Files.newInputStream(path);
+        var workbook = new org.apache.poi.xssf.usermodel.XSSFWorkbook(in)) {
+      workbook.getSheetAt(0).getRow(1).getCell(0).setCellFormula("1+1");
+      try (var out = Files.newOutputStream(root.resolve("formula.xlsx"))) {
+        workbook.write(out);
+      }
+    }
+    var formulaSource =
+        new SourceSpec("f", "FILE", excelSource.connection(), Set.of("formula.xlsx"));
+    assertEquals(
+        "EXCEL_FORMULA_REJECTED",
+        assertThrows(DataProblem.class, () -> adapter.query(formulaSource, query("formula.xlsx")))
+            .code());
+  }
+
+  @Test
+  void symbolicDirectoryEscapeAndOversizeAreRejected() throws Exception {
+    Path outside = Files.createTempDirectory("c5-outside-");
+    Path link = root.resolve("link");
+    try {
+      Files.writeString(outside.resolve("rows.json"), "[{\"id\":1,\"region\":\"A\"}]");
+      try {
+        Files.createSymbolicLink(link, outside);
+      } catch (java.nio.file.FileSystemException denied) {
+        if (!System.getProperty("os.name").startsWith("Windows")) throw denied;
+        // Windows目录junction同样经过toRealPath，验证无需管理员特权的重解析点逃逸。
+        Process process =
+            new ProcessBuilder("cmd.exe", "/c", "mklink", "/J", link.toString(), outside.toString())
+                .redirectErrorStream(true)
+                .start();
+        process.getInputStream().readAllBytes();
+        assertEquals(0, process.waitFor(), "junction创建必须成功，不能跳过边界验收");
+      }
+      var source =
+          new SourceSpec(
+              "f",
+              "FILE",
+              mapper.createObjectNode().put("root", root.toString()).put("dialect", "json"),
+              Set.of("link/rows.json"));
+      assertEquals(
+          "FILE_PATH_OR_SIZE_REJECTED",
+          assertThrows(
+                  DataProblem.class,
+                  () -> new FileSourceAdapter().query(source, query("link/rows.json")))
+              .code());
+      try (var sparse = new java.io.RandomAccessFile(root.resolve("large.json").toFile(), "rw")) {
+        sparse.setLength(16L * 1024 * 1024 + 1);
+      }
+      var large = new SourceSpec("f", "FILE", source.connection(), Set.of("large.json"));
+      assertThrows(
+          DataProblem.class, () -> new FileSourceAdapter().query(large, query("large.json")));
+    } finally {
+      Files.deleteIfExists(link);
+      Files.deleteIfExists(outside.resolve("rows.json"));
+      Files.deleteIfExists(outside);
+    }
+  }
+
+  @Test
+  void registryRequiresExactKindAndDialect() {
+    var registry = new AdapterRegistry();
+    for (var pair :
+        Map.of(
+                "RELATIONAL",
+                "postgresql",
+                "WAREHOUSE",
+                "clickhouse",
+                "LAKE",
+                "s3-parquet",
+                "FILE",
+                "csv",
+                "HTTP",
+                "json",
+                "DOCUMENT",
+                "mongodb",
+                "KEY_VALUE",
+                "redis",
+                "WIDE_COLUMN",
+                "cassandra",
+                "GRAPH",
+                "neo4j")
+            .entrySet())
+      assertNotNull(
+          registry.adapter(
+              new SourceSpec(
+                  "s",
+                  pair.getKey(),
+                  mapper.createObjectNode().put("dialect", pair.getValue()),
+                  Set.of())));
+    assertThrows(
+        DataProblem.class,
+        () ->
+            registry.adapter(
+                new SourceSpec(
+                    "s",
+                    "WAREHOUSE",
+                    mapper.createObjectNode().put("dialect", "postgresql"),
+                    Set.of())));
+    assertThrows(
+        DataProblem.class,
+        () -> registry.adapter(new SourceSpec("s", "FILE", mapper.createObjectNode(), Set.of())));
+  }
+
+  @Test
+  void httpTimeoutCoversSlowResponseBody() throws Exception {
+    HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    server.createContext(
+        "/slow",
+        e -> {
+          try {
+            e.sendResponseHeaders(200, 0);
+            e.getResponseBody().write('[');
+            e.getResponseBody().flush();
+            Thread.sleep(700);
+            e.getResponseBody().write(']');
+          } catch (Exception ignored) {
+          } finally {
+            e.close();
+          }
+        });
+    server.start();
+    try {
+      var cfg =
+          mapper
+              .createObjectNode()
+              .put("dialect", "json")
+              .put("baseUrl", "http://127.0.0.1:" + server.getAddress().getPort());
+      cfg.putArray("endpoints").add("/slow");
+      var source = new SourceSpec("h", "HTTP", cfg, Set.of("/slow"));
+      var q =
+          new QuerySpec(
+              "/slow",
+              List.of("id"),
+              List.of(),
+              List.of(),
+              1,
+              100,
+              Map.of(),
+              LabelScope.unrestricted(),
+              Map.of("region", "region"));
+      long start = System.nanoTime();
+      assertThrows(DataProblem.class, () -> new HttpSourceAdapter().query(source, q));
+      assertTrue((System.nanoTime() - start) / 1_000_000 < 500, "响应体必须受同一截止时间限制");
+    } finally {
+      server.stop(0);
+    }
+  }
+}
+
+FILE: onto-data\src\test\java\cn\ontorepo\data\domain\JdbcAdapterTest.java
+package cn.ontorepo.data.domain;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import cn.ontorepo.data.infra.JdbcSourceAdapter;
+import com.fasterxml.jackson.databind.*;
+import java.nio.file.*;
+import java.sql.*;
+import java.util.*;
+import org.junit.jupiter.api.Test;
+
+class JdbcAdapterTest {
+  @Test
+  void realPostgresAppliesScopeBeforeLimitAndReturnsKeys() throws Exception {
+    ObjectMapper mapper = new ObjectMapper();
+    JsonNode env = mapper.readTree(Files.readString(Path.of("../.runtime/local-env.json")));
+    String url = env.path("ONTO_DB_URL").asText();
+    // 本工程唯一测试 schema；不读取或清理业务表。
+    String schema = "c5_" + UUID.randomUUID().toString().replace("-", "");
+    var config =
+        mapper
+            .createObjectNode()
+            .put("dialect", "postgresql")
+            .put("url", url)
+            .put("user", env.path("ONTO_DB_USER").asText())
+            .put("password", env.path("ONTO_DB_PASSWORD").asText());
+    try (Connection c =
+            DriverManager.getConnection(
+                url, config.path("user").asText(), config.path("password").asText());
+        Statement st = c.createStatement()) {
+      st.execute("CREATE SCHEMA " + schema);
+      try {
+        st.execute(
+            "CREATE TABLE "
+                + schema
+                + ".tasks(id integer primary key, region text, amount integer)");
+        st.execute(
+            "INSERT INTO " + schema + ".tasks VALUES(1,'B',5),(2,null,6),(3,'',7),(4,'A',8)");
+        var source = new SourceSpec("pg", "RELATIONAL", config, Set.of(schema + ".tasks"));
+        var adapter = new JdbcSourceAdapter();
+        assertEquals(ProbeResult.Status.PASSED, adapter.probe(source).stages().get(2).status());
+        assertEquals(1, adapter.metadata(source).resources().size());
+        assertEquals(
+            ProbeResult.Status.FAILED,
+            adapter
+                .probe(
+                    new SourceSpec(
+                        "pg", "RELATIONAL", config, Set.of(schema + ".tasks", schema + ".missing")))
+                .stages()
+                .get(2)
+                .status());
+        var q =
+            new QuerySpec(
+                schema + ".tasks",
+                List.of(schema + ".tasks.id", schema + ".tasks.amount"),
+                List.of(),
+                List.of(),
+                1,
+                10000,
+                Map.of(),
+                LabelScope.parse(mapper.readTree("{\"attr\":\"region\",\"in\":[\"A\"]}")),
+                Map.of("region", schema + ".tasks.region"));
+        var result = adapter.query(source, q);
+        assertEquals(1, result.rows().size());
+        assertEquals(4, result.rows().getFirst().get(schema + ".tasks.id"));
+        assertEquals(4, result.evidence().getFirst().key().get("id"));
+        assertInstanceOf(Integer.class, result.rows().getFirst().get(schema + ".tasks.amount"));
+        st.execute("CREATE TABLE " + schema + ".algorithms(id integer primary key,region text)");
+        st.execute("INSERT INTO " + schema + ".algorithms VALUES(10,'A'),(11,'B'),(12,null)");
+        st.execute(
+            "ALTER TABLE "
+                + schema
+                + ".tasks ADD COLUMN algo integer REFERENCES "
+                + schema
+                + ".algorithms(id) DEFAULT 10");
+        var joinedSource =
+            new SourceSpec(
+                "pg", "RELATIONAL", config, Set.of(schema + ".tasks", schema + ".algorithms"));
+        var joined =
+            new QuerySpec(
+                schema + ".tasks",
+                List.of(schema + ".tasks.id", schema + ".algorithms.id"),
+                List.of(),
+                List.of(
+                    new QuerySpec.Join(
+                        schema + ".algorithms", schema + ".tasks.algo", schema + ".algorithms.id")),
+                1,
+                10000,
+                Map.of(),
+                q.scope(),
+                Map.of(
+                    "region",
+                    schema + ".tasks.region",
+                    "region@" + schema + ".algorithms",
+                    schema + ".algorithms.region"));
+        var joinResult = adapter.query(joinedSource, joined);
+        assertEquals(10, joinResult.rows().getFirst().get(schema + ".algorithms.id"));
+        assertEquals(2, joinResult.evidence().size());
+        assertEquals(4, joinResult.evidence().getFirst().key().get("id"));
+        assertEquals(10, joinResult.evidence().get(1).key().get("id"));
+        st.execute("UPDATE " + schema + ".algorithms SET region=null WHERE id=10");
+        assertTrue(adapter.query(joinedSource, joined).rows().isEmpty());
+        var invalid =
+            new SourceSpec(
+                "pg",
+                "RELATIONAL",
+                config.deepCopy().put("password", "secret-not-in-error"),
+                Set.of(schema + ".tasks"));
+        assertFalse(adapter.probe(invalid).toString().contains("secret-not-in-error"));
+      } finally {
+        st.execute("DROP SCHEMA " + schema + " CASCADE");
+      }
+    }
+  }
+}
+
+FILE: onto-data\src\test\java\cn\ontorepo\data\domain\DataBoundaryTest.java
+package cn.ontorepo.data.domain;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.Base64;
+import org.junit.jupiter.api.Test;
+
+/** 以密文完整性、授权交集和缺分类反例验证数据源边界，不用假数据库冒充适配验收。 */
+class DataBoundaryTest {
+  private static final ObjectMapper JSON = new ObjectMapper();
+  private static final String KEY = Base64.getEncoder().encodeToString(new byte[32]);
+
+  @Test
+  void credentialsUseRandomNonceAndBindSourceIdentity() {
+    var cipher = new CredentialCipher(KEY);
+    String first = cipher.encrypt("source-one", "{\"password\":\"本地测试值\"}");
+    String second = cipher.encrypt("source-one", "{\"password\":\"本地测试值\"}");
+    assertNotEquals(first, second);
+    assertFalse(first.contains("本地测试值"));
+    assertEquals("{\"password\":\"本地测试值\"}", cipher.decrypt("source-one", first));
+    assertEquals(
+        "CREDENTIAL_INTEGRITY_FAILED",
+        assertThrows(DataProblem.class, () -> cipher.decrypt("source-two", first)).code());
+  }
+
+  @Test
+  void credentialTamperingAndMissingKeyNeverFallBackToPlaintext() {
+    var cipher = new CredentialCipher(KEY);
+    String encoded = cipher.encrypt("source-one", "secret");
+    byte[] bytes = Base64.getUrlDecoder().decode(encoded.substring(3));
+    bytes[15] ^= 1;
+    String tampered = "v1." + Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    assertEquals(
+        "CREDENTIAL_INTEGRITY_FAILED",
+        assertThrows(DataProblem.class, () -> cipher.decrypt("source-one", tampered)).code());
+    assertThrows(DataProblem.class, () -> new CredentialCipher(null));
+    assertThrows(DataProblem.class, () -> new CredentialCipher("plain-key"));
+    assertThrows(DataProblem.class, () -> cipher.decrypt("source-one", "secret"));
+  }
+
+  @Test
+  void endpointScopeNarrowsOtherwiseBroadScopes() throws Exception {
+    var all = LabelScope.parse(JSON.readTree("{\"attr\":\"region\",\"in\":[\"A\",\"B\"]}"));
+    var onlyA = LabelScope.parse(JSON.readTree("{\"attr\":\"region\",\"in\":[\"A\"]}"));
+    var service = LabelScope.intersect(all, onlyA, all);
+    assertTrue(service.allows("region", JSON.readTree("\"A\"")));
+    assertFalse(service.allows("region", JSON.readTree("\"B\"")));
+    var internal = LabelScope.intersect(all, all, all);
+    assertTrue(internal.allows("region", JSON.readTree("\"B\"")));
+    assertEquals(internal, LabelScope.intersect(all, LabelScope.unrestricted(), all));
+  }
+
+  @Test
+  void unclassifiedAndDisjointLabelsDenyEvenWhenOtherLayersUnrestricted() throws Exception {
+    var a = LabelScope.parse(JSON.readTree("{\"attr\":\"region\",\"in\":[\"A\"]}"));
+    var b = LabelScope.parse(JSON.readTree("{\"attr\":\"region\",\"in\":[\"B\"]}"));
+    assertTrue(LabelScope.intersect(a, b).deniesAll());
+    assertFalse(LabelScope.unrestricted().allows("region", JSON.nullNode()));
+    assertFalse(LabelScope.unrestricted().allows("region", null));
+    assertFalse(LabelScope.unrestricted().allows("region", JSON.readTree("\"\"")));
+  }
+
+  @Test
+  void scopeRejectsUnknownOrMalformedExpressionsAndKeepsMultipleGuards() throws Exception {
+    for (String invalid :
+        new String[] {
+          "{}",
+          "{\"attr\":\"region\",\"in\":\"A\"}",
+          "{\"attr\":true,\"in\":[\"A\"]}",
+          "{\"attr\":\"region\",\"in\":[null]}",
+          "{\"attr\":\"region\",\"in\":[{\"x\":1}]}",
+          "{\"attr\":\"region\",\"in\":[\"A\"],\"sql\":\"1=1\"}"
+        }) assertThrows(DataProblem.class, () -> LabelScope.parse(JSON.readTree(invalid)));
+    var mixed =
+        LabelScope.parse(
+            JSON.readTree(
+                "{\"all\":[{\"attr\":\"region\",\"in\":[\"A\"]},{\"attr\":\"tenant_label\",\"in\":[\"T1\"]}]}"));
+    assertTrue(mixed.allows("region", JSON.readTree("\"A\"")));
+    assertFalse(mixed.allows("tenant_label", JSON.readTree("\"T2\"")));
+  }
+
+  @Test
+  void numericScopeValuesHaveMathematicalEqualityWithoutStringCoercion() throws Exception {
+    var integer = LabelScope.parse(JSON.readTree("{\"attr\":\"level\",\"in\":[1]}"));
+    var decimal = LabelScope.parse(JSON.readTree("{\"attr\":\"level\",\"in\":[1.0]}"));
+    var result = LabelScope.intersect(integer, decimal);
+    assertFalse(result.deniesAll());
+    assertTrue(result.allows("level", JSON.readTree("1.00")));
+    assertFalse(result.allows("level", JSON.readTree("\"1\"")));
+  }
+
+  @Test
+  void directConstructionCannotBypassScopeValidation() throws Exception {
+    assertThrows(
+        DataProblem.class,
+        () ->
+            new LabelScope(java.util.Map.of("region", java.util.Set.of(JSON.createObjectNode()))));
+    assertThrows(
+        DataProblem.class,
+        () ->
+            new LabelScope(
+                java.util.Map.of(
+                    "region; DROP", java.util.Set.of(JSON.getNodeFactory().textNode("A")))));
+    assertThrows(DataProblem.class, () -> LabelScope.parse(JSON.readTree("{\"all\":[null]}")));
+  }
+}
+
+FILE: onto-data\src\main\java\cn\ontorepo\data\infra\S3ParquetSourceAdapter.java
+package cn.ontorepo.data.infra;
+
+import cn.ontorepo.data.domain.*;
+import io.minio.*;
+import java.io.*;
+import java.nio.ByteBuffer;
+import java.util.*;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.parquet.example.data.Group;
+import org.apache.parquet.filter2.compat.FilterCompat;
+import org.apache.parquet.filter2.predicate.*;
+import org.apache.parquet.hadoop.*;
+import org.apache.parquet.hadoop.api.ReadSupport;
+import org.apache.parquet.hadoop.example.GroupReadSupport;
+import org.apache.parquet.io.*;
+import org.apache.parquet.io.api.Binary;
+import org.apache.parquet.schema.*;
+
+/** 真正 Parquet：先按桶/前缀取有界对象，再做列裁剪与谓词下推；不解释 JSON 替代品。 */
+public final class S3ParquetSourceAdapter extends AdapterSupport {
+  private static final okhttp3.OkHttpClient HTTP =
+      new okhttp3.OkHttpClient.Builder()
+          .connectTimeout(2, java.util.concurrent.TimeUnit.SECONDS)
+          .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+          .callTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+          .build();
+
+  @Override
+  void verifyScope(SourceSpec s, SourceMetadata m) {
+    for (String prefix : s.accessScope())
+      if (m.resources().stream().noneMatch(r -> r.name().startsWith(prefix)))
+        throw QueryPlanner.problem("SCOPE_UNAVAILABLE");
+  }
+
+  @Override
+  public Set<String> capabilities() {
+    return Set.of(
+        "S3_PREFIX",
+        "PARQUET_PRIMITIVE_SCHEMA",
+        "PROJECTED_PARQUET_READ",
+        "PREDICATE_PUSHDOWN_EQ_IN",
+        "MAX_16_MIB_OBJECT",
+        "MAX_1000_OBJECTS",
+        "NO_JOIN");
+  }
+
+  MinioClient open(SourceSpec s) {
+    return open(s, 10000);
+  }
+
+  MinioClient open(SourceSpec s, int timeoutMs) {
+    return MinioClient.builder()
+        .endpoint(text(s, "endpoint"))
+        .credentials(text(s, "accessKey"), text(s, "secretKey"))
+        .httpClient(
+            HTTP.newBuilder()
+                .callTimeout(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .readTimeout(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .connectTimeout(
+                    Math.min(2000, timeoutMs), java.util.concurrent.TimeUnit.MILLISECONDS)
+                .build())
+        .build();
+  }
+
+  /** 同一次查询的网络阶段共用剩余预算，不能每个请求重新获得完整timeout。 */
+  int remaining(long started, QuerySpec q) {
+    long left = q.timeoutMs() - (System.nanoTime() - started) / 1_000_000;
+    if (left <= 0) throw QueryPlanner.problem("QUERY_TIMEOUT");
+    return (int) left;
+  }
+
+  void resource(SourceSpec s, String key) {
+    for (String prefix : s.accessScope())
+      if (prefix.isBlank() || prefix.contains("..") || prefix.startsWith("/"))
+        throw QueryPlanner.problem("INVALID_PREFIX");
+    if (key == null
+        || !key.endsWith(".parquet")
+        || key.contains("..")
+        || key.startsWith("/")
+        || s.accessScope().stream().noneMatch(key::startsWith))
+      throw QueryPlanner.problem("SCOPE_EXCEEDED");
+  }
+
+  @Override
+  void connectivity(SourceSpec s) throws Exception {
+    uriSocket(text(s, "endpoint"), text(s, "endpoint").startsWith("https:") ? 443 : 80);
+  }
+
+  @Override
+  void authenticate(SourceSpec s) throws Exception {
+    if (!open(s).bucketExists(BucketExistsArgs.builder().bucket(text(s, "bucket")).build()))
+      throw QueryPlanner.problem("BUCKET_UNAVAILABLE");
+  }
+
+  byte[] bytes(SourceSpec s, String key) throws Exception {
+    return bytes(s, key, null, 0);
+  }
+
+  byte[] bytes(SourceSpec s, String key, QuerySpec query, long started) throws Exception {
+    resource(s, key);
+    MinioClient client = open(s, query == null ? 10000 : remaining(started, query));
+    var stat =
+        client.statObject(StatObjectArgs.builder().bucket(text(s, "bucket")).object(key).build());
+    if (stat.size() > MAX_BYTES) throw QueryPlanner.problem("OBJECT_TOO_LARGE");
+    if (query != null) client = open(s, remaining(started, query));
+    try (InputStream in =
+        client.getObject(GetObjectArgs.builder().bucket(text(s, "bucket")).object(key).build())) {
+      byte[] bytes = in.readNBytes(MAX_BYTES + 1);
+      if (bytes.length > MAX_BYTES) throw QueryPlanner.problem("OBJECT_TOO_LARGE");
+      return bytes;
+    }
+  }
+
+  SourceMetadata.Resource schema(String r, byte[] data) throws Exception {
+    try (ParquetFileReader reader = ParquetFileReader.open(new BytesFile(data))) {
+      MessageType schema = reader.getFooter().getFileMetaData().getSchema();
+      List<SourceMetadata.Field> fields = new ArrayList<>();
+      for (Type t : schema.getFields()) {
+        if (!t.isPrimitive() || t.isRepetition(Type.Repetition.REPEATED))
+          throw QueryPlanner.problem("PARQUET_NESTED_UNSUPPORTED");
+        var logical = t.getLogicalTypeAnnotation();
+        var primitive = t.asPrimitiveType().getPrimitiveTypeName();
+        if (logical != null
+                && !(logical instanceof LogicalTypeAnnotation.StringLogicalTypeAnnotation)
+            || primitive == PrimitiveType.PrimitiveTypeName.INT96
+            || primitive == PrimitiveType.PrimitiveTypeName.FIXED_LEN_BYTE_ARRAY
+            || primitive == PrimitiveType.PrimitiveTypeName.BINARY
+                && !(logical instanceof LogicalTypeAnnotation.StringLogicalTypeAnnotation))
+          throw QueryPlanner.problem("PARQUET_TYPE_UNSUPPORTED");
+        fields.add(
+            new SourceMetadata.Field(
+                t.getName(),
+                t.asPrimitiveType().getPrimitiveTypeName().name(),
+                t.isRepetition(Type.Repetition.OPTIONAL)));
+      }
+      return new SourceMetadata.Resource(r, fields, List.of(), List.of(), List.of());
+    }
+  }
+
+  @Override
+  SourceMetadata readMetadata(SourceSpec s) throws Exception {
+    List<SourceMetadata.Resource> out = new ArrayList<>();
+    Set<String> seen = new HashSet<>();
+    MinioClient client = open(s);
+    for (String prefix : s.accessScope()) {
+      if (prefix.isBlank() || prefix.contains("..") || prefix.startsWith("/"))
+        throw QueryPlanner.problem("INVALID_PREFIX");
+      boolean found = false;
+      int scanned = 0;
+      for (var result :
+          client.listObjects(
+              ListObjectsArgs.builder()
+                  .bucket(text(s, "bucket"))
+                  .prefix(prefix)
+                  .recursive(true)
+                  .build())) {
+        if (++scanned > 1000) throw QueryPlanner.problem("OBJECT_SCAN_LIMIT");
+        String key = result.get().objectName();
+        if (!key.startsWith(prefix)) throw QueryPlanner.problem("SCOPE_EXCEEDED");
+        if (!key.endsWith(".parquet")) continue;
+        found = true;
+        if (seen.add(key)) out.add(schema(key, bytes(s, key)));
+      }
+      if (!found) throw QueryPlanner.problem("SCOPE_UNAVAILABLE");
+    }
+    return new SourceMetadata(out);
+  }
+
+  static final class ReaderBuilder extends ParquetReader.Builder<Group> {
+    ReaderBuilder(InputFile input) {
+      super(input);
+    }
+
+    @Override
+    protected ReadSupport<Group> getReadSupport() {
+      return new GroupReadSupport();
+    }
+  }
+
+  @Override
+  QueryResult execute(SourceSpec s, QuerySpec q) throws Exception {
+    flat(q);
+    resource(s, q.resource());
+    long started = System.nanoTime();
+    byte[] data = bytes(s, q.resource(), q, started);
+    MessageType schema;
+    try (ParquetFileReader r = ParquetFileReader.open(new BytesFile(data))) {
+      schema = r.getFooter().getFileMetaData().getSchema();
+    }
+    var meta = schema(q.resource(), data);
+    fields(
+        q,
+        meta.fields().stream()
+            .map(SourceMetadata.Field::name)
+            .collect(java.util.stream.Collectors.toSet()));
+    Set<String> wanted = new LinkedHashSet<>(q.projection());
+    wanted.addAll(q.guardBindings().values());
+    q.filters().forEach(f -> wanted.add(f.column()));
+    MessageType projection =
+        new MessageType(schema.getName(), wanted.stream().map(schema::getType).toList());
+    Configuration config = new Configuration(false);
+    config.set("parquet.read.schema", projection.toString());
+    FilterPredicate predicate = null;
+    for (var b : q.guardBindings().entrySet()) {
+      var values = q.scope().parameters().get(b.getKey());
+      if (values != null) {
+        if (values.isEmpty()) return new QueryResult(meta.fields(), List.of(), List.of());
+        predicate = and(predicate, in(schema, b.getValue(), values));
+      }
+    }
+    for (var f : q.filters()) {
+      if (f.operator() != QuerySpec.Operator.EQ && f.operator() != QuerySpec.Operator.IN)
+        throw QueryPlanner.problem("PARQUET_OPERATOR_UNSUPPORTED");
+      if (f.values().isEmpty()) return new QueryResult(meta.fields(), List.of(), List.of());
+      predicate = and(predicate, in(schema, f.column(), f.values()));
+    }
+    ReaderBuilder builder = new ReaderBuilder(new BytesFile(data));
+    builder.withConf(config);
+    if (predicate != null) builder.withFilter(FilterCompat.get(predicate));
+    List<Map<String, Object>> out = new ArrayList<>();
+    List<QueryResult.SourceRecord> evidence = new ArrayList<>();
+    try (ParquetReader<Group> reader = builder.build()) {
+      Group row;
+      long ordinal = 0;
+      while ((row = reader.read()) != null) {
+        deadline(started, q);
+        if (++ordinal > MAX_SCAN) throw QueryPlanner.problem("SCAN_LIMIT_EXCEEDED");
+        Map<String, Object> values = new LinkedHashMap<>();
+        for (String field : wanted) {
+          int index = projection.getFieldIndex(field);
+          Object value = null;
+          if (row.getFieldRepetitionCount(index) > 0)
+            value =
+                switch (projection.getType(index).asPrimitiveType().getPrimitiveTypeName()) {
+                  case INT32 -> row.getInteger(index, 0);
+                  case INT64 -> row.getLong(index, 0);
+                  case FLOAT -> row.getFloat(index, 0);
+                  case DOUBLE -> row.getDouble(index, 0);
+                  case BOOLEAN -> row.getBoolean(index, 0);
+                  case BINARY -> row.getBinary(index, 0).toStringUsingUTF8();
+                  default -> throw QueryPlanner.problem("PARQUET_TYPE_UNSUPPORTED");
+                };
+          values.put(field, value);
+        }
+        if (matches(q, values)) {
+          out.add(project(q, values));
+          evidence.add(
+              new QueryResult.SourceRecord(
+                  s.id(), q.resource(), Map.of("rowIndex", reader.getCurrentRowIndex())));
+          if (out.size() >= q.limit()) break;
+        }
+      }
+    }
+    return new QueryResult(
+        meta.fields().stream().filter(f -> q.projection().contains(f.name())).toList(),
+        out,
+        evidence);
+  }
+
+  private FilterPredicate and(FilterPredicate a, FilterPredicate b) {
+    return a == null ? b : FilterApi.and(a, b);
+  }
+
+  private FilterPredicate in(
+      MessageType schema, String field, List<com.fasterxml.jackson.databind.JsonNode> values) {
+    FilterPredicate result = null;
+    for (var value : values) {
+      FilterPredicate next =
+          switch (schema.getType(field).asPrimitiveType().getPrimitiveTypeName()) {
+            case INT32 -> FilterApi.eq(FilterApi.intColumn(field), value.intValue());
+            case INT64 -> FilterApi.eq(FilterApi.longColumn(field), value.longValue());
+            case FLOAT -> FilterApi.eq(FilterApi.floatColumn(field), value.floatValue());
+            case DOUBLE -> FilterApi.eq(FilterApi.doubleColumn(field), value.doubleValue());
+            case BOOLEAN -> FilterApi.eq(FilterApi.booleanColumn(field), value.booleanValue());
+            case BINARY ->
+                FilterApi.eq(FilterApi.binaryColumn(field), Binary.fromString(value.asText()));
+            default -> throw QueryPlanner.problem("PARQUET_TYPE_UNSUPPORTED");
+          };
+      result = result == null ? next : FilterApi.or(result, next);
+    }
+    return result;
+  }
+
+  /** 有界内存对象的随机读取，不落盘明文，不接受路径配置。 */
+  static final class BytesFile implements InputFile {
+    private final byte[] bytes;
+
+    BytesFile(byte[] bytes) {
+      this.bytes = bytes;
+    }
+
+    @Override
+    public long getLength() {
+      return bytes.length;
+    }
+
+    @Override
+    public SeekableInputStream newStream() {
+      return new SeekableInputStream() {
+        int pos;
+
+        @Override
+        public long getPos() {
+          return pos;
+        }
+
+        @Override
+        public void seek(long p) throws IOException {
+          if (p < 0 || p > bytes.length) throw new EOFException();
+          pos = (int) p;
+        }
+
+        @Override
+        public int read() {
+          return pos == bytes.length ? -1 : bytes[pos++] & 255;
+        }
+
+        @Override
+        public int read(byte[] b, int off, int len) {
+          if (pos == bytes.length) return -1;
+          int n = Math.min(len, bytes.length - pos);
+          System.arraycopy(bytes, pos, b, off, n);
+          pos += n;
+          return n;
+        }
+
+        @Override
+        public void readFully(byte[] b) throws IOException {
+          readFully(b, 0, b.length);
+        }
+
+        @Override
+        public void readFully(byte[] b, int off, int len) throws IOException {
+          if (bytes.length - pos < len) throw new EOFException();
+          System.arraycopy(bytes, pos, b, off, len);
+          pos += len;
+        }
+
+        @Override
+        public int read(ByteBuffer b) {
+          if (pos == bytes.length) return -1;
+          int n = Math.min(b.remaining(), bytes.length - pos);
+          b.put(bytes, pos, n);
+          pos += n;
+          return n;
+        }
+
+        @Override
+        public void readFully(ByteBuffer b) throws IOException {
+          if (b.remaining() > bytes.length - pos) throw new EOFException();
+          int n = b.remaining();
+          b.put(bytes, pos, n);
+          pos += n;
+        }
+      };
+    }
+  }
+}
+
+FILE: onto-data\src\main\java\cn\ontorepo\data\infra\RedisSourceAdapter.java
+package cn.ontorepo.data.infra;
+
+import cn.ontorepo.data.domain.*;
+import java.util.*;
+import redis.clients.jedis.*;
+import redis.clients.jedis.params.ScanParams;
+import redis.clients.jedis.resps.ScanResult;
+
+/** Redis 仅白名单前缀内 STRING(JSON对象) 键；扫描有步数上限，无关系连接。 */
+public final class RedisSourceAdapter extends AdapterSupport {
+  @Override
+  public Set<String> capabilities() {
+    return Set.of(
+        "JSON_STRING_KEY", "PREFIX_SCAN", "MAX_1000_SCAN_STEPS", "NO_JOIN", "KEY_EVIDENCE");
+  }
+
+  Jedis open(SourceSpec s) {
+    Jedis j = new Jedis(text(s, "host"), number(s, "port", 6379), 2000, 10000);
+    String pass = s.connection().path("password").asText("");
+    if (!pass.isEmpty()) j.auth(pass);
+    j.select(number(s, "database", 0));
+    return j;
+  }
+
+  void prefix(SourceSpec s, String r) {
+    exact(s, r);
+    if (!r.matches("[A-Za-z0-9:_-]{1,200}")) throw QueryPlanner.problem("INVALID_KEY_PREFIX");
+  }
+
+  @Override
+  void connectivity(SourceSpec s) throws Exception {
+    socket(text(s, "host"), number(s, "port", 6379));
+  }
+
+  @Override
+  void authenticate(SourceSpec s) {
+    try (Jedis j = open(s)) {
+      j.ping();
+    }
+  }
+
+  Map<String, Object> row(Jedis j, String key) throws Exception {
+    if (!j.type(key).equals("string")) throw QueryPlanner.problem("REDIS_VALUE_TYPE_UNSUPPORTED");
+    String value = j.get(key);
+    if (value == null) return null;
+    if (value.length() > MAX_BYTES) throw QueryPlanner.problem("RESPONSE_TOO_LARGE");
+    var n = JSON.readTree(value);
+    if (!n.isObject()) throw QueryPlanner.problem("REDIS_JSON_OBJECT_REQUIRED");
+    Map<String, Object> row =
+        JSON.convertValue(
+            n, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
+    row.put("_key", key);
+    return row;
+  }
+
+  @Override
+  SourceMetadata readMetadata(SourceSpec s) throws Exception {
+    try (Jedis j = open(s)) {
+      List<SourceMetadata.Resource> out = new ArrayList<>();
+      for (String r : s.accessScope()) {
+        prefix(s, r);
+        String cursor = "0";
+        boolean found = false;
+        for (int step = 0; step < 1000; step++) {
+          var scan = j.scan(cursor, new ScanParams().match(r + "*").count(100));
+          cursor = scan.getCursor();
+          for (String key : scan.getResult()) {
+            if (!key.startsWith(r)) throw QueryPlanner.problem("SCOPE_EXCEEDED");
+            var row = row(j, key);
+            if (row != null) {
+              var inferred = inferred(r, List.of(row));
+              out.add(
+                  new SourceMetadata.Resource(
+                      r, inferred.fields(), List.of("_key"), List.of(), List.of()));
+              found = true;
+              break;
+            }
+          }
+          if (found || cursor.equals("0")) break;
+          if (step == 999) throw QueryPlanner.problem("SCAN_LIMIT_EXCEEDED");
+        }
+        if (!found) throw QueryPlanner.problem("SCOPE_UNAVAILABLE");
+      }
+      return new SourceMetadata(out);
+    }
+  }
+
+  @Override
+  QueryResult execute(SourceSpec s, QuerySpec q) throws Exception {
+    flat(q);
+    prefix(s, q.resource());
+    long started = System.nanoTime();
+    List<Map<String, Object>> out = new ArrayList<>();
+    List<QueryResult.SourceRecord> evidence = new ArrayList<>();
+    String exact = null;
+    for (var f : q.filters())
+      if (f.column().equals("_key") && f.operator() == QuerySpec.Operator.EQ) {
+        exact = f.values().getFirst().asText();
+        if (!exact.startsWith(q.resource())) throw QueryPlanner.problem("SCOPE_EXCEEDED");
+      }
+    try (Jedis j = open(s)) {
+      String cursor = "0";
+      int scanned = 0;
+      for (int step = 0; step < 1000; step++) {
+        deadline(started, q);
+        ScanResult<String> scan =
+            exact == null
+                ? j.scan(cursor, new ScanParams().match(q.resource() + "*").count(100))
+                : new ScanResult<>("0", List.of(exact));
+        cursor = scan.getCursor();
+        for (String key : scan.getResult()) {
+          if (++scanned > MAX_SCAN) throw QueryPlanner.problem("SCAN_LIMIT_EXCEEDED");
+          if (!key.startsWith(q.resource())) throw QueryPlanner.problem("SCOPE_EXCEEDED");
+          if (!j.exists(key)) continue;
+          var row = row(j, key);
+          if (row != null) {
+            fields(q, row.keySet());
+            if (matches(q, row)) {
+              out.add(project(q, row));
+              evidence.add(new QueryResult.SourceRecord(s.id(), q.resource(), Map.of("key", key)));
+              if (out.size() >= q.limit())
+                return new QueryResult(inferred(q.resource(), out).fields(), out, evidence);
+            }
+          }
+        }
+        if (cursor.equals("0"))
+          return new QueryResult(inferred(q.resource(), out).fields(), out, evidence);
+      }
+      throw QueryPlanner.problem("SCAN_LIMIT_EXCEEDED");
+    }
+  }
+}
+
+FILE: onto-data\src\main\java\cn\ontorepo\data\infra\Neo4jSourceAdapter.java
+package cn.ontorepo.data.infra;
+
+import cn.ontorepo.data.domain.*;
+import java.time.Duration;
+import java.util.*;
+import org.neo4j.driver.*;
+
+/** 标签严格标识符；只读会话执行自动生成的节点查询，禁止用户 Cypher。 */
+public final class Neo4jSourceAdapter extends AdapterSupport {
+  record GraphPlan(String cypher, Map<String, Object> parameters) {}
+
+  GraphPlan plan(SourceSpec s, QuerySpec q) {
+    flat(q, Set.of("relationship", "targetLabel"));
+    if (!q.options().keySet().equals(Set.of("relationship", "targetLabel")))
+      throw QueryPlanner.problem("INVALID_GRAPH_RELATIONSHIP");
+    String source = label(s, q.resource()),
+        target = label(s, q.options().get("targetLabel").asText()),
+        type = q.options().get("relationship").asText();
+    QueryPlanner.identifier(type);
+    if (type.contains(".")) throw QueryPlanner.problem("INVALID_IDENTIFIER");
+    List<String> where = new ArrayList<>();
+    Map<String, Object> parameters = new LinkedHashMap<>();
+    for (var b : q.guardBindings().entrySet())
+      for (String alias : List.of("n", "m")) {
+        String column = property(b.getValue()).replace("n.", alias + ".");
+        where.add(column + " IS NOT NULL AND trim(toString(" + column + ")) <> ''");
+        var values = q.scope().parameters().get(b.getKey());
+        if (values != null) {
+          String p = "p" + parameters.size();
+          parameters.put(p, values.stream().map(this::nativeValue).toList());
+          where.add(column + " IN $" + p);
+        }
+      }
+    if (!q.filters().isEmpty()) throw QueryPlanner.problem("GRAPH_EDGE_FILTER_UNSUPPORTED");
+    List<String> projection = new ArrayList<>();
+    for (String p : q.projection())
+      projection.add(
+          switch (p) {
+            case "_targetId" -> "elementId(m) AS `_targetId`";
+            case "_relationshipId" -> "elementId(r) AS `_relationshipId`";
+            default -> property(p) + " AS `" + p + "`";
+          });
+    parameters.put("limit", q.limit());
+    return new GraphPlan(
+        "MATCH (n:"
+            + source
+            + ")-[r:`"
+            + type
+            + "`]->(m:"
+            + target
+            + ") WHERE "
+            + String.join(" AND ", where)
+            + " RETURN "
+            + String.join(",", projection)
+            + ",elementId(n) AS __key,elementId(m) AS __target,elementId(r) AS __relation LIMIT"
+            + " $limit",
+        parameters);
+  }
+
+  @Override
+  public Set<String> capabilities() {
+    return Set.of(
+        "NODE_LABEL_QUERY",
+        "SINGLE_HOP_RELATIONSHIP",
+        "PARAMETERIZED_FILTER",
+        "READ_TRANSACTION",
+        "SAMPLED_PROPERTIES",
+        "ELEMENT_ID_EVIDENCE",
+        "NO_JOIN");
+  }
+
+  Object nativeValue(com.fasterxml.jackson.databind.JsonNode n) {
+    if (n.isIntegralNumber()) {
+      if (!n.canConvertToLong()) throw QueryPlanner.problem("GRAPH_NUMBER_RANGE");
+      return n.longValue();
+    }
+    if (n.isNumber()) {
+      double v = n.doubleValue();
+      if (!Double.isFinite(v) || java.math.BigDecimal.valueOf(v).compareTo(n.decimalValue()) != 0)
+        throw QueryPlanner.problem("GRAPH_NUMBER_PRECISION");
+      return v;
+    }
+    return QueryPlanner.scalar(n);
+  }
+
+  QueryResult executeRelationship(SourceSpec s, QuerySpec q) {
+    var plan = plan(s, q);
+    try (Driver d = open(s);
+        Session session = session(d, s)) {
+      return session.executeRead(
+          tx -> {
+            List<Map<String, Object>> rows = new ArrayList<>();
+            List<QueryResult.SourceRecord> evidence = new ArrayList<>();
+            var cursor = tx.run(plan.cypher(), plan.parameters());
+            while (cursor.hasNext() && rows.size() < q.limit()) {
+              var record = cursor.next();
+              Map<String, Object> row = new LinkedHashMap<>();
+              q.projection().forEach(p -> row.put(p, record.get(p).asObject()));
+              rows.add(row);
+              evidence.add(
+                  new QueryResult.SourceRecord(
+                      s.id(),
+                      q.resource(),
+                      Map.of(
+                          "elementId",
+                          record.get("__key").asString(),
+                          "targetElementId",
+                          record.get("__target").asString(),
+                          "relationshipElementId",
+                          record.get("__relation").asString())));
+            }
+            return new QueryResult(inferred(q.resource(), rows).fields(), rows, evidence);
+          },
+          TransactionConfig.builder().withTimeout(Duration.ofMillis(q.timeoutMs())).build());
+    }
+  }
+
+  Driver open(SourceSpec s) {
+    return GraphDatabase.driver(
+        text(s, "uri"),
+        AuthTokens.basic(text(s, "user"), s.connection().path("password").asText("")),
+        Config.builder()
+            .withConnectionTimeout(2, java.util.concurrent.TimeUnit.SECONDS)
+            .withConnectionAcquisitionTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
+            .withMaxConnectionPoolSize(2)
+            .build());
+  }
+
+  Session session(Driver d, SourceSpec s) {
+    return d.session(
+        SessionConfig.builder()
+            .withDatabase(text(s, "database"))
+            .withDefaultAccessMode(AccessMode.READ)
+            .build());
+  }
+
+  String label(SourceSpec s, String r) {
+    exact(s, r);
+    QueryPlanner.identifier(r);
+    if (r.contains(".")) throw QueryPlanner.problem("INVALID_IDENTIFIER");
+    return "`" + r + "`";
+  }
+
+  @Override
+  void connectivity(SourceSpec s) throws Exception {
+    uriSocket(text(s, "uri"), 7687);
+  }
+
+  @Override
+  void authenticate(SourceSpec s) {
+    try (Driver d = open(s)) {
+      d.verifyConnectivity();
+    }
+  }
+
+  @Override
+  SourceMetadata readMetadata(SourceSpec s) {
+    try (Driver d = open(s);
+        Session session = session(d, s)) {
+      List<SourceMetadata.Resource> out = new ArrayList<>();
+      for (String r : s.accessScope()) {
+        String label = label(s, r);
+        Map<String, Object> row =
+            session.executeRead(
+                tx -> {
+                  var result = tx.run("MATCH (n:" + label + ") RETURN properties(n) AS p LIMIT 1");
+                  if (!result.hasNext()) throw QueryPlanner.problem("SCOPE_UNAVAILABLE");
+                  return result.next().get("p").asMap();
+                },
+                TransactionConfig.builder().withTimeout(Duration.ofSeconds(3)).build());
+        var inf = inferred(r, List.of(row));
+        out.add(
+            new SourceMetadata.Resource(
+                r, inf.fields(), List.of("elementId"), List.of(), List.of()));
+      }
+      return new SourceMetadata(out);
+    }
+  }
+
+  String property(String field) {
+    QueryPlanner.identifier(field);
+    if (field.contains(".")) throw QueryPlanner.problem("INVALID_IDENTIFIER");
+    return "n.`" + field + "`";
+  }
+
+  @Override
+  QueryResult execute(SourceSpec s, QuerySpec q) {
+    if (!q.options().isEmpty()) return executeRelationship(s, q);
+    flat(q);
+    String label = label(s, q.resource());
+    List<String> predicates = new ArrayList<>();
+    Map<String, Object> params = new LinkedHashMap<>();
+    for (var b : q.guardBindings().entrySet()) {
+      String c = property(b.getValue());
+      predicates.add(c + " IS NOT NULL AND trim(toString(" + c + ")) <> ''");
+      var allowed = q.scope().parameters().get(b.getKey());
+      if (allowed != null) {
+        String p = "p" + params.size();
+        params.put(p, allowed.stream().map(this::nativeValue).toList());
+        predicates.add(c + " IN $" + p);
+      }
+    }
+    for (var f : q.filters()) {
+      String p = "p" + params.size();
+      Object value =
+          f.operator() == QuerySpec.Operator.IN
+              ? f.values().stream().map(this::nativeValue).toList()
+              : nativeValue(f.values().getFirst());
+      if (value instanceof java.math.BigDecimal decimal) value = decimal.doubleValue();
+      params.put(p, value);
+      predicates.add(
+          property(f.column())
+              + " "
+              + switch (f.operator()) {
+                case EQ -> "=";
+                case IN -> "IN";
+                case GT -> ">";
+                case GE -> ">=";
+                case LT -> "<";
+                case LE -> "<=";
+              }
+              + " $"
+              + p);
+    }
+    params.put("limit", q.limit());
+    String projection =
+        q.projection().stream()
+            .map(p -> property(p) + " AS `" + p + "`")
+            .collect(java.util.stream.Collectors.joining(","));
+    String cypher =
+        "MATCH (n:"
+            + label
+            + ") WHERE "
+            + String.join(" AND ", predicates)
+            + " RETURN "
+            + projection
+            + ", elementId(n) AS __key LIMIT $limit";
+    try (Driver d = open(s);
+        Session session = session(d, s)) {
+      return session.executeRead(
+          tx -> {
+            List<Map<String, Object>> rows = new ArrayList<>();
+            List<QueryResult.SourceRecord> evidence = new ArrayList<>();
+            var cursor = tx.run(cypher, params);
+            while (cursor.hasNext() && rows.size() < q.limit()) {
+              var record = cursor.next();
+              Map<String, Object> row = new LinkedHashMap<>();
+              q.projection().forEach(p -> row.put(p, record.get(p).asObject()));
+              rows.add(row);
+              evidence.add(
+                  new QueryResult.SourceRecord(
+                      s.id(), q.resource(), Map.of("elementId", record.get("__key").asString())));
+            }
+            return new QueryResult(inferred(q.resource(), rows).fields(), rows, evidence);
+          },
+          TransactionConfig.builder().withTimeout(Duration.ofMillis(q.timeoutMs())).build());
+    }
+  }
+}
+
+FILE: onto-data\src\main\java\cn\ontorepo\data\infra\MongoSourceAdapter.java
+package cn.ontorepo.data.infra;
+
+import cn.ontorepo.data.domain.*;
+import com.mongodb.*;
+import com.mongodb.client.*;
+import com.mongodb.client.model.*;
+import java.util.*;
+import java.util.concurrent.TimeUnit;
+import org.bson.*;
+import org.bson.conversions.Bson;
+import org.bson.types.Decimal128;
+
+/** Mongo 只生成受限 find；不接收聚合管道、操作符或服务端代码。 */
+public final class MongoSourceAdapter extends AdapterSupport {
+  @Override
+  public Set<String> capabilities() {
+    return Set.of(
+        "FIND", "SERVER_FILTER_PROJECTION_LIMIT", "SAMPLED_SCHEMA", "INDEX_METADATA", "NO_JOIN");
+  }
+
+  MongoClient open(SourceSpec s) {
+    return MongoClients.create(
+        MongoClientSettings.builder()
+            .applyConnectionString(new ConnectionString(text(s, "uri")))
+            .applyToClusterSettings(b -> b.serverSelectionTimeout(3, TimeUnit.SECONDS))
+            .applyToSocketSettings(
+                b -> b.connectTimeout(2, TimeUnit.SECONDS).readTimeout(10, TimeUnit.SECONDS))
+            .build());
+  }
+
+  String collection(SourceSpec s, String resource) {
+    exact(s, resource);
+    QueryPlanner.identifier(resource);
+    String db = text(s, "database");
+    QueryPlanner.identifier(db);
+    if (!resource.startsWith(db + ".") || resource.split("\\.").length != 2)
+      throw QueryPlanner.problem("SCOPE_EXCEEDED");
+    return resource.substring(db.length() + 1);
+  }
+
+  @Override
+  void connectivity(SourceSpec s) throws Exception {
+    var cs = new ConnectionString(text(s, "uri"));
+    String h = cs.getHosts().getFirst();
+    uriSocket("http://" + h, 27017);
+  }
+
+  @Override
+  void authenticate(SourceSpec s) {
+    try (MongoClient c = open(s)) {
+      c.getDatabase(text(s, "database")).runCommand(new Document("ping", 1));
+    }
+  }
+
+  @Override
+  SourceMetadata readMetadata(SourceSpec s) {
+    try (MongoClient c = open(s)) {
+      List<SourceMetadata.Resource> out = new ArrayList<>();
+      for (String r : s.accessScope()) {
+        var coll = c.getDatabase(text(s, "database")).getCollection(collection(s, r));
+        Document doc = coll.find().maxTime(3, TimeUnit.SECONDS).first();
+        List<SourceMetadata.Index> indexes = new ArrayList<>();
+        for (Document idx : coll.listIndexes().maxTime(3, TimeUnit.SECONDS)) {
+          Document keys = idx.get("key", Document.class);
+          indexes.add(
+              new SourceMetadata.Index(
+                  idx.getString("name"),
+                  new ArrayList<>(keys.keySet()),
+                  Boolean.TRUE.equals(idx.getBoolean("unique"))));
+        }
+        var sampled = inferred(r, doc == null ? List.of() : List.of(doc));
+        out.add(
+            new SourceMetadata.Resource(r, sampled.fields(), List.of("_id"), List.of(), indexes));
+      }
+      return new SourceMetadata(out);
+    }
+  }
+
+  static Object value(com.fasterxml.jackson.databind.JsonNode n) {
+    Object v = QueryPlanner.scalar(n);
+    return v instanceof java.math.BigDecimal d ? new Decimal128(d) : v;
+  }
+
+  @Override
+  QueryResult execute(SourceSpec s, QuerySpec q) {
+    flat(q);
+    String name = collection(s, q.resource());
+    List<Bson> predicates = new ArrayList<>();
+    for (var b : q.guardBindings().entrySet()) {
+      String field = b.getValue();
+      predicates.add(Filters.exists(field, true));
+      predicates.add(
+          Filters.expr(
+              new Document(
+                  "$in",
+                  List.of(
+                      new Document("$type", "$" + field),
+                      List.of("string", "int", "long", "double", "decimal", "bool")))));
+      predicates.add(Filters.nin(field, Arrays.asList(null, "")));
+      predicates.add(
+          Filters.expr(
+              new Document(
+                  "$ne",
+                  List.of(
+                      new Document(
+                          "$trim",
+                          new Document(
+                              "input",
+                              new Document(
+                                  "$convert",
+                                  new Document("input", "$" + field)
+                                      .append("to", "string")
+                                      .append("onError", "")
+                                      .append("onNull", "")))),
+                      ""))));
+      var allowed = q.scope().parameters().get(b.getKey());
+      if (allowed != null)
+        predicates.add(Filters.in(field, allowed.stream().map(MongoSourceAdapter::value).toList()));
+    }
+    for (var f : q.filters()) {
+      List<Object> v = f.values().stream().map(MongoSourceAdapter::value).toList();
+      predicates.add(
+          switch (f.operator()) {
+            case EQ -> Filters.eq(f.column(), v.getFirst());
+            case IN -> Filters.in(f.column(), v);
+            case GT -> Filters.gt(f.column(), v.getFirst());
+            case GE -> Filters.gte(f.column(), v.getFirst());
+            case LT -> Filters.lt(f.column(), v.getFirst());
+            case LE -> Filters.lte(f.column(), v.getFirst());
+          });
+    }
+    try (MongoClient c = open(s)) {
+      var coll = c.getDatabase(text(s, "database")).getCollection(name);
+      List<Map<String, Object>> out = new ArrayList<>();
+      List<QueryResult.SourceRecord> evidence = new ArrayList<>();
+      Set<String> projection = new LinkedHashSet<>(q.projection());
+      projection.add("_id");
+      try (MongoCursor<Document> cursor =
+          coll.find(Filters.and(predicates))
+              .projection(Projections.include(projection.toArray(String[]::new)))
+              .limit(q.limit())
+              .maxTime(q.timeoutMs(), TimeUnit.MILLISECONDS)
+              .iterator()) {
+        while (out.size() < q.limit() && cursor.hasNext()) {
+          Document d = cursor.next();
+          out.add(project(q, d));
+          evidence.add(
+              new QueryResult.SourceRecord(s.id(), q.resource(), Map.of("_id", d.get("_id"))));
+        }
+      }
+      return new QueryResult(inferred(q.resource(), out).fields(), out, evidence);
+    }
+  }
+}
+
+FILE: onto-data\src\main\java\cn\ontorepo\data\infra\JdbcSourceAdapter.java
+package cn.ontorepo.data.infra;
+
+import cn.ontorepo.data.domain.*;
+import java.sql.*;
+import java.util.*;
+
+/** PostgreSQL / ClickHouse 明确分派，所有实例查询只使用结构化计划。 */
+public final class JdbcSourceAdapter extends AdapterSupport {
+  @Override
+  public Set<String> capabilities() {
+    return Set.of(
+        "METADATA",
+        "PARAMETERIZED_SELECT",
+        "INNER_EQ_JOIN",
+        "SCOPE_BEFORE_LIMIT",
+        "PRIMARY_KEY_EVIDENCE");
+  }
+
+  @Override
+  void connectivity(SourceSpec s) throws Exception {
+    String url = text(s, "url");
+    uriSocket(url.substring(5), s.kind().equals("WAREHOUSE") ? 8123 : 5432);
+  }
+
+  Connection open(SourceSpec s) throws Exception {
+    String dialect = text(s, "dialect"), url = text(s, "url");
+    if (!(s.kind().equals("RELATIONAL")
+            && dialect.equals("postgresql")
+            && url.startsWith("jdbc:postgresql://")
+        || s.kind().equals("WAREHOUSE")
+            && dialect.equals("clickhouse")
+            && url.startsWith("jdbc:clickhouse://")))
+      throw QueryPlanner.problem("UNSUPPORTED_DIALECT");
+    Properties p = new Properties();
+    p.setProperty("user", text(s, "user"));
+    p.setProperty("password", s.connection().path("password").asText(""));
+    p.setProperty("connectTimeout", "3");
+    p.setProperty("socketTimeout", "10");
+    return DriverManager.getConnection(url, p);
+  }
+
+  @Override
+  void authenticate(SourceSpec s) throws Exception {
+    try (Connection c = open(s)) {
+      if (!c.isValid(3)) throw QueryPlanner.problem("AUTHENTICATION_FAILED");
+    }
+  }
+
+  @Override
+  SourceMetadata readMetadata(SourceSpec s) throws Exception {
+    try (Connection c = open(s)) {
+      if (s.kind().equals("WAREHOUSE")) return clickHouseMetadata(c, s);
+      DatabaseMetaData m = c.getMetaData();
+      List<SourceMetadata.Resource> out = new ArrayList<>();
+      for (String r : s.accessScope()) {
+        QueryPlanner.identifier(r);
+        String[] names = r.split("\\.");
+        if (names.length != 2) throw QueryPlanner.problem("INVALID_RESOURCE");
+        String schema = names[0], table = names[1];
+        List<SourceMetadata.Field> fs = new ArrayList<>();
+        String escape = m.getSearchStringEscape();
+        try (ResultSet rs =
+            m.getColumns(
+                c.getCatalog(),
+                schema.replace("_", escape + "_"),
+                table.replace("_", escape + "_"),
+                null)) {
+          while (rs.next())
+            if (schema.equals(rs.getString("TABLE_SCHEM"))
+                && table.equals(rs.getString("TABLE_NAME")))
+              fs.add(
+                  new SourceMetadata.Field(
+                      rs.getString("COLUMN_NAME"),
+                      rs.getString("TYPE_NAME"),
+                      rs.getInt("NULLABLE") != DatabaseMetaData.columnNoNulls));
+        }
+        if (fs.isEmpty()) continue;
+        // 零行读取实际验证 SELECT 权限；元数据可见性不能冒充读取权限。
+        try (Statement st = c.createStatement()) {
+          st.setQueryTimeout(3);
+          st.executeQuery("SELECT * FROM " + QueryPlanner.quote(r) + " WHERE 1=0").close();
+        }
+        Map<Short, String> pk = new TreeMap<>();
+        try (ResultSet rs = m.getPrimaryKeys(c.getCatalog(), schema, table)) {
+          while (rs.next()) pk.put(rs.getShort("KEY_SEQ"), rs.getString("COLUMN_NAME"));
+        }
+        List<SourceMetadata.Relation> relations = new ArrayList<>();
+        try (ResultSet rs = m.getImportedKeys(c.getCatalog(), schema, table)) {
+          while (rs.next()) {
+            String target = rs.getString("PKTABLE_SCHEM") + "." + rs.getString("PKTABLE_NAME");
+            if (s.accessScope().contains(target))
+              relations.add(
+                  new SourceMetadata.Relation(
+                      rs.getString("FKCOLUMN_NAME"), target, rs.getString("PKCOLUMN_NAME")));
+          }
+        }
+        List<SourceMetadata.Index> indexes = new ArrayList<>();
+        try (ResultSet rs = m.getIndexInfo(c.getCatalog(), schema, table, false, false)) {
+          while (rs.next())
+            if (rs.getString("INDEX_NAME") != null && rs.getString("COLUMN_NAME") != null)
+              indexes.add(
+                  new SourceMetadata.Index(
+                      rs.getString("INDEX_NAME"),
+                      List.of(rs.getString("COLUMN_NAME")),
+                      !rs.getBoolean("NON_UNIQUE")));
+        }
+        out.add(
+            new SourceMetadata.Resource(r, fs, new ArrayList<>(pk.values()), relations, indexes));
+      }
+      return new SourceMetadata(out);
+    }
+  }
+
+  /** ClickHouse 的 database 是 catalog；独立读取系统目录，不能套用 PG 的 schema 行为。 */
+  SourceMetadata clickHouseMetadata(Connection c, SourceSpec s) throws Exception {
+    List<SourceMetadata.Resource> out = new ArrayList<>();
+    for (String r : s.accessScope()) {
+      QueryPlanner.identifier(r);
+      String[] parts = r.split("\\.");
+      if (parts.length != 2) throw QueryPlanner.problem("INVALID_RESOURCE");
+      try (PreparedStatement engine =
+          c.prepareStatement("SELECT engine FROM system.tables WHERE database=? AND name=?")) {
+        engine.setString(1, parts[0]);
+        engine.setString(2, parts[1]);
+        engine.setQueryTimeout(3);
+        try (ResultSet rs = engine.executeQuery()) {
+          if (!rs.next()) continue;
+          if (!rs.getString(1).endsWith("MergeTree"))
+            throw QueryPlanner.problem("CLICKHOUSE_MERGETREE_REQUIRED");
+        }
+      }
+      List<SourceMetadata.Field> fs = new ArrayList<>();
+      List<String> sorting = new ArrayList<>();
+      try (PreparedStatement columns =
+          c.prepareStatement(
+              "SELECT name,type,is_in_primary_key FROM system.columns WHERE database=? AND table=?"
+                  + " ORDER BY position")) {
+        columns.setString(1, parts[0]);
+        columns.setString(2, parts[1]);
+        columns.setQueryTimeout(3);
+        try (ResultSet rs = columns.executeQuery()) {
+          while (rs.next()) {
+            String name = rs.getString(1), type = rs.getString(2);
+            fs.add(new SourceMetadata.Field(name, type, type.startsWith("Nullable(")));
+            if (rs.getBoolean(3)) sorting.add(name);
+          }
+        }
+      }
+      // MergeTree 排序键不保证唯一，证据改用物理分片和行偏移。
+      fs.add(new SourceMetadata.Field("_part", "String", false));
+      fs.add(new SourceMetadata.Field("_part_offset", "UInt64", false));
+      try (Statement st = c.createStatement()) {
+        st.setQueryTimeout(3);
+        st.executeQuery("SELECT _part,_part_offset FROM " + QueryPlanner.quote(r) + " WHERE 1=0")
+            .close();
+      }
+      out.add(
+          new SourceMetadata.Resource(
+              r,
+              fs,
+              List.of("_part", "_part_offset"),
+              List.of(),
+              sorting.isEmpty()
+                  ? List.of()
+                  : List.of(new SourceMetadata.Index("sorting_key", sorting, false))));
+    }
+    return new SourceMetadata(out);
+  }
+
+  @Override
+  QueryResult execute(SourceSpec s, QuerySpec q) throws Exception {
+    Set<String> used = new LinkedHashSet<>();
+    used.add(q.resource());
+    q.joins().forEach(j -> used.add(j.resource()));
+    for (String resource : used) {
+      exact(s, resource);
+      QueryPlanner.identifier(resource);
+    }
+    var metadata = readMetadata(new SourceSpec(s.id(), s.kind(), s.connection(), used));
+    var plan = new QueryPlanner().plan(s, q, metadata);
+    try (Connection c = open(s)) {
+      boolean pg = s.kind().equals("RELATIONAL");
+      if (pg) {
+        c.setReadOnly(true);
+        c.setAutoCommit(false);
+      }
+      String sql =
+          plan.sql()
+              + (pg
+                  ? ""
+                  : " SETTINGS max_execution_time=" + Math.max(1, (plan.timeoutMs() + 999) / 1000));
+      try (PreparedStatement st = c.prepareStatement(sql)) {
+        st.setQueryTimeout(Math.max(1, (plan.timeoutMs() + 999) / 1000));
+        st.setMaxRows(Math.min(500, plan.limit()));
+        for (int i = 0; i < plan.parameters().size(); i++)
+          st.setObject(i + 1, plan.parameters().get(i));
+        List<Map<String, Object>> rows = new ArrayList<>();
+        List<QueryResult.SourceRecord> evidence = new ArrayList<>();
+        List<SourceMetadata.Field> columns = new ArrayList<>();
+        try (ResultSet rs = st.executeQuery()) {
+          for (int i = 0; i < q.projection().size(); i++)
+            columns.add(
+                new SourceMetadata.Field(
+                    q.projection().get(i), rs.getMetaData().getColumnTypeName(i + 1), true));
+          while (rows.size() < plan.limit() && rs.next()) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            for (int i = 0; i < q.projection().size(); i++)
+              row.put(q.projection().get(i), rs.getObject(i + 1));
+            rows.add(row);
+            int index = q.projection().size() + 1;
+            for (var entry : plan.keys().entrySet()) {
+              Map<String, Object> key = new LinkedHashMap<>();
+              for (String k : entry.getValue()) key.put(k, rs.getObject(index++));
+              evidence.add(new QueryResult.SourceRecord(s.id(), entry.getKey(), key));
+            }
+          }
+        } finally {
+          if (pg) c.rollback();
+        }
+        return new QueryResult(columns, rows, evidence);
+      }
+    }
+  }
+}
+
+FILE: onto-data\src\main\java\cn\ontorepo\data\infra\HttpSourceAdapter.java
+package cn.ontorepo.data.infra;
+
+import cn.ontorepo.data.domain.*;
+import com.fasterxml.jackson.databind.JsonNode;
+import java.io.*;
+import java.net.*;
+import java.net.http.*;
+import java.time.Duration;
+import java.util.*;
+
+/** 仅精确白名单端点，禁止所有重定向；分页声明由受信配置提供。 */
+public final class HttpSourceAdapter extends AdapterSupport {
+  private final HttpClient client =
+      HttpClient.newBuilder()
+          .connectTimeout(Duration.ofSeconds(2))
+          .followRedirects(HttpClient.Redirect.NEVER)
+          .build();
+
+  @Override
+  public Set<String> capabilities() {
+    return Set.of(
+        "GET",
+        "POST_JSON_TEMPLATE",
+        "EXACT_ENDPOINT",
+        "DECLARED_PAGE_NUMBER",
+        "FILTER_BEFORE_LIMIT",
+        "NO_REDIRECT",
+        "MAX_16_MIB_RESPONSE");
+  }
+
+  URI endpoint(SourceSpec s, String r, int page) {
+    exact(s, r);
+    boolean declared = false;
+    for (JsonNode node : s.connection().path("endpoints"))
+      if (node.isTextual() && node.textValue().equals(r)) declared = true;
+    if (!declared || !r.matches("/[A-Za-z0-9_/-]*") || r.contains(".."))
+      throw QueryPlanner.problem("HTTP_ENDPOINT_REJECTED");
+    URI base = URI.create(text(s, "baseUrl"));
+    if (!Set.of("http", "https").contains(base.getScheme())
+        || base.getHost() == null
+        || base.getUserInfo() != null
+        || base.getQuery() != null
+        || base.getFragment() != null
+        || !(base.getPath().isEmpty() || base.getPath().equals("/")))
+      throw QueryPlanner.problem("INVALID_HTTP_BASE");
+    String pageParam = s.connection().path("pageParam").asText("");
+    if (!pageParam.isEmpty()) QueryPlanner.identifier(pageParam);
+    return base.resolve(r + (pageParam.isEmpty() ? "" : "?" + pageParam + "=" + page));
+  }
+
+  JsonNode page(SourceSpec s, String r, int page, int timeout) throws Exception {
+    HttpRequest.Builder request =
+        HttpRequest.newBuilder(endpoint(s, r, page))
+            .timeout(Duration.ofMillis(Math.min(timeout, 10000)));
+    var headers = s.connection().path("headers");
+    if (!headers.isMissingNode() && !headers.isObject())
+      throw QueryPlanner.problem("INVALID_HTTP_HEADERS");
+    headers
+        .fields()
+        .forEachRemaining(
+            e -> {
+              if (!e.getValue().isTextual()
+                  || Set.of("host", "connection", "content-length")
+                      .contains(e.getKey().toLowerCase(Locale.ROOT)))
+                throw QueryPlanner.problem("INVALID_HTTP_HEADERS");
+              request.header(e.getKey(), e.getValue().textValue());
+            });
+    String method = s.connection().path("method").asText("GET");
+    if (method.equals("GET")) request.GET();
+    else if (method.equals("POST")) {
+      JsonNode body = s.connection().path("body");
+      if (!body.isObject()) throw QueryPlanner.problem("INVALID_HTTP_TEMPLATE");
+      var payload = body.deepCopy();
+      if (!s.connection().path("pageParam").asText("").isEmpty())
+        ((com.fasterxml.jackson.databind.node.ObjectNode) payload)
+            .put(s.connection().path("pageParam").asText(), page);
+      request
+          .header("Content-Type", "application/json")
+          .POST(HttpRequest.BodyPublishers.ofString(payload.toString()));
+    } else throw QueryPlanner.problem("HTTP_METHOD_REJECTED");
+    // sendAsync 的完整 body future 同时受截止时间限制，不能仅对响应头计时。
+    var future = client.sendAsync(request.build(), info -> new BoundedBody());
+    HttpResponse<byte[]> response;
+    try {
+      response = future.get(Math.min(timeout, 10000), java.util.concurrent.TimeUnit.MILLISECONDS);
+    } catch (java.util.concurrent.TimeoutException e) {
+      future.cancel(true);
+      throw QueryPlanner.problem("QUERY_TIMEOUT");
+    }
+    if (response.statusCode() == 401 || response.statusCode() == 403)
+      throw QueryPlanner.problem("AUTHENTICATION_FAILED");
+    if (response.statusCode() < 200 || response.statusCode() >= 300)
+      throw QueryPlanner.problem("HTTP_RESPONSE_REJECTED");
+    JsonNode data = JSON.readTree(response.body());
+    if (!data.isArray()) throw QueryPlanner.problem("INVALID_HTTP_RESPONSE");
+    return data;
+  }
+
+  private static final class BoundedBody implements HttpResponse.BodySubscriber<byte[]> {
+    private final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    private final java.util.concurrent.CompletableFuture<byte[]> result =
+        new java.util.concurrent.CompletableFuture<>();
+    private java.util.concurrent.Flow.Subscription subscription;
+
+    @Override
+    public java.util.concurrent.CompletionStage<byte[]> getBody() {
+      return result;
+    }
+
+    @Override
+    public void onSubscribe(java.util.concurrent.Flow.Subscription subscription) {
+      this.subscription = subscription;
+      subscription.request(1);
+    }
+
+    @Override
+    public void onNext(List<java.nio.ByteBuffer> chunks) {
+      for (var chunk : chunks) {
+        if (chunk.remaining() > MAX_BYTES - bytes.size()) {
+          subscription.cancel();
+          result.completeExceptionally(QueryPlanner.problem("RESPONSE_TOO_LARGE"));
+          return;
+        }
+        byte[] data = new byte[chunk.remaining()];
+        chunk.get(data);
+        bytes.writeBytes(data);
+      }
+      subscription.request(1);
+    }
+
+    @Override
+    public void onError(Throwable failure) {
+      result.completeExceptionally(failure);
+    }
+
+    @Override
+    public void onComplete() {
+      result.complete(bytes.toByteArray());
+    }
+  }
+
+  @Override
+  void connectivity(SourceSpec s) throws Exception {
+    uriSocket(text(s, "baseUrl"), text(s, "baseUrl").startsWith("https:") ? 443 : 80);
+  }
+
+  @Override
+  void authenticate(SourceSpec s) throws Exception {
+    if (s.accessScope().isEmpty()) throw QueryPlanner.problem("SCOPE_EXCEEDED");
+    page(s, s.accessScope().iterator().next(), 1, 3000);
+  }
+
+  @Override
+  SourceMetadata readMetadata(SourceSpec s) throws Exception {
+    List<SourceMetadata.Resource> out = new ArrayList<>();
+    for (String r : s.accessScope()) {
+      var data = page(s, r, 1, 3000);
+      List<Map<String, Object>> rows = new ArrayList<>();
+      for (var item : data) {
+        if (!item.isObject()) throw QueryPlanner.problem("INVALID_HTTP_RESPONSE");
+        rows.add(
+            JSON.convertValue(
+                item, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {}));
+      }
+      out.add(inferred(r, rows));
+    }
+    return new SourceMetadata(out);
+  }
+
+  @Override
+  QueryResult execute(SourceSpec s, QuerySpec q) throws Exception {
+    flat(q);
+    endpoint(s, q.resource(), 1);
+    long started = System.nanoTime();
+    int pageSize = number(s, "pageSize", 100), maxPages = number(s, "maxPages", 1);
+    if (pageSize < 1 || pageSize > 1000 || maxPages < 1 || maxPages > 100)
+      throw QueryPlanner.problem("INVALID_HTTP_PAGINATION");
+    List<Map<String, Object>> out = new ArrayList<>();
+    List<QueryResult.SourceRecord> evidence = new ArrayList<>();
+    SourceMetadata.Resource meta = null;
+    for (int page = 1; page <= maxPages; page++) {
+      deadline(started, q);
+      var data =
+          page(
+              s,
+              q.resource(),
+              page,
+              Math.max(1, q.timeoutMs() - (int) ((System.nanoTime() - started) / 1_000_000)));
+      if (data.size() > pageSize) throw QueryPlanner.problem("HTTP_PAGE_SIZE_EXCEEDED");
+      int index = 0;
+      for (var item : data) {
+        if (!item.isObject()) throw QueryPlanner.problem("INVALID_HTTP_RESPONSE");
+        Map<String, Object> row =
+            JSON.convertValue(
+                item, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
+        if (meta == null) {
+          meta = inferred(q.resource(), List.of(row));
+          fields(q, row.keySet());
+        }
+        if (matches(q, row)) {
+          out.add(project(q, row));
+          evidence.add(
+              new QueryResult.SourceRecord(
+                  s.id(), q.resource(), Map.of("page", page, "index", index)));
+          if (out.size() >= q.limit()) return new QueryResult(meta.fields(), out, evidence);
+        }
+        index++;
+      }
+      if (data.size() < pageSize || s.connection().path("pageParam").asText("").isEmpty())
+        return new QueryResult(meta == null ? List.of() : meta.fields(), out, evidence);
+    }
+    throw QueryPlanner.problem("HTTP_PAGINATION_LIMIT");
+  }
+}
+
+FILE: onto-data\src\main\java\cn\ontorepo\data\infra\FileSourceAdapter.java
+package cn.ontorepo.data.infra;
+
+import cn.ontorepo.data.domain.*;
+import java.io.*;
+import java.nio.file.*;
+import java.util.*;
+import org.apache.commons.csv.*;
+import org.apache.poi.ss.usermodel.*;
+
+/** 小文件受批准真实目录约束，过滤先于结果上限；Excel 只读取缓存值，不执行公式或宏。 */
+public final class FileSourceAdapter extends AdapterSupport {
+  record FileRows(List<Map<String, Object>> rows, int firstLine) {}
+
+  @Override
+  public Set<String> capabilities() {
+    return Set.of(
+        "CSV",
+        "JSON_ARRAY",
+        "XLSX",
+        "LOCAL_FILTER_BEFORE_LIMIT",
+        "LINE_EVIDENCE",
+        "MAX_16_MIB",
+        "MAX_100000_ROWS");
+  }
+
+  @Override
+  void connectivity(SourceSpec s) throws Exception {
+    if (!Files.isDirectory(Path.of(text(s, "root")).toRealPath()))
+      throw QueryPlanner.problem("FILE_ROOT_UNAVAILABLE");
+  }
+
+  @Override
+  void authenticate(SourceSpec s) throws Exception {
+    if (!Files.isReadable(Path.of(text(s, "root"))))
+      throw QueryPlanner.problem("FILE_ACCESS_DENIED");
+  }
+
+  Path file(SourceSpec s, String r) throws Exception {
+    exact(s, r);
+    Path approved = Path.of(text(s, "root")).toRealPath(), rel = Path.of(r);
+    if (rel.isAbsolute() || rel.getNameCount() == 0) throw QueryPlanner.problem("FILE_PATH_ESCAPE");
+    for (Path part : rel)
+      if (part.toString().equals("..")) throw QueryPlanner.problem("FILE_PATH_ESCAPE");
+    Path resolved = approved.resolve(rel).toRealPath();
+    if (!resolved.startsWith(approved)
+        || !Files.isRegularFile(resolved)
+        || Files.size(resolved) > MAX_BYTES)
+      throw QueryPlanner.problem("FILE_PATH_OR_SIZE_REJECTED");
+    return resolved;
+  }
+
+  FileRows read(SourceSpec s, String r) throws Exception {
+    Path path = file(s, r);
+    String dialect = text(s, "dialect");
+    List<Map<String, Object>> rows = new ArrayList<>();
+    int first = 1;
+    switch (dialect) {
+      case "json" -> {
+        var data = JSON.readTree(Files.readAllBytes(path));
+        if (!data.isArray()) throw QueryPlanner.problem("INVALID_FILE_FORMAT");
+        for (var item : data) {
+          if (!item.isObject()) throw QueryPlanner.problem("INVALID_FILE_FORMAT");
+          rows.add(
+              JSON.convertValue(
+                  item,
+                  new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {}));
+          if (rows.size() > MAX_SCAN) throw QueryPlanner.problem("SCAN_LIMIT_EXCEEDED");
+        }
+      }
+      case "csv" -> {
+        first = 2;
+        try (Reader reader = Files.newBufferedReader(path);
+            CSVParser parser =
+                CSVFormat.DEFAULT
+                    .builder()
+                    .setHeader()
+                    .setSkipHeaderRecord(true)
+                    .setAllowMissingColumnNames(false)
+                    .get()
+                    .parse(reader)) {
+          if (new HashSet<>(parser.getHeaderNames()).size() != parser.getHeaderNames().size())
+            throw QueryPlanner.problem("DUPLICATE_COLUMN");
+          for (CSVRecord record : parser) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            record.toMap().forEach(row::put);
+            rows.add(row);
+            if (rows.size() > MAX_SCAN) throw QueryPlanner.problem("SCAN_LIMIT_EXCEEDED");
+          }
+        }
+      }
+      case "excel" -> {
+        first = 2;
+        if (!r.toLowerCase(Locale.ROOT).endsWith(".xlsx"))
+          throw QueryPlanner.problem("EXCEL_FORMAT_UNSUPPORTED");
+        try (InputStream in = Files.newInputStream(path);
+            Workbook workbook = WorkbookFactory.create(in)) {
+          Sheet sheet = workbook.getSheetAt(0);
+          Row header = sheet.getRow(0);
+          if (header == null) throw QueryPlanner.problem("INVALID_FILE_FORMAT");
+          List<String> fields = new ArrayList<>();
+          for (Cell cell : header) {
+            if (cell.getCellType() != CellType.STRING)
+              throw QueryPlanner.problem("INVALID_FILE_FORMAT");
+            String name = cell.getStringCellValue();
+            QueryPlanner.identifier(name);
+            if (fields.contains(name)) throw QueryPlanner.problem("DUPLICATE_COLUMN");
+            fields.add(name);
+          }
+          if (sheet.getLastRowNum() > MAX_SCAN) throw QueryPlanner.problem("SCAN_LIMIT_EXCEEDED");
+          for (int i = 1; i <= sheet.getLastRowNum(); i++) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            Row excel = sheet.getRow(i);
+            for (int j = 0; j < fields.size(); j++)
+              row.put(fields.get(j), excel == null ? null : cell(excel.getCell(j)));
+            rows.add(row);
+          }
+        }
+      }
+      default -> throw QueryPlanner.problem("UNSUPPORTED_DIALECT");
+    }
+    return new FileRows(rows, first);
+  }
+
+  private Object cell(Cell c) {
+    if (c == null) return null;
+    CellType type = c.getCellType();
+    if (type == CellType.FORMULA) throw QueryPlanner.problem("EXCEL_FORMULA_REJECTED");
+    return switch (type) {
+      case STRING -> c.getStringCellValue();
+      case NUMERIC -> c.getNumericCellValue();
+      case BOOLEAN -> c.getBooleanCellValue();
+      case BLANK -> _null();
+      default -> throw QueryPlanner.problem("EXCEL_CELL_UNSUPPORTED");
+    };
+  }
+
+  private Object _null() {
+    return null;
+  }
+
+  @Override
+  SourceMetadata readMetadata(SourceSpec s) throws Exception {
+    List<SourceMetadata.Resource> out = new ArrayList<>();
+    for (String r : s.accessScope()) out.add(inferred(r, read(s, r).rows()));
+    return new SourceMetadata(out);
+  }
+
+  @Override
+  QueryResult execute(SourceSpec s, QuerySpec q) throws Exception {
+    flat(q);
+    long started = System.nanoTime();
+    FileRows data = read(s, q.resource());
+    var meta = inferred(q.resource(), data.rows());
+    fields(
+        q,
+        meta.fields().stream()
+            .map(SourceMetadata.Field::name)
+            .collect(java.util.stream.Collectors.toSet()));
+    List<Map<String, Object>> out = new ArrayList<>();
+    List<QueryResult.SourceRecord> evidence = new ArrayList<>();
+    long line = data.firstLine();
+    for (var row : data.rows()) {
+      deadline(started, q);
+      if (matches(q, row)) {
+        out.add(project(q, row));
+        evidence.add(new QueryResult.SourceRecord(s.id(), q.resource(), Map.of("line", line)));
+        if (out.size() >= q.limit()) break;
+      }
+      line++;
+    }
+    return new QueryResult(
+        meta.fields().stream().filter(f -> q.projection().contains(f.name())).toList(),
+        out,
+        evidence);
+  }
+}
+
+FILE: onto-data\src\main\java\cn\ontorepo\data\infra\CassandraSourceAdapter.java
+package cn.ontorepo.data.infra;
+
+import cn.ontorepo.data.domain.*;
+import com.datastax.oss.driver.api.core.*;
+import com.datastax.oss.driver.api.core.config.*;
+import com.datastax.oss.driver.api.core.cql.SimpleStatement;
+import java.net.InetSocketAddress;
+import java.time.Duration;
+import java.util.*;
+
+/** CQL 仅完整分区键 EQ；守卫也必须绑定已确定的分区键，禁止 ALLOW FILTERING。 */
+public final class CassandraSourceAdapter extends AdapterSupport {
+  record TableShape(
+      Map<String, String> columns,
+      List<String> partition,
+      List<String> primary,
+      List<SourceMetadata.Index> indexes) {}
+
+  @Override
+  public Set<String> capabilities() {
+    return Set.of(
+        "TABLE_METADATA",
+        "PARTITION_KEY_EQ_ONLY",
+        "GUARD_PARTITION_KEY_ONLY",
+        "NO_ALLOW_FILTERING",
+        "NO_JOIN");
+  }
+
+  CqlSession open(SourceSpec s) {
+    var b =
+        CqlSession.builder()
+            .withLocalDatacenter(text(s, "datacenter"))
+            .withConfigLoader(
+                DriverConfigLoader.programmaticBuilder()
+                    .withBoolean(DefaultDriverOption.METADATA_SCHEMA_ENABLED, false)
+                    .withDuration(DefaultDriverOption.REQUEST_TIMEOUT, Duration.ofSeconds(10))
+                    .withDuration(
+                        DefaultDriverOption.CONNECTION_CONNECT_TIMEOUT, Duration.ofSeconds(2))
+                    .build());
+    for (var host : s.connection().path("contactPoints"))
+      b.addContactPoint(new InetSocketAddress(host.asText(), number(s, "port", 9042)));
+    String user = s.connection().path("user").asText("");
+    if (!user.isEmpty()) b.withAuthCredentials(user, s.connection().path("password").asText(""));
+    return b.build();
+  }
+
+  @Override
+  void connectivity(SourceSpec s) throws Exception {
+    var hosts = s.connection().path("contactPoints");
+    if (!hosts.isArray() || hosts.isEmpty()) throw QueryPlanner.problem("INVALID_CONNECTION");
+    socket(hosts.get(0).asText(), number(s, "port", 9042));
+  }
+
+  @Override
+  void authenticate(SourceSpec s) {
+    try (CqlSession c = open(s)) {
+      c.execute("SELECT release_version FROM system.local");
+    }
+  }
+
+  TableShape table(CqlSession c, SourceSpec s, String r) {
+    exact(s, r);
+    QueryPlanner.identifier(r);
+    String[] parts = r.split("\\.");
+    if (parts.length != 2 || !parts[0].equals(text(s, "keyspace")))
+      throw QueryPlanner.problem("SCOPE_EXCEEDED");
+    // 关闭驱动全量Schema刷新，只读取已批准keyspace/table的系统元数据。
+    Map<String, String> columns = new LinkedHashMap<>();
+    Map<Integer, String> partition = new TreeMap<>(), clustering = new TreeMap<>();
+    var rows =
+        c.execute(
+            SimpleStatement.newInstance(
+                    "SELECT column_name,type,kind,position FROM system_schema.columns WHERE"
+                        + " keyspace_name=? AND table_name=?",
+                    parts[0],
+                    parts[1])
+                .setTimeout(Duration.ofSeconds(3)));
+    for (var row : rows) {
+      String name = row.getString("column_name"),
+          type = row.getString("type"),
+          kind = row.getString("kind");
+      columns.put(name, type);
+      if ("partition_key".equals(kind)) partition.put(row.getInt("position"), name);
+      if ("clustering".equals(kind)) clustering.put(row.getInt("position"), name);
+    }
+    if (columns.isEmpty()) throw QueryPlanner.problem("RESOURCE_NOT_FOUND");
+    List<String> primary = new ArrayList<>(partition.values());
+    primary.addAll(clustering.values());
+    List<SourceMetadata.Index> indexes = new ArrayList<>();
+    var indexRows =
+        c.execute(
+            SimpleStatement.newInstance(
+                    "SELECT index_name,options FROM system_schema.indexes WHERE keyspace_name=? AND"
+                        + " table_name=?",
+                    parts[0],
+                    parts[1])
+                .setTimeout(Duration.ofSeconds(3)));
+    for (var row : indexRows) {
+      String target = row.getMap("options", String.class, String.class).get("target");
+      indexes.add(
+          new SourceMetadata.Index(
+              row.getString("index_name"), target == null ? List.of() : List.of(target), false));
+    }
+    return new TableShape(columns, new ArrayList<>(partition.values()), primary, indexes);
+  }
+
+  @Override
+  SourceMetadata readMetadata(SourceSpec s) {
+    try (CqlSession c = open(s)) {
+      List<SourceMetadata.Resource> out = new ArrayList<>();
+      for (String r : s.accessScope()) {
+        var t = table(c, s, r);
+        List<SourceMetadata.Field> fs =
+            t.columns().entrySet().stream()
+                .map(
+                    f ->
+                        new SourceMetadata.Field(
+                            f.getKey(), f.getValue(), !t.primary().contains(f.getKey())))
+                .toList();
+        List<SourceMetadata.Index> indexes = t.indexes();
+        out.add(new SourceMetadata.Resource(r, fs, t.primary(), List.of(), indexes));
+      }
+      return new SourceMetadata(out);
+    }
+  }
+
+  @Override
+  QueryResult execute(SourceSpec s, QuerySpec q) {
+    flat(q);
+    exact(s, q.resource());
+    QueryPlanner.identifier(q.resource());
+    try (CqlSession c = open(s)) {
+      var table = table(c, s, q.resource());
+      Set<String> all = new HashSet<>();
+      all.addAll(table.columns().keySet());
+      fields(q, all);
+      Set<String> partition = new LinkedHashSet<>();
+      partition.addAll(table.partition());
+      Map<String, com.fasterxml.jackson.databind.JsonNode> equal = new LinkedHashMap<>();
+      for (var f : q.filters()) {
+        if (f.operator() != QuerySpec.Operator.EQ
+            || !partition.contains(f.column())
+            || equal.putIfAbsent(f.column(), f.values().getFirst()) != null)
+          throw QueryPlanner.problem("CASSANDRA_PARTITION_EQ_REQUIRED");
+      }
+      if (!equal.keySet().equals(partition))
+        throw QueryPlanner.problem("CASSANDRA_PARTITION_EQ_REQUIRED");
+      for (var guard : q.guardBindings().entrySet()) {
+        if (!partition.contains(guard.getValue()))
+          throw QueryPlanner.problem("CASSANDRA_GUARD_PARTITION_REQUIRED");
+        if (!q.scope().allows(guard.getKey(), equal.get(guard.getValue())))
+          return new QueryResult(List.of(), List.of(), List.of());
+      }
+      LinkedHashSet<String> projection = new LinkedHashSet<>(q.projection());
+      projection.addAll(table.primary());
+      String select =
+          projection.stream()
+              .map(QueryPlanner::quote)
+              .collect(java.util.stream.Collectors.joining(","));
+      String where =
+          partition.stream()
+              .map(k -> QueryPlanner.quote(k) + "=?")
+              .collect(java.util.stream.Collectors.joining(" AND "));
+      var prepared =
+          c.prepare(
+              "SELECT "
+                  + select
+                  + " FROM "
+                  + QueryPlanner.quote(q.resource())
+                  + " WHERE "
+                  + where
+                  + " LIMIT "
+                  + q.limit());
+      Object[] values =
+          partition.stream()
+              .map(
+                  k -> {
+                    var n = equal.get(k);
+                    var type = table.columns().get(k);
+                    return switch (type) {
+                      case "int" -> {
+                        if (!n.isIntegralNumber() || !n.canConvertToInt())
+                          throw QueryPlanner.problem("FILTER_TYPE_MISMATCH");
+                        yield n.intValue();
+                      }
+                      case "bigint" -> {
+                        if (!n.isIntegralNumber() || !n.canConvertToLong())
+                          throw QueryPlanner.problem("FILTER_TYPE_MISMATCH");
+                        yield n.longValue();
+                      }
+                      case "uuid" -> {
+                        if (!n.isTextual()) throw QueryPlanner.problem("FILTER_TYPE_MISMATCH");
+                        yield UUID.fromString(n.textValue());
+                      }
+                      case "boolean" -> {
+                        if (!n.isBoolean()) throw QueryPlanner.problem("FILTER_TYPE_MISMATCH");
+                        yield n.booleanValue();
+                      }
+                      case "text", "varchar", "ascii" -> {
+                        if (!n.isTextual()) throw QueryPlanner.problem("FILTER_TYPE_MISMATCH");
+                        yield n.textValue();
+                      }
+                      default -> throw QueryPlanner.problem("CASSANDRA_PARTITION_TYPE_UNSUPPORTED");
+                    };
+                  })
+              .toArray();
+      var result =
+          c.execute(
+              prepared
+                  .bind(values)
+                  .setTimeout(Duration.ofMillis(q.timeoutMs()))
+                  .setPageSize(q.limit()));
+      List<Map<String, Object>> out = new ArrayList<>();
+      List<QueryResult.SourceRecord> evidence = new ArrayList<>();
+      for (var row : result) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        for (String p : q.projection()) data.put(p, row.getObject(p));
+        out.add(data);
+        Map<String, Object> key = new LinkedHashMap<>();
+        table.primary().forEach(k -> key.put(k, row.getObject(k)));
+        evidence.add(new QueryResult.SourceRecord(s.id(), q.resource(), key));
+        if (out.size() >= q.limit()) break;
+      }
+      return new QueryResult(inferred(q.resource(), out).fields(), out, evidence);
+    }
+  }
+}
+
+FILE: onto-data\src\main\java\cn\ontorepo\data\infra\AdapterSupport.java
+package cn.ontorepo.data.infra;
+
+import cn.ontorepo.data.domain.*;
+import com.fasterxml.jackson.databind.*;
+import java.net.*;
+import java.util.*;
+
+/** 协议失败统一脱敏；没有权限或没有完成的阶段不能报告通过。 */
+abstract class AdapterSupport implements SourceAdapter {
+  static final ObjectMapper JSON = new ObjectMapper();
+  static final int MAX_BYTES = 16 * 1024 * 1024, MAX_SCAN = 100000;
+
+  abstract void connectivity(SourceSpec s) throws Exception;
+
+  abstract void authenticate(SourceSpec s) throws Exception;
+
+  abstract SourceMetadata readMetadata(SourceSpec s) throws Exception;
+
+  abstract QueryResult execute(SourceSpec s, QuerySpec q) throws Exception;
+
+  void verifyScope(SourceSpec s, SourceMetadata m) {
+    if (!m.resources().stream()
+        .map(SourceMetadata.Resource::name)
+        .collect(java.util.stream.Collectors.toSet())
+        .containsAll(s.accessScope())) throw QueryPlanner.problem("SCOPE_UNAVAILABLE");
+  }
+
+  @Override
+  public final ProbeResult probe(SourceSpec s) {
+    int phase = 0;
+    try {
+      connectivity(s);
+      phase = 1;
+      authenticate(s);
+      phase = 2;
+      if (s.accessScope().isEmpty()) throw QueryPlanner.problem("SCOPE_EXCEEDED");
+      SourceMetadata m = readMetadata(s);
+      if (m.resources().isEmpty()) throw QueryPlanner.problem("SCOPE_UNAVAILABLE");
+      verifyScope(s, m);
+      return ProbeResult.passed();
+    } catch (Exception e) {
+      return ProbeResult.failed(
+          phase,
+          e instanceof DataProblem p
+              ? p.code()
+              : phase == 0
+                  ? "CONNECTIVITY_FAILED"
+                  : phase == 1 ? "AUTHENTICATION_FAILED" : "SCOPE_UNAVAILABLE");
+    }
+  }
+
+  @Override
+  public final SourceMetadata metadata(SourceSpec s) {
+    try {
+      if (s.accessScope().isEmpty()) return new SourceMetadata(List.of());
+      return readMetadata(s);
+    } catch (Exception e) {
+      throw safe(e);
+    }
+  }
+
+  @Override
+  public final QueryResult query(SourceSpec s, QuerySpec q) {
+    // 运行期兜底必须在任何协议元数据或连接访问前完成。
+    if (q.guardBindings().isEmpty()
+        || !q.guardBindings().keySet().stream()
+            .map(QueryPlanner::guardAttribute)
+            .collect(java.util.stream.Collectors.toSet())
+            .containsAll(q.scope().clauses().keySet()))
+      throw QueryPlanner.problem("GUARD_ATTR_UNRESOLVED");
+    q.guardBindings().values().forEach(QueryPlanner::identifier);
+    try {
+      return execute(s, q);
+    } catch (Exception e) {
+      throw safe(e);
+    }
+  }
+
+  static DataProblem safe(Exception e) {
+    return e instanceof DataProblem p ? p : QueryPlanner.problem("SOURCE_OPERATION_FAILED");
+  }
+
+  static String text(SourceSpec s, String key) {
+    JsonNode n = s.connection().get(key);
+    if (n == null || !n.isTextual() || n.textValue().isBlank())
+      throw QueryPlanner.problem("INVALID_CONNECTION");
+    return n.textValue();
+  }
+
+  static int number(SourceSpec s, String key, int fallback) {
+    return s.connection().path(key).asInt(fallback);
+  }
+
+  static void socket(String host, int port) throws Exception {
+    try (Socket socket = new Socket()) {
+      socket.connect(new InetSocketAddress(host, port), 2000);
+    }
+  }
+
+  static void uriSocket(String value, int fallback) throws Exception {
+    URI u = URI.create(value);
+    if (u.getHost() == null) throw QueryPlanner.problem("INVALID_CONNECTION");
+    socket(u.getHost(), u.getPort() < 0 ? fallback : u.getPort());
+  }
+
+  static void exact(SourceSpec s, String r) {
+    if (!s.accessScope().contains(r)) throw QueryPlanner.problem("SCOPE_EXCEEDED");
+  }
+
+  static void flat(QuerySpec q) {
+    flat(q, Set.of());
+  }
+
+  static void flat(QuerySpec q, Set<String> options) {
+    if (!q.joins().isEmpty()) throw QueryPlanner.problem("JOIN_UNSUPPORTED");
+    if (!options.containsAll(q.options().keySet()))
+      throw QueryPlanner.problem("UNSUPPORTED_OPTION");
+    if (q.guardBindings().isEmpty()
+        || !q.guardBindings().keySet().containsAll(q.scope().clauses().keySet()))
+      throw QueryPlanner.problem("GUARD_ATTR_UNRESOLVED");
+    q.projection().forEach(QueryPlanner::identifier);
+    q.guardBindings().values().forEach(QueryPlanner::identifier);
+    for (var f : q.filters()) {
+      QueryPlanner.identifier(f.column());
+      if (f.operator() == null
+          || f.values().size() > 1000
+          || f.operator() != QuerySpec.Operator.IN && f.values().size() != 1)
+        throw QueryPlanner.problem("INVALID_FILTER");
+      f.values().forEach(QueryPlanner::scalar);
+    }
+  }
+
+  static boolean matches(QuerySpec q, Map<String, Object> row) {
+    for (var b : q.guardBindings().entrySet())
+      if (!q.scope().allows(b.getKey(), JSON.valueToTree(row.get(b.getValue())))) return false;
+    for (var f : q.filters()) {
+      JsonNode actual = JSON.valueToTree(row.get(f.column()));
+      if (actual == null || actual.isNull()) return false;
+      if (f.operator() == QuerySpec.Operator.IN) {
+        if (f.values().stream().noneMatch(v -> compare(actual, v) == 0)) return false;
+      } else {
+        int c = compare(actual, f.values().getFirst());
+        if (!switch (f.operator()) {
+          case EQ -> c == 0;
+          case GT -> c > 0;
+          case GE -> c >= 0;
+          case LT -> c < 0;
+          case LE -> c <= 0;
+          default -> false;
+        }) return false;
+      }
+    }
+    return true;
+  }
+
+  static int compare(JsonNode a, JsonNode b) {
+    if (a.isNumber() && b.isNumber()) return a.decimalValue().compareTo(b.decimalValue());
+    if (a.isTextual() && b.isTextual()) return a.textValue().compareTo(b.textValue());
+    if (a.isBoolean() && b.isBoolean()) return Boolean.compare(a.booleanValue(), b.booleanValue());
+    throw QueryPlanner.problem("FILTER_TYPE_MISMATCH");
+  }
+
+  static void fields(QuerySpec q, Set<String> fields) {
+    Set<String> required = new HashSet<>(q.projection());
+    required.addAll(q.guardBindings().values());
+    q.filters().forEach(f -> required.add(f.column()));
+    if (!fields.containsAll(required)) throw QueryPlanner.problem("UNKNOWN_COLUMN");
+  }
+
+  static Map<String, Object> project(QuerySpec q, Map<String, Object> row) {
+    Map<String, Object> out = new LinkedHashMap<>();
+    q.projection().forEach(c -> out.put(c, row.get(c)));
+    return out;
+  }
+
+  static SourceMetadata.Resource inferred(String name, List<Map<String, Object>> rows) {
+    Map<String, String> fields = new LinkedHashMap<>();
+    for (var r : rows)
+      r.forEach(
+          (k, v) ->
+              fields.putIfAbsent(
+                  k,
+                  v == null
+                      ? "UNKNOWN"
+                      : v instanceof Number
+                          ? "NUMBER"
+                          : v instanceof Boolean ? "BOOLEAN" : "STRING"));
+    return new SourceMetadata.Resource(
+        name,
+        fields.entrySet().stream()
+            .map(e -> new SourceMetadata.Field(e.getKey(), e.getValue(), true))
+            .toList(),
+        List.of(),
+        List.of(),
+        List.of());
+  }
+
+  static void deadline(long started, QuerySpec q) {
+    if (System.nanoTime() - started > q.timeoutMs() * 1_000_000L)
+      throw QueryPlanner.problem("QUERY_TIMEOUT");
+  }
+}
+
+FILE: onto-data\src\main\java\cn\ontorepo\data\domain\SourceSpec.java
+package cn.ontorepo.data.domain;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import java.util.Set;
+
+/** 连接仅允许在适配器内部使用；日志和异常不能展开明文配置。 */
+public record SourceSpec(String id, String kind, JsonNode connection, Set<String> accessScope) {
+  public SourceSpec {
+    if (id == null
+        || kind == null
+        || connection == null
+        || !connection.isObject()
+        || accessScope == null
+        || accessScope.size() > 1000) throw new DataProblem("INVALID_SOURCE", "数据源配置无效");
+    connection = connection.deepCopy();
+    accessScope = Set.copyOf(accessScope);
+  }
+
+  @Override
+  public JsonNode connection() {
+    return connection.deepCopy();
+  }
+
+  @Override
+  public String toString() {
+    return "SourceSpec[id=" + id + ", kind=" + kind + ", connection=REDACTED]";
+  }
+}
+
+FILE: onto-data\src\main\java\cn\ontorepo\data\domain\SourceMetadata.java
+package cn.ontorepo.data.domain;
+
+import java.util.List;
+
+/** 源侧资源与类型快照；未知关系/索引返回空集合，不能推断成已存在。 */
+public record SourceMetadata(List<Resource> resources) {
+  public SourceMetadata {
+    resources = List.copyOf(resources);
+  }
+
+  public record Field(String name, String type, boolean nullable) {}
+
+  public record Relation(String fromColumn, String targetResource, String targetColumn) {}
+
+  public record Index(String name, List<String> columns, boolean unique) {
+    public Index {
+      columns = List.copyOf(columns);
+    }
+  }
+
+  public record Resource(
+      String name,
+      List<Field> fields,
+      List<String> primaryKey,
+      List<Relation> relations,
+      List<Index> indexes) {
+    public Resource {
+      fields = List.copyOf(fields);
+      primaryKey = List.copyOf(primaryKey);
+      relations = List.copyOf(relations);
+      indexes = List.copyOf(indexes);
+    }
+  }
+}
+
+FILE: onto-data\src\main\java\cn\ontorepo\data\domain\SourceAdapter.java
+package cn.ontorepo.data.domain;
+
+import java.util.Set;
+
+/** 适配器不得接受原始 SQL/脚本；能力不支持必须拒绝。 */
+public interface SourceAdapter {
+  ProbeResult probe(SourceSpec source);
+
+  SourceMetadata metadata(SourceSpec source);
+
+  QueryResult query(SourceSpec source, QuerySpec query);
+
+  Set<String> capabilities();
+}
+
+FILE: onto-data\src\main\java\cn\ontorepo\data\domain\QuerySpec.java
+package cn.ontorepo.data.domain;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import java.util.*;
+
+/** 结构化只读计划；guardBindings 来自已验证的模型快照，不能来自客户端授权参数。 */
+public record QuerySpec(
+    String resource,
+    List<String> projection,
+    List<Filter> filters,
+    List<Join> joins,
+    int limit,
+    int timeoutMs,
+    Map<String, JsonNode> options,
+    LabelScope scope,
+    Map<String, String> guardBindings) {
+  public enum Operator {
+    EQ,
+    IN,
+    GT,
+    GE,
+    LT,
+    LE
+  }
+
+  public record Filter(String column, Operator operator, List<JsonNode> values) {
+    public Filter {
+      values = List.copyOf(values);
+    }
+  }
+
+  public record Join(String resource, String leftColumn, String rightColumn) {}
+
+  public QuerySpec {
+    if (resource == null
+        || projection == null
+        || projection.isEmpty()
+        || projection.size() > 128
+        || filters == null
+        || filters.size() > 64
+        || joins == null
+        || joins.size() > 8
+        || options == null
+        || scope == null
+        || guardBindings == null) throw new DataProblem("INVALID_QUERY", "查询计划无效");
+    projection = List.copyOf(projection);
+    filters = List.copyOf(filters);
+    joins = List.copyOf(joins);
+    options = Map.copyOf(options);
+    guardBindings = Map.copyOf(guardBindings);
+    limit = limit <= 0 ? 500 : Math.min(limit, 500);
+    timeoutMs = timeoutMs <= 0 ? 10000 : Math.min(timeoutMs, 10000);
+  }
+}
+
+FILE: onto-data\src\main\java\cn\ontorepo\data\domain\QueryResult.java
+package cn.ontorepo.data.domain;
+
+import java.util.*;
+
+/** 值保留源类型；证据定位单条源记录，不能只记录查询文本。 */
+public record QueryResult(
+    List<SourceMetadata.Field> columns,
+    List<Map<String, Object>> rows,
+    List<SourceRecord> evidence) {
+  public QueryResult {
+    columns = List.copyOf(columns);
+    rows = rows.stream().map(r -> Collections.unmodifiableMap(new LinkedHashMap<>(r))).toList();
+    evidence = List.copyOf(evidence);
+  }
+
+  public record SourceRecord(String sourceId, String resource, Map<String, Object> key) {
+    public SourceRecord {
+      key = Collections.unmodifiableMap(new LinkedHashMap<>(key));
+    }
+  }
+}
+
+FILE: onto-data\src\main\java\cn\ontorepo\data\domain\QueryPlanner.java
+package cn.ontorepo.data.domain;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import java.util.*;
+import java.util.stream.Collectors;
+
+/** 全部源表和列先校验，标签参数化并在 LIMIT 前执行。 */
+public final class QueryPlanner {
+  public record SqlPlan(
+      String sql,
+      List<Object> parameters,
+      int limit,
+      int timeoutMs,
+      List<String> projection,
+      Map<String, List<String>> keys) {}
+
+  public static void identifier(String name) {
+    if (name == null
+        || !name.matches("[A-Za-z_][A-Za-z0-9_]{0,79}(\\.[A-Za-z_][A-Za-z0-9_]{0,79}){0,2}"))
+      throw problem("INVALID_IDENTIFIER");
+  }
+
+  public static DataProblem problem(String code) {
+    return new DataProblem(code, "数据源查询不满足访问边界或能力约束");
+  }
+
+  public static Object scalar(JsonNode n) {
+    if (n == null || n.isNull() || n.isContainerNode()) throw problem("INVALID_FILTER");
+    if (n.isNumber()) return n.decimalValue();
+    if (n.isBoolean()) return n.booleanValue();
+    return n.textValue();
+  }
+
+  public SqlPlan plan(SourceSpec source, QuerySpec q, SourceMetadata metadata) {
+    if (!q.options().isEmpty()) throw problem("UNSUPPORTED_OPTION");
+    Map<String, SourceMetadata.Resource> resources =
+        metadata.resources().stream()
+            .collect(Collectors.toMap(SourceMetadata.Resource::name, r -> r));
+    Set<String> used = new LinkedHashSet<>();
+    used.add(q.resource());
+    q.joins().forEach(j -> used.add(j.resource()));
+    for (String r : used) {
+      identifier(r);
+      if (!source.accessScope().contains(r)) throw problem("SCOPE_EXCEEDED");
+      if (!resources.containsKey(r)) throw problem("RESOURCE_NOT_FOUND");
+    }
+    Set<String> columns = new HashSet<>();
+    used.forEach(
+        r ->
+            resources
+                .get(r)
+                .fields()
+                .forEach(
+                    f -> {
+                      identifier(f.name());
+                      columns.add(r + "." + f.name());
+                    }));
+    java.util.function.Function<String, String> col =
+        c -> {
+          identifier(c);
+          if (!columns.contains(c)) throw problem("UNKNOWN_COLUMN");
+          return quote(c);
+        };
+    if (q.guardBindings().isEmpty()
+        || !q.guardBindings().keySet().stream()
+            .map(QueryPlanner::guardAttribute)
+            .collect(Collectors.toSet())
+            .containsAll(q.scope().clauses().keySet())) throw problem("GUARD_ATTR_UNRESOLVED");
+    // JOIN 每一端都需分类标签；不能通过已授权任务关联出未分类算法。
+    for (String resource : used)
+      if (q.guardBindings().values().stream().noneMatch(c -> c.startsWith(resource + ".")))
+        throw problem("GUARD_ATTR_UNRESOLVED");
+    List<Object> params = new ArrayList<>();
+    List<String> where = new ArrayList<>();
+    for (var e : q.guardBindings().entrySet()) {
+      String c = col.apply(e.getValue());
+      where.add(c + " IS NOT NULL");
+      var field =
+          resources.get(e.getValue().substring(0, e.getValue().lastIndexOf('.'))).fields().stream()
+              .filter(
+                  f -> f.name().equals(e.getValue().substring(e.getValue().lastIndexOf('.') + 1)))
+              .findFirst()
+              .orElseThrow();
+      if (field.type().toUpperCase(Locale.ROOT).matches(".*(CHAR|TEXT|STRING).*"))
+        where.add("TRIM(" + c + ") <> ''");
+      var values = q.scope().parameters().get(guardAttribute(e.getKey()));
+      if (values != null) in(c, values, where, params);
+    }
+    for (var f : q.filters()) {
+      String c = col.apply(f.column());
+      if (f.operator() == null || f.values().size() > 1000) throw problem("INVALID_FILTER");
+      if (f.operator() == QuerySpec.Operator.IN) in(c, f.values(), where, params);
+      else {
+        if (f.values().size() != 1) throw problem("INVALID_FILTER");
+        where.add(
+            c
+                + " "
+                + switch (f.operator()) {
+                  case EQ -> "=";
+                  case GT -> ">";
+                  case GE -> ">=";
+                  case LT -> "<";
+                  case LE -> "<=";
+                  default -> throw problem("INVALID_FILTER");
+                }
+                + " ?");
+        params.add(scalar(f.values().getFirst()));
+      }
+    }
+    String select = q.projection().stream().map(col).collect(Collectors.joining(","));
+    Map<String, List<String>> keys = new LinkedHashMap<>();
+    int keyIndex = 0;
+    for (String r : used) {
+      if (resources.get(r).primaryKey().isEmpty()) throw problem("SOURCE_KEY_REQUIRED");
+      keys.put(r, resources.get(r).primaryKey());
+      for (String key : resources.get(r).primaryKey())
+        select += "," + col.apply(r + "." + key) + " AS \"__e" + (keyIndex++) + "\"";
+    }
+    StringBuilder sql =
+        new StringBuilder("SELECT ").append(select).append(" FROM ").append(quote(q.resource()));
+    Set<String> joined = new HashSet<>();
+    joined.add(q.resource());
+    for (var j : q.joins()) {
+      String l = j.leftColumn(), r = j.rightColumn();
+      if (!r.startsWith(j.resource() + ".")
+          || joined.stream().noneMatch(x -> l.startsWith(x + "."))
+          || !joined.add(j.resource())) throw problem("INVALID_JOIN");
+      sql.append(" JOIN ")
+          .append(quote(j.resource()))
+          .append(" ON ")
+          .append(col.apply(l))
+          .append(" = ")
+          .append(col.apply(r));
+    }
+    sql.append(" WHERE ").append(String.join(" AND ", where)).append(" LIMIT ?");
+    params.add(q.limit());
+    return new SqlPlan(
+        sql.toString(),
+        List.copyOf(params),
+        q.limit(),
+        q.timeoutMs(),
+        q.projection(),
+        Collections.unmodifiableMap(new LinkedHashMap<>(keys)));
+  }
+
+  private static void in(
+      String col, List<JsonNode> values, List<String> where, List<Object> params) {
+    if (values.isEmpty()) {
+      where.add("1=0");
+      return;
+    }
+    where.add(col + " IN (" + String.join(",", Collections.nCopies(values.size(), "?")) + ")");
+    values.forEach(v -> params.add(scalar(v)));
+  }
+
+  public static String quote(String value) {
+    identifier(value);
+    return Arrays.stream(value.split("\\."))
+        .map(x -> "\"" + x + "\"")
+        .collect(Collectors.joining("."));
+  }
+
+  /** 同一属性在 JOIN 多表绑定时使用 attr@resource，仍应用同一属性范围。 */
+  public static String guardAttribute(String binding) {
+    String[] parts = binding.split("@", -1);
+    if (parts.length > 2 || !parts[0].matches("[A-Za-z][A-Za-z0-9_]{0,79}"))
+      throw problem("GUARD_ATTR_UNRESOLVED");
+    if (parts.length == 2) identifier(parts[1]);
+    return parts[0];
+  }
+}
+
+FILE: onto-data\src\main\java\cn\ontorepo\data\domain\ProbeResult.java
+package cn.ontorepo.data.domain;
+
+import java.util.List;
+
+/** 三个阶段独立报告，失败后的阶段必须 NOT_RUN。 */
+public record ProbeResult(List<Stage> stages) {
+  public enum Status {
+    PASSED,
+    FAILED,
+    NOT_RUN
+  }
+
+  public record Stage(String name, Status status, String code) {}
+
+  public ProbeResult {
+    stages = List.copyOf(stages);
+  }
+
+  public static ProbeResult failed(int stage, String code) {
+    var names = List.of("CONNECTIVITY", "AUTHENTICATION", "SCOPE");
+    return new ProbeResult(
+        java.util.stream.IntStream.range(0, 3)
+            .mapToObj(
+                i ->
+                    new Stage(
+                        names.get(i),
+                        i < stage ? Status.PASSED : i == stage ? Status.FAILED : Status.NOT_RUN,
+                        i == stage ? code : null))
+            .toList());
+  }
+
+  public static ProbeResult passed() {
+    return new ProbeResult(
+        List.of(
+            new Stage("CONNECTIVITY", Status.PASSED, null),
+            new Stage("AUTHENTICATION", Status.PASSED, null),
+            new Stage("SCOPE", Status.PASSED, null)));
+  }
+}
+
+FILE: onto-data\src\main\java\cn\ontorepo\data\domain\LabelScope.java
+package cn.ontorepo.data.domain;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.DecimalNode;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+/**
+ * 授权标签范围的不可变交集，不负责判断授权记录是否存在。
+ *
+ * <p>调用者必须先验证入口授权记录；记录存在且范围 null 才代表不限。 策略、端点、空间按属性逐项求交，任何层不能扩大另一层；同一空间范围应用两次保持等价。
+ * 缺少分类标签始终拒绝，即使所有范围均为不限，也不能把未分类对象当作公共数据。
+ */
+public record LabelScope(Map<String, Set<JsonNode>> clauses) {
+  public LabelScope {
+    if (clauses == null || clauses.size() > 64) throw invalid();
+    Map<String, Set<JsonNode>> copy = new LinkedHashMap<>();
+    clauses.forEach(
+        (attribute, values) -> {
+          if (attribute == null
+              || !attribute.matches("[A-Za-z][A-Za-z0-9_]{0,79}")
+              || values == null
+              || values.size() > 1000) throw invalid();
+          Set<JsonNode> normalized = new LinkedHashSet<>();
+          for (JsonNode value : values) {
+            if (!classified(value)) throw invalid();
+            normalized.add(normalize(value));
+          }
+          copy.put(attribute, Set.copyOf(normalized));
+        });
+    clauses = Map.copyOf(copy);
+  }
+
+  public static LabelScope unrestricted() {
+    return new LabelScope(Map.of());
+  }
+
+  /** 仅允许明确的集合或集合合取，不接受原始 SQL、通配符和任意表达式。 */
+  public static LabelScope parse(JsonNode source) {
+    return parse(source, 0);
+  }
+
+  private static LabelScope parse(JsonNode source, int depth) {
+    if (source == null || source.isNull()) return unrestricted();
+    if (!source.isObject() || depth > 16) throw invalid();
+    if (source.size() == 1 && source.has("all")) {
+      JsonNode all = source.get("all");
+      if (!all.isArray() || all.isEmpty() || all.size() > 64) throw invalid();
+      LabelScope combined = unrestricted();
+      for (JsonNode child : all) {
+        if (!child.isObject()) throw invalid();
+        combined = intersect(combined, parse(child, depth + 1));
+      }
+      return combined;
+    }
+    JsonNode attr = source.get("attr"), values = source.get("in");
+    if (source.size() != 2
+        || attr == null
+        || !attr.isTextual()
+        || !attr.textValue().matches("[A-Za-z][A-Za-z0-9_]{0,79}")
+        || values == null
+        || !values.isArray()
+        || values.size() > 1000) throw invalid();
+    Set<JsonNode> allowed = new LinkedHashSet<>();
+    for (JsonNode value : values) {
+      if (!classified(value)) throw invalid();
+      allowed.add(normalize(value));
+    }
+    return new LabelScope(Map.of(attr.textValue(), allowed));
+  }
+
+  public static LabelScope intersect(LabelScope... scopes) {
+    Map<String, Set<JsonNode>> result = new LinkedHashMap<>();
+    for (LabelScope scope : scopes) {
+      if (scope == null) throw invalid();
+      for (var entry : scope.clauses.entrySet()) {
+        Set<JsonNode> existing = result.get(entry.getKey());
+        if (existing == null) result.put(entry.getKey(), new LinkedHashSet<>(entry.getValue()));
+        else existing.retainAll(entry.getValue());
+      }
+    }
+    return new LabelScope(result);
+  }
+
+  /** SQL 计划器将空交集编译为恒假谓词，不能在空列表时省略 WHERE。 */
+  public boolean deniesAll() {
+    return clauses.values().stream().anyMatch(Set::isEmpty);
+  }
+
+  /** 只判断当前属性；整条记录必须对全部必需 guard_attrs 逐项调用。 */
+  public boolean allows(String attribute, JsonNode label) {
+    if (deniesAll() || !classified(label)) return false;
+    Set<JsonNode> allowed = clauses.get(attribute);
+    return allowed == null || allowed.contains(normalize(label));
+  }
+
+  /** 返回参数化计划所需的只读集合；不得将其中字符串拼接到 SQL。 */
+  public Map<String, List<JsonNode>> parameters() {
+    Map<String, List<JsonNode>> result = new LinkedHashMap<>();
+    clauses.forEach((attribute, values) -> result.put(attribute, List.copyOf(values)));
+    return Map.copyOf(result);
+  }
+
+  private static JsonNode normalize(JsonNode value) {
+    return value.isNumber()
+        ? DecimalNode.valueOf(value.decimalValue().stripTrailingZeros())
+        : value;
+  }
+
+  private static boolean classified(JsonNode value) {
+    return value != null
+        && (value.isBoolean()
+            || value.isNumber()
+            || value.isTextual()
+                && !value.textValue().isBlank()
+                && value.textValue().length() <= 1000);
+  }
+
+  private static DataProblem invalid() {
+    return new DataProblem("INVALID_DATA_SCOPE", "数据范围必须为明确的属性值集合或集合合取");
+  }
+}
+
+FILE: onto-data\src\main\java\cn\ontorepo\data\domain\DataProblem.java
+package cn.ontorepo.data.domain;
+
+/** 数据源及范围边界的稳定错误码；消息不携带连接配置、密钥或源响应体。 */
+public final class DataProblem extends RuntimeException {
+  private final String code;
+
+  public DataProblem(String code, String message) {
+    super(message);
+    this.code = code;
+  }
+
+  public String code() {
+    return code;
+  }
+}
+
+FILE: onto-data\src\main\java\cn\ontorepo\data\domain\CredentialCipher.java
+package cn.ontorepo.data.domain;
+
+import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
+import java.util.Arrays;
+import java.util.Base64;
+import javax.crypto.Cipher;
+import javax.crypto.spec.GCMParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
+
+/**
+ * 数据源连接配置的 AES-256-GCM 加密边界。
+ *
+ * <p>主密钥必须由进程环境提供，不生成固定默认值；每次加密采用随机 nonce。 数据源稳定标识作为附加认证数据，防止把一个数据源的密文拷贝到另一行后获得访问能力。
+ * 连接配置只在真实适配器调用前解密，管理 API 不返回明文。
+ */
+public final class CredentialCipher {
+  private static final int MAX_CLEAR_BYTES = 65536;
+  private static final SecureRandom RANDOM = new SecureRandom();
+  private final SecretKeySpec key;
+
+  public CredentialCipher(String base64Key) {
+    try {
+      byte[] bytes = Base64.getDecoder().decode(base64Key);
+      if (bytes.length != 32) throw new IllegalArgumentException();
+      key = new SecretKeySpec(bytes, "AES");
+      Arrays.fill(bytes, (byte) 0);
+    } catch (RuntimeException e) {
+      throw new DataProblem("CREDENTIAL_KEY_INVALID", "数据源主密钥必须为 Base64 编码的 32 字节密钥");
+    }
+  }
+
+  public String encrypt(String sourceId, String plaintext) {
+    identity(sourceId);
+    if (plaintext == null || plaintext.isEmpty())
+      throw new DataProblem("CREDENTIAL_CONFIG_INVALID", "连接配置不能为空");
+    byte[] clear = plaintext.getBytes(StandardCharsets.UTF_8);
+    if (clear.length > MAX_CLEAR_BYTES)
+      throw new DataProblem("CREDENTIAL_CONFIG_INVALID", "连接配置超过大小限制");
+    byte[] nonce = new byte[12];
+    RANDOM.nextBytes(nonce);
+    try {
+      byte[] encrypted = cipher(Cipher.ENCRYPT_MODE, nonce, sourceId).doFinal(clear);
+      byte[] combined = new byte[nonce.length + encrypted.length];
+      System.arraycopy(nonce, 0, combined, 0, nonce.length);
+      System.arraycopy(encrypted, 0, combined, nonce.length, encrypted.length);
+      return "v1." + Base64.getUrlEncoder().withoutPadding().encodeToString(combined);
+    } catch (Exception e) {
+      throw new DataProblem("CREDENTIAL_ENCRYPTION_FAILED", "连接配置加密失败");
+    } finally {
+      Arrays.fill(clear, (byte) 0);
+    }
+  }
+
+  public String decrypt(String sourceId, String encoded) {
+    identity(sourceId);
+    try {
+      if (encoded == null || !encoded.startsWith("v1.") || encoded.length() > 90000)
+        throw new IllegalArgumentException();
+      byte[] combined = Base64.getUrlDecoder().decode(encoded.substring(3));
+      if (combined.length < 29 || combined.length > MAX_CLEAR_BYTES + 28)
+        throw new IllegalArgumentException();
+      byte[] nonce = Arrays.copyOfRange(combined, 0, 12);
+      byte[] clear =
+          cipher(Cipher.DECRYPT_MODE, nonce, sourceId).doFinal(combined, 12, combined.length - 12);
+      try {
+        return new String(clear, StandardCharsets.UTF_8);
+      } finally {
+        Arrays.fill(clear, (byte) 0);
+      }
+    } catch (Exception e) {
+      throw new DataProblem("CREDENTIAL_INTEGRITY_FAILED", "连接配置密文无效或不属于此数据源");
+    }
+  }
+
+  private Cipher cipher(int mode, byte[] nonce, String sourceId) throws Exception {
+    Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+    cipher.init(mode, key, new GCMParameterSpec(128, nonce));
+    cipher.updateAAD(("ontorepo:datasource:v1:" + sourceId).getBytes(StandardCharsets.UTF_8));
+    return cipher;
+  }
+
+  private static void identity(String sourceId) {
+    if (sourceId == null || sourceId.isBlank() || sourceId.length() > 200)
+      throw new DataProblem("CREDENTIAL_CONTEXT_INVALID", "数据源标识无效");
+  }
+}
+
+FILE: onto-data\src\main\java\cn\ontorepo\data\domain\AdapterRegistry.java
+package cn.ontorepo.data.domain;
+
+import cn.ontorepo.data.infra.*;
+import java.util.*;
+
+/** kind 和 dialect 双重匹配；不允许用关系库伪装数仓验收。 */
+public final class AdapterRegistry {
+  private final Map<String, SourceAdapter> adapters;
+
+  public AdapterRegistry() {
+    SourceAdapter jdbc = new JdbcSourceAdapter();
+    SourceAdapter file = new FileSourceAdapter();
+    adapters =
+        Map.ofEntries(
+            Map.entry("RELATIONAL/postgresql", jdbc),
+            Map.entry("WAREHOUSE/clickhouse", jdbc),
+            Map.entry("FILE/csv", file),
+            Map.entry("FILE/json", file),
+            Map.entry("FILE/excel", file),
+            Map.entry("HTTP/json", new HttpSourceAdapter()),
+            Map.entry("LAKE/s3-parquet", new S3ParquetSourceAdapter()),
+            Map.entry("DOCUMENT/mongodb", new MongoSourceAdapter()),
+            Map.entry("KEY_VALUE/redis", new RedisSourceAdapter()),
+            Map.entry("WIDE_COLUMN/cassandra", new CassandraSourceAdapter()),
+            Map.entry("GRAPH/neo4j", new Neo4jSourceAdapter()));
+  }
+
+  public SourceAdapter adapter(SourceSpec source) {
+    SourceAdapter adapter =
+        adapters.get(source.kind() + "/" + source.connection().path("dialect").asText());
+    if (adapter == null) throw QueryPlanner.problem("UNSUPPORTED_DIALECT");
+    return adapter;
+  }
+}
+
+FILE: onto-data\README.md
+# 数据适配内核 API
+
+本模块独立构建：Java 21，`mvn -B -f onto-data/pom.xml -DargLine=-Xmx512m test`。业务层负责认证、空间权限、快照完整性、连接密文解密，适配器仅接收校验后的服务端对象。不要把请求直接反序列化成已授权的 QuerySpec。
+
+`domain.SourceSpec(id,kind,connection,accessScope)`：connection 为解密后的 JsonNode，不记录日志；toString 隐藏连接。kind 与 dialect 必须明确匹配。`domain.AdapterRegistry.adapter(source)` 返回 `domain.SourceAdapter`。adapter 的 `probe` 返回 CONNECTIVITY/AUTHENTICATION/SCOPE 三阶段，失败后阶段 NOT_RUN；每段是 `ProbeResult.Stage(name,status,code)`，由管理层转换HTTP契约字段。`metadata` 返回 SourceMetadata.resources；每项含 name、fields(name,type,nullable)、primaryKey、relations、indexes。无可获得关系/索引时为空，不能当作完整性肯定结论。
+
+`domain.QuerySpec(resource,projection,filters,joins,limit,timeoutMs,options,scope,guardBindings)` 是唯一查询入口。projection 为列列表；Filter(column,Operator,values) 支持 EQ/IN/GT/GE/LT/LE；Join(resource,leftColumn,rightColumn) 为内等值连接。limit 默认/最大500，timeoutMs 默认/最大10000。JDBC 列采用完整 `schema.table.column`；其余协议为资源内字段名。所有路径/表/集合/标签必须在 accessScope 内。options 未声明时一律拒绝。scope 是 LabelScope.intersect 的最终结果；guardBindings 为模型快照中的必需属性→源字段映射，必须非空且覆盖全部 scope 属性。未分类值(null/空串)默认拒绝。授权范围过滤在 LIMIT 前完成，空交集恒假。
+
+`QueryResult(columns,rows,evidence)` 保留值的 Java 类型（数值/布尔/null/日期等）；rows 每项键为投影列，evidence 中 SourceRecord(sourceId,resource,key) 为源记录定位。JDBC 自动额外读取主键且不暴露为业务列；没有主键拒绝查询。文件采用行号定位，HTTP 采用页号/页内序号定位。上层继续补充映射快照/元数据快照/候选或版本摘要。
+
+JOIN 每个参与表必须有分类守卫。同一属性需要绑定多个表时，使用 `region@public.algorithms -> public.algorithms.region`，其中 `region` 仍引用有效范围的同一属性；主表可用 `region -> public.tasks.region`。证据顺序按每行、再按主表/连接表；不同表各有一条 SourceRecord。
+
+## 连接字段
+
+| kind | dialect | connection 与 accessScope |
+|---|---|---|
+| RELATIONAL | postgresql | url/user/password；scope=`schema.table` |
+| WAREHOUSE | clickhouse | url/user/password；scope=`database.table` |
+| LAKE | s3-parquet | endpoint/accessKey/secretKey/bucket；scope=对象前缀；resource=对象键 |
+| FILE | csv/json/excel | root（批准目录）；scope=相对文件路径；resource=相对路径 |
+| HTTP | json | baseUrl/headers/endpoints；可选method=GET/POST、pageParam/pageSize/maxPages；scope=端点路径 |
+| DOCUMENT | mongodb | uri/database；scope=`database.collection` |
+| KEY_VALUE | redis | host/port/password/database；scope=键前缀 |
+| WIDE_COLUMN | cassandra | contactPoints/port/datacenter/keyspace/user/password；scope=`keyspace.table` |
+| GRAPH | neo4j | uri/user/password/database；scope=节点标签 |
+
+连接对象只允许服务端受控配置。HTTP baseUrl 和文件 root 不应由执行请求覆盖；JDBC URL 不得启用允许本机文件读取的驱动选项。配置、原始 URI、源异常响应不输出给客户端。
+
+## 调用示例
+
+```java
+SourceAdapter adapter = new AdapterRegistry().adapter(source);
+SourceMetadata metadata = adapter.metadata(source);
+LabelScope effective = LabelScope.intersect(policy, endpoint, space);
+QuerySpec query = new QuerySpec("public.tasks", List.of("public.tasks.id"),
+    List.of(new QuerySpec.Filter("public.tasks.id", QuerySpec.Operator.EQ,
+        List.of(IntNode.valueOf(4)))), List.of(), 100, 3000, Map.of(), effective,
+    Map.of("region", "public.tasks.region"));
+QueryResult result = adapter.query(source, query);
+```
+
+具体能力与实际环境验证结果见 `docs/evidence/continuation/c5-adapters-report.md`。五类无本机实例的协议代码不能视为真实接入验收。
+
+## 能力限制
+
+- PostgreSQL：普通主键表，内等值 JOIN；所有列使用完整资源前缀，未绑定守卫在元数据访问前拒绝。
+- ClickHouse：仅 MergeTree 家族（包含复制变体）；独立查询 system.tables/system.columns 且按 database/table 参数过滤。排序键不保证唯一，证据使用 `_part/_part_offset`；分片合并后物理证据位置可能失效，上层应同时归档查询事实与快照。无本机实例，尚待真实验收。
+- S3：单对象最多16MiB、每前缀最多1000对象；Parquet 仅非重复基础类型列，EQ/IN 谓词下推与列裁剪，分类检查在输出上限之前；证据为对象键及物理 rowIndex。尚未支持嵌套、Decimal/INT96 等复杂类型，明确拒绝。无需接受客户端原始路径或SQL。
+- 文件：单文件最多16MiB/10万行；CSV、JSON对象数组和 .xlsx 首工作表。公式单元格直接拒绝；不执行公式/宏，.xls/.xlsm 暂不支持。真实路径必须留在批准root之下，拒绝任意 `..` 和绝对路径。
+- HTTP：baseUrl 必须是无凭据/查询参数的 origin；端点精确声明，仅GET或固定JSON体POST模板（页码参数自动绑定），未开放客户端任意请求参数。响应为JSON对象数组；pageParam 为页码参数，每页至多1000条、至多100页，页未耗尽而触及配置上限时明确拒绝。完整响应体受截止时间和16MiB上限约束；禁止全部重定向。
+- MongoDB：仅原生 find，服务端受限过滤/投影/LIMIT；元数据字段来自首条样本并含索引，不能视为完整文档Schema，不接收聚合脚本。
+- Redis：仅STRING内的JSON对象，键名自动增加 `_key` 字段；resource 是精确批准前缀，使用 `_key EQ` 可做精确键查，否则 SCAN 最多1000步/10万键，过滤在结果上限前，无JOIN。
+- Cassandra：仅完整分区键EQ，守卫必须绑定同一分区键；不支持任意过滤、ALLOW FILTERING 或JOIN。分区键仅 int/bigint/uuid/boolean/text/varchar/ascii，其他类型明确拒绝。
+- Neo4j：节点属性查询；或 options 同时声明 `relationship`（关系类型标识符）、`targetLabel`（同样须在accessScope）时查询单跳有向关系。关系模板对两端使用同名分类属性和同一有效范围，可投影 `_targetId`、`_relationshipId`；关系模板暂不支持额外filters。节点与关系元素ID进入证据；其他Cypher/SQL JOIN不支持。
+
+Windows 当前JDK的 Unix-domain socket 临时路径需要ASCII目录；本机测试命令使用 `-DargLine="-Xmx512m -Djdk.net.unixdomain.tmpdir=C:/Windows/Temp"`。这只影响测试运行参数，不改变协议授权规则。
+
+FILE: onto-data\pom.xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+    <modelVersion>4.0.0</modelVersion>
+    <parent><groupId>cn.ontorepo</groupId><artifactId>ontorepo</artifactId><version>0.1.0</version></parent>
+    <artifactId>onto-data</artifactId>
+    <dependencies>
+        <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId></dependency>
+        <dependency><groupId>com.clickhouse</groupId><artifactId>clickhouse-jdbc</artifactId><version>0.9.8</version><classifier>all</classifier></dependency>
+        <dependency><groupId>io.minio</groupId><artifactId>minio</artifactId><version>9.0.3</version></dependency>
+        <dependency><groupId>com.squareup.okhttp3</groupId><artifactId>okhttp-jvm</artifactId><version>5.3.2</version></dependency>
+        <dependency><groupId>org.apache.parquet</groupId><artifactId>parquet-hadoop</artifactId><version>1.15.2</version></dependency>
+        <dependency><groupId>org.apache.parquet</groupId><artifactId>parquet-column</artifactId><version>1.15.2</version></dependency>
+        <dependency><groupId>org.apache.hadoop</groupId><artifactId>hadoop-common</artifactId><version>3.4.1</version></dependency>
+        <dependency><groupId>org.apache.hadoop</groupId><artifactId>hadoop-mapreduce-client-core</artifactId><version>3.4.1</version><exclusions><exclusion><groupId>*</groupId><artifactId>*</artifactId></exclusion></exclusions></dependency>
+        <dependency><groupId>org.apache.commons</groupId><artifactId>commons-csv</artifactId><version>1.14.0</version></dependency>
+        <dependency><groupId>org.apache.poi</groupId><artifactId>poi-ooxml</artifactId><version>5.4.1</version></dependency>
+        <dependency><groupId>org.mongodb</groupId><artifactId>mongodb-driver-sync</artifactId><version>5.5.1</version></dependency>
+        <dependency><groupId>redis.clients</groupId><artifactId>jedis</artifactId><version>6.0.0</version></dependency>
+        <dependency><groupId>org.apache.cassandra</groupId><artifactId>java-driver-core</artifactId><version>4.18.1</version></dependency>
+        <dependency><groupId>org.neo4j.driver</groupId><artifactId>neo4j-java-driver</artifactId><version>5.28.5</version></dependency>
+        <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId></dependency>
+        <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
+    </dependencies>
+</project>
+

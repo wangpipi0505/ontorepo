@@ -1,0 +1,85 @@
+{
+  "timestamp": "2026-10-20T16:03:31.019Z",
+  "checks": [
+    {
+      "maxRows": 1,
+      "candidateId": "7a3ac6dc-2704-4090-b113-9db034ae100a",
+      "status": "SUCCEEDED",
+      "errorCode": null,
+      "rowCount": 1,
+      "rows": [
+        {
+          "classId": "70542f73-ed85-4930-aef5-ce9e9b31cfef",
+          "objectId": "algorithm:ALG-A",
+          "relationId": "fac0e65d-ba18-4317-816d-80e9b269c957",
+          "toObjectId": "task:T-A",
+          "fromObjectId": "algorithm:ALG-A",
+          "017f53e7-2dd7-4d99-87ce-baecdd827507": "T-A",
+          "ddfe67e5-1812-4f40-982a-4c1d52c5f71e": "ALG-A"
+        }
+      ]
+    },
+    {
+      "maxRows": 20,
+      "candidateId": "af08d7c1-4995-46cc-abb9-ff71b8886024",
+      "status": "FAILED",
+      "errorCode": "CARDINALITY_VIOLATION",
+      "rowCount": 0,
+      "rows": []
+    }
+  ],
+  "spaceId": "3fb21575-9646-482e-9db7-1b5aa69d6cbf",
+  "toPropertyDependency": {
+    "propertyMappingId": "34713b59-3129-4882-8841-de1768410108",
+    "operationId": "e2081603-77de-446b-9544-12d714f3af20",
+    "impact": {
+      "issues": [],
+      "operations": []
+    },
+    "deleteAccepted": true,
+    "afterValidation": {
+      "affectedOperations": [
+        {
+          "id": "e2081603-77de-446b-9544-12d714f3af20",
+          "code": "cardinality_probe",
+          "name": "基数审查"
+        }
+      ],
+      "coverage": {
+        "mapped": 4,
+        "pending": 1,
+        "unmappable": 0
+      },
+      "valid": false,
+      "checks": [
+        {
+          "kind": "CLASS_OBJECT",
+          "issues": [],
+          "passed": true
+        },
+        {
+          "kind": "REQUIRED_PROPERTY",
+          "issues": [
+            {
+              "message": "必填属性没有映射",
+              "code": "REQUIRED_PROPERTY_MISSING",
+              "entityId": "017f53e7-2dd7-4d99-87ce-baecdd827507"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "kind": "RELATION_KEYS",
+          "issues": [],
+          "passed": true
+        },
+        {
+          "kind": "REACHABLE_REFERENCE",
+          "issues": [],
+          "passed": true
+        }
+      ],
+      "coverageBasis": "当前活动类 + 活动类的全部本体属性 + 本体关系；不可用映射单独计入unmappable"
+    }
+  }
+}

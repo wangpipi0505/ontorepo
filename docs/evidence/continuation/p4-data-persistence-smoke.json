@@ -1,0 +1,28 @@
+{
+  "checkedAt": "2026-10-20T18:17:37.115Z",
+  "spaceId": "ee9d5319-28f3-44e9-a118-2f12b68d7b33",
+  "releaseId": "d3ff3e9b-1333-495c-93c8-a419a57d014b",
+  "bundleSha256": "1cd1885ce5c35c4b80e49da1c993214ce1a66cfc44655ab75b87f5f87ed39ed2",
+  "checks": [
+    {
+      "name": "原两个正式版本与摘要重启后保持",
+      "status": "PASSED"
+    },
+    {
+      "name": "正式原路由和别名执行相同冻结映射与真实版本meta",
+      "status": "PASSED"
+    },
+    {
+      "name": "恢复后的源文件映射目录保持原引用",
+      "status": "PASSED"
+    },
+    {
+      "name": "原历史执行与来源证据重启后仍可追溯",
+      "status": "PASSED"
+    },
+    {
+      "name": "原两版本RELEASED收件事实持久去重",
+      "status": "PASSED"
+    }
+  ]
+}

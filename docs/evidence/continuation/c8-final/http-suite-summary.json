@@ -1,0 +1,94 @@
+{
+  "checks": [
+    {
+      "arguments": [],
+      "name": "详设四段样例",
+      "startedAt": "2026-10-21T02:49:13.9196033Z",
+      "finishedAt": "2026-10-21T02:49:13.9735185Z",
+      "exitCode": 0,
+      "script": "Check-Design-Samples.mjs"
+    },
+    {
+      "arguments": [],
+      "name": "完整IAM公开HTTP",
+      "startedAt": "2026-10-21T02:49:13.9826838Z",
+      "finishedAt": "2026-10-21T02:49:15.3614649Z",
+      "exitCode": 0,
+      "script": "Smoke-Iam.mjs"
+    },
+    {
+      "arguments": [],
+      "name": "T02三入口零源访问",
+      "startedAt": "2026-10-21T02:49:15.3639521Z",
+      "finishedAt": "2026-10-21T02:49:16.4539979Z",
+      "exitCode": 0,
+      "script": "Smoke-Data-Guards.mjs"
+    },
+    {
+      "arguments": [],
+      "name": "新空间正式发布全链路",
+      "startedAt": "2026-10-21T02:49:16.4551271Z",
+      "finishedAt": "2026-10-21T02:49:24.0550435Z",
+      "exitCode": 0,
+      "script": "Smoke-Release.mjs"
+    },
+    {
+      "arguments": [],
+      "name": "原P1候选重启兼容",
+      "startedAt": "2026-10-21T02:49:24.0563391Z",
+      "finishedAt": "2026-10-21T02:49:24.3419369Z",
+      "exitCode": 0,
+      "script": "Check-Persistence.mjs"
+    },
+    {
+      "arguments": [],
+      "name": "原P2冻结供给兼容",
+      "startedAt": "2026-10-21T02:49:24.3427897Z",
+      "finishedAt": "2026-10-21T02:49:24.8682846Z",
+      "exitCode": 0,
+      "script": "Check-Supply-Persistence.mjs"
+    },
+    {
+      "arguments": [],
+      "name": "原P3六组数据源候选兼容",
+      "startedAt": "2026-10-21T02:49:24.8691275Z",
+      "finishedAt": "2026-10-21T02:49:26.5153553Z",
+      "exitCode": 0,
+      "script": "Check-Data-Persistence.mjs"
+    },
+    {
+      "arguments": [],
+      "name": "原P4弃用版本兼容",
+      "startedAt": "2026-10-21T02:49:26.5168520Z",
+      "finishedAt": "2026-10-21T02:49:26.8225370Z",
+      "exitCode": 0,
+      "script": "Check-Release-Persistence.mjs"
+    },
+    {
+      "arguments": [
+        "--deferred"
+      ],
+      "name": "原积压事件重启基线兼容",
+      "startedAt": "2026-10-21T02:49:26.8233462Z",
+      "finishedAt": "2026-10-21T02:49:27.1225373Z",
+      "exitCode": 0,
+      "script": "Check-Release-Persistence.mjs"
+    },
+    {
+      "arguments": [],
+      "name": "原正式映射版本及来源证据兼容",
+      "startedAt": "2026-10-21T02:49:27.1233219Z",
+      "finishedAt": "2026-10-21T02:49:27.4254517Z",
+      "exitCode": 0,
+      "script": "Check-Release-Data-Persistence.mjs"
+    }
+  ],
+  "runtime": {
+    "jar": "G:\\207\\项目\\算法重组工具\\代码\\ontorepo\\.runtime\\c8-running\\63b3a1456339ff2cac24665e87ea5c055d524e3b6dbb112c1bdfe3ca715a674c.jar",
+    "relayEnabled": true,
+    "startedAt": "2026-10-21T02:48:53.41356Z",
+    "sha256": "63B3A1456339FF2CAC24665E87EA5C055D524E3B6DBB112C1BDFE3CA715A674C"
+  },
+  "startedAt": "2026-10-21T02:49:13.9150933Z",
+  "checkedAt": "2026-10-21T02:49:27.4254593Z"
+}

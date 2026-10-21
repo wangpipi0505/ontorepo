@@ -1,0 +1,18 @@
+{
+  "verification": {
+    "full": "c5-final-verify-summary.json",
+    "fullTests": 259,
+    "fullScope": "before non-empty ZIP-directory patch",
+    "followup": "P3IngestTest",
+    "followupFinishedAt": "2026-10-21T00:43:23+08:00",
+    "tests": 8,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "artifact": {
+    "path": "onto-designer-api\\target\\onto-designer-api-0.1.0-SNAPSHOT.jar",
+    "bytes": 188087936,
+    "sha256": "E2D5852EAD14145E767BD50D0F9A9E55DB8D317C76DB6F19ED4C8C31B5DE30C8"
+  }
+}

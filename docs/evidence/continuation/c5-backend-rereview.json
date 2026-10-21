@@ -1,0 +1,90 @@
+{
+  "timestamp": "2026-10-20T16:45:14.660Z",
+  "packageSha": "E2D5852EAD14145E767BD50D0F9A9E55DB8D317C76DB6F19ED4C8C31B5DE30C8",
+  "checks": [
+    {
+      "name": "C5-R01合法改字段成功且重复创建409不增实体",
+      "status": "PASSED",
+      "duplicateCode": "PROPERTY_MAPPING_DUPLICATE"
+    },
+    {
+      "name": "C5-R02逐对象必填缺项准确拒绝",
+      "status": "PASSED",
+      "coverage": {
+        "mapped": 2,
+        "pending": 1,
+        "unmappable": 0
+      },
+      "issues": [
+        {
+          "field": "ab313811-a90b-4e5f-b50a-1e666b229e43",
+          "code": "REQUIRED_PROPERTY_MISSING",
+          "entityId": "0d1cecc4-9d11-44a1-b659-768420a05399",
+          "message": "对象映射的必填属性缺失或不唯一"
+        }
+      ]
+    },
+    {
+      "name": "CODEBOOK映射引用阻删",
+      "status": "PASSED",
+      "code": "CODEBOOK_IN_USE"
+    },
+    {
+      "name": "非主键身份duplicate.csv",
+      "status": "PASSED",
+      "resultStatus": "FAILED",
+      "errorCode": "OBJECT_KEY_DUPLICATE",
+      "rowCount": 0
+    },
+    {
+      "name": "非主键身份budget.csv",
+      "status": "PASSED",
+      "resultStatus": "FAILED",
+      "errorCode": "OBJECT_KEY_CHECK_INCOMPLETE",
+      "rowCount": 0
+    },
+    {
+      "name": "非主键身份within-budget.csv",
+      "status": "PASSED",
+      "resultStatus": "SUCCEEDED",
+      "errorCode": null,
+      "rowCount": 1
+    },
+    {
+      "name": "C5-R05超过256条目DOCX拒绝",
+      "status": "PASSED",
+      "httpStatus": 400,
+      "code": "INVALID_ARGUMENT"
+    },
+    {
+      "name": "C5-R03业务LIMIT=1均拒绝同一基数冲突",
+      "status": "PASSED",
+      "errorCode": "CARDINALITY_VIOLATION"
+    },
+    {
+      "name": "C5-R03业务LIMIT=20均拒绝同一基数冲突",
+      "status": "PASSED",
+      "errorCode": "CARDINALITY_VIOLATION"
+    },
+    {
+      "name": "合法基数仍返回一行且只保留双端两条来源证据",
+      "status": "PASSED"
+    },
+    {
+      "name": "C5-R04目标端影响目录均定位操作且引用阻删409",
+      "status": "PASSED",
+      "code": "MAPPING_IN_USE",
+      "operations": [
+        {
+          "id": "a1203322-55fc-4035-988e-213bf6a84bfd",
+          "code": "cardinality_probe",
+          "name": "基数复审"
+        }
+      ]
+    }
+  ],
+  "spaceIds": [
+    "b74e151a-d971-43b2-9cb6-8049e428aefa",
+    "af2e2981-6703-4ecb-80e4-95178c1a7da6"
+  ]
+}

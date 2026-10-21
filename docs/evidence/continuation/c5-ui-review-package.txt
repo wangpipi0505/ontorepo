@@ -1,0 +1,3750 @@
+
+--- FILE: web/apps/onto-admin/src/features/p3\useMetadataSelection.ts ---
+import { watch } from 'vue'
+import type { MetadataSnapshot, MetadataSummary } from '@onto/api-client'
+import { useSession } from '../../stores/session'
+import { useWorkspace } from '../../stores/workspace'
+import { useResource } from '../../composables/useResource'
+
+/** 切源立即撤销旧快照请求；相同快照 ID 也必须同时归属于所选源和空间。 */
+export function useMetadataSelection(sourceId: () => string, snapshotId: () => string) {
+  const api = useSession().api,
+    workspace = useWorkspace()
+  const summaries = useResource<MetadataSummary[]>([]),
+    snapshot = useResource<MetadataSnapshot | null>(null)
+  async function loadSummaries() {
+    const source = sourceId(),
+      spaceId = workspace.space?.id
+    if (source && spaceId)
+      await summaries.load(() =>
+        api.get<MetadataSummary[]>(`/datasources/${source}/snapshots?spaceId=${spaceId}`),
+      )
+  }
+  async function loadSnapshot() {
+    const source = sourceId(),
+      id = snapshotId(),
+      spaceId = workspace.space?.id
+    if (source && id && spaceId)
+      await snapshot.load(() =>
+        api.get<MetadataSnapshot>(`/datasources/${source}/snapshots/${id}?spaceId=${spaceId}`),
+      )
+  }
+  watch(
+    sourceId,
+    () => {
+      summaries.reset()
+      snapshot.reset()
+      void loadSummaries()
+    },
+    { immediate: true },
+  )
+  watch(
+    [sourceId, snapshotId],
+    () => {
+      snapshot.reset()
+      void loadSnapshot()
+    },
+    { immediate: true },
+  )
+  return { summaries, snapshot, loadSummaries, loadSnapshot }
+}
+
+
+--- FILE: web/apps/onto-admin/src/features/p3\SuggestionsView.vue ---
+<script setup lang="ts">
+/** 预览写入候选批次，人工确认才写模型；两步都使用读取时的空间修订。 */
+import { computed, onMounted, ref } from 'vue'
+import type {
+  Datasource,
+  ExtractionRequest,
+  ManagedFile,
+  OntClass,
+  Space,
+  Suggestion,
+  SuggestionDecision,
+} from '@onto/api-client'
+import { useSession } from '../../stores/session'
+import { useDraftDocument } from '../p2/useDraftDocument'
+import AsyncState from '@onto/shared-ui/AsyncState.vue'
+import ExtractionForm from './ExtractionForm.vue'
+import SuggestionReview from './SuggestionReview.vue'
+const api = useSession().api,
+  batchId = ref(''),
+  batchInput = ref('')
+const editor = useDraftDocument(async (id) => {
+  const [suggestions, sources, files, classes] = await Promise.all([
+    api.get<Suggestion[]>(
+      `/suggestions?spaceId=${id}${batchId.value ? `&batchId=${encodeURIComponent(batchId.value)}` : ''}`,
+    ),
+    api.get<Datasource[]>(`/datasources?spaceId=${id}`),
+    api.get<ManagedFile[]>(`/data-files?spaceId=${id}`),
+    api.get<OntClass[]>(`/classes?spaceId=${id}`),
+  ])
+  return { suggestions, sources, files, classes }
+})
+const data = computed(() => editor.resource.data.value?.items)
+async function load() {
+  if (!editor.mutation.pending.value) {
+    batchId.value = batchInput.value.trim()
+    await editor.load()
+  }
+}
+async function extract(value: ExtractionRequest) {
+  const spaceId = editor.workspace.space?.id
+  if (!spaceId) return
+  let result: { space: Space; batchId: string; count: number } | undefined
+  if (
+    await editor.save(async (expectedDraftRev) => {
+      result = await api.post<{ space: Space; batchId: string; count: number }>(
+        '/suggestions/extract',
+        { ...value, spaceId, expectedDraftRev },
+      )
+      return result.space
+    })
+  ) {
+    if (result) batchInput.value = batchId.value = result.batchId
+    await editor.load()
+  }
+}
+async function decide(decisions: SuggestionDecision[]) {
+  const spaceId = editor.workspace.space?.id
+  if (!spaceId) return
+  if (
+    await editor.save((expectedDraftRev) =>
+      api.post<Space>('/suggestions/decide', { spaceId, expectedDraftRev, decisions }),
+    )
+  )
+    await editor.load()
+}
+onMounted(load)
+</script>
+<template>
+  <div class="page-heading">
+    <div>
+      <h1>三来源建模抽取</h1>
+      <p class="muted">表结构、结构文件与文档的规则抽取、真实证据与人工确认。</p>
+    </div>
+    <el-button :disabled="editor.mutation.pending.value" @click="load">刷新候选</el-button>
+  </div>
+  <div class="stack">
+    <p v-if="editor.mutation.error.value" class="error-text" role="alert">
+      {{ editor.mutation.error.value }}
+    </p>
+    <AsyncState
+      :loading="editor.resource.loading.value"
+      :error="editor.resource.error.value"
+      @retry="load"
+    >
+      <template v-if="data">
+        <section class="panel">
+          <h2>选择来源并预览</h2>
+          <ExtractionForm
+            :sources="data.sources"
+            :files="data.files"
+            :can-write="editor.workspace.canWrite"
+            :pending="editor.mutation.pending.value"
+            :stale="editor.draft.stale.value"
+            @extract="extract"
+          />
+        </section>
+        <section class="panel stack">
+          <h2>人工审阅与批量确认</h2>
+          <el-form label-position="top" @submit.prevent="load">
+            <el-form-item label="批次筛选（留空读取全部）">
+              <el-input v-model="batchInput" :disabled="editor.mutation.pending.value" />
+            </el-form-item>
+            <el-button native-type="submit" :disabled="editor.mutation.pending.value">
+              读取批次
+            </el-button>
+          </el-form>
+          <SuggestionReview
+            :key="`${batchId}-${editor.resource.data.value?.space.draftRev}`"
+            :items="data.suggestions"
+            :classes="data.classes"
+            :can-write="editor.workspace.canWrite"
+            :pending="editor.mutation.pending.value"
+            :stale="editor.draft.stale.value"
+            :error="editor.mutation.error.value"
+            @decide="decide"
+          />
+        </section>
+      </template>
+    </AsyncState>
+  </div>
+</template>
+
+
+--- FILE: web/apps/onto-admin/src/features/p3\SuggestionReview.vue ---
+<script setup lang="ts">
+/** 默认既不勾选也不确认；显式接受/拒绝后才提交原子批次，409 保留已编辑载荷。 */
+import { computed, reactive, ref } from 'vue'
+import type { OntClass, Suggestion, SuggestionDecision } from '@onto/api-client'
+import SuggestionPayloadFields from './SuggestionPayloadFields.vue'
+import SourceEvidence from './SourceEvidence.vue'
+const props = defineProps<{
+  items: Suggestion[]
+  classes?: OntClass[]
+  canWrite: boolean
+  pending: boolean
+  stale: boolean
+  error?: string
+}>()
+const emit = defineEmits<{ decide: [value: SuggestionDecision[]] }>()
+const rows = reactive(
+  props.items.map((item) => ({
+    ...item,
+    payload: { ...item.payload },
+    checked: false,
+    decision: '' as '' | 'ACCEPT' | 'REJECT',
+  })),
+)
+const error = ref(''),
+  disabled = computed(() => !props.canWrite || props.pending || props.stale)
+const labels = { CLASS: '类', PROPERTY: '属性', RELATION: '关系' }
+function bulk(decision: 'ACCEPT' | 'REJECT') {
+  if (disabled.value) return
+  for (const row of rows) if (row.checked && row.status === 'PENDING') row.decision = decision
+}
+function submit() {
+  error.value = ''
+  if (disabled.value) return
+  const chosen = rows.filter((item) => item.status === 'PENDING' && item.decision)
+  if (!chosen.length) {
+    error.value = '请先选择候选的接受或拒绝决定。'
+    return
+  }
+  if (
+    chosen.some(
+      (item) =>
+        item.decision === 'ACCEPT' &&
+        (typeof item.payload.name !== 'string' || !item.payload.name.trim()),
+    )
+  ) {
+    error.value = '接受候选必须填写名称。'
+    return
+  }
+  emit(
+    'decide',
+    chosen.map((item) =>
+      item.decision === 'ACCEPT'
+        ? { id: item.id, decision: 'ACCEPT', payload: { ...item.payload } }
+        : { id: item.id, decision: 'REJECT' },
+    ),
+  )
+}
+</script>
+<template>
+  <el-form label-position="top" data-editor="suggestion-review" @submit.prevent="submit">
+    <div class="row">
+      <el-button :disabled="disabled" @click="bulk('ACCEPT')">将勾选项设为接受</el-button>
+      <el-button :disabled="disabled" @click="bulk('REJECT')">将勾选项设为拒绝</el-button>
+    </div>
+    <p class="muted">
+      confidence
+      是规则证据评分，表示字段类型、命名或句式命中强度，并非模型概率。请结合下方真实来源定位审阅；同批依赖类需同时或已经接受。
+    </p>
+    <div class="stack">
+      <article v-for="row in rows" :key="row.id" class="panel stack">
+        <div class="row spread">
+          <el-checkbox v-model="row.checked" :disabled="disabled || row.status !== 'PENDING'">
+            {{ labels[row.kind] }} · {{ row.id }}
+          </el-checkbox>
+          <span class="pill">
+            {{ row.sourceKind }} · {{ row.status }} · 规则评分 {{ row.confidence }}
+          </span>
+        </div>
+        <p class="muted">批次 {{ row.batchId }}</p>
+        <SourceEvidence :location="row.location" />
+        <SuggestionPayloadFields
+          v-model="row.payload"
+          :kind="row.kind"
+          :classes="classes ?? []"
+          :suggestions="items"
+          :batch-id="row.batchId"
+          :suggestion-id="row.id"
+          :disabled="disabled || row.status !== 'PENDING'"
+        />
+        <el-form-item v-if="row.status === 'PENDING'" label="人工决定">
+          <el-select v-model="row.decision" :disabled="disabled">
+            <el-option value="" label="暂不决定" />
+            <el-option value="ACCEPT" label="接受（写入模型）" />
+            <el-option value="REJECT" label="拒绝（保留审计）" />
+          </el-select>
+        </el-form-item>
+      </article>
+    </div>
+    <p v-if="!rows.length" class="muted">暂无候选。先选择真实来源生成预览。</p>
+    <p v-if="error || props.error" class="error-text" role="alert">{{ error || props.error }}</p>
+    <p v-if="stale" class="readonly-note">当前批次修订已过期，编辑内容保留。请刷新后重新审阅。</p>
+    <el-button
+      type="primary"
+      native-type="submit"
+      :disabled="disabled || !rows.some((row) => row.status === 'PENDING')"
+    >
+      提交人工批量决定
+    </el-button>
+  </el-form>
+</template>
+
+
+--- FILE: web/apps/onto-admin/src/features/p3\SuggestionPayloadFields.vue ---
+<script setup lang="ts">
+/** 名称、类型与关联以基本字段维护；候选关联 ID 与实体 ID 互斥提交。 */
+import { computed } from 'vue'
+import type { JsonObject, OntClass, Suggestion } from '@onto/api-client'
+const props = defineProps<{
+  kind: Suggestion['kind']
+  classes: OntClass[]
+  suggestions: Suggestion[]
+  batchId: string
+  suggestionId: string
+  disabled: boolean
+}>()
+const payload = defineModel<JsonObject>({ required: true })
+const classCandidates = computed(() =>
+  props.suggestions.filter(
+    (item) =>
+      item.kind === 'CLASS' &&
+      item.id !== props.suggestionId &&
+      item.batchId === props.batchId &&
+      item.status !== 'REJECTED',
+  ),
+)
+function text(key: string) {
+  const value = payload.value[key]
+  return typeof value === 'string' ? value : ''
+}
+function set(key: string, value: unknown) {
+  payload.value = { ...payload.value, [key]: value }
+}
+function reference(entity: string, candidate: string) {
+  return text(entity)
+    ? `entity:${text(entity)}`
+    : text(candidate)
+      ? `suggestion:${text(candidate)}`
+      : ''
+}
+function setReference(entity: string, candidate: string, value: string) {
+  const next = { ...payload.value }
+  delete next[entity]
+  delete next[candidate]
+  if (value.startsWith('entity:')) next[entity] = value.slice(7)
+  else if (value.startsWith('suggestion:')) next[candidate] = value.slice(11)
+  else if (entity === 'parentId') next.parentId = null
+  payload.value = next
+}
+const associations = computed(() =>
+  props.kind === 'CLASS'
+    ? [{ label: '父类（可选）', entity: 'parentId', candidate: 'parentSuggestionId' }]
+    : props.kind === 'PROPERTY'
+      ? [{ label: '所属类', entity: 'domainClassId', candidate: 'domainSuggestionId' }]
+      : [
+          { label: '起点类', entity: 'fromClassId', candidate: 'fromSuggestionId' },
+          { label: '终点类', entity: 'toClassId', candidate: 'toSuggestionId' },
+        ],
+)
+</script>
+<template>
+  <div class="stack">
+    <el-form-item label="候选名称">
+      <el-input
+        :model-value="text('name')"
+        :disabled="disabled"
+        @update:model-value="set('name', $event)"
+      />
+    </el-form-item>
+    <el-form-item v-if="kind !== 'RELATION'" label="描述">
+      <el-input
+        :model-value="text('description')"
+        :disabled="disabled"
+        type="textarea"
+        @update:model-value="set('description', $event)"
+      />
+    </el-form-item>
+    <el-form-item v-for="item in associations" :key="item.entity" :label="item.label">
+      <el-select
+        :model-value="reference(item.entity, item.candidate)"
+        :disabled="disabled"
+        clearable
+        @update:model-value="setReference(item.entity, item.candidate, String($event))"
+      >
+        <el-option
+          v-for="entity in classes"
+          :key="entity.id"
+          :value="`entity:${entity.id}`"
+          :label="`已有类：${entity.name}`"
+        />
+        <el-option
+          v-for="candidate in classCandidates"
+          :key="candidate.id"
+          :value="`suggestion:${candidate.id}`"
+          :label="`同批候选：${String(candidate.payload.name ?? candidate.id)}`"
+        />
+      </el-select>
+    </el-form-item>
+    <template v-if="kind === 'PROPERTY'">
+      <el-form-item label="值类型">
+        <el-select
+          :model-value="text('rangeType')"
+          :disabled="disabled"
+          @update:model-value="set('rangeType', $event)"
+        >
+          <el-option
+            v-for="item in ['STRING', 'INTEGER', 'DECIMAL', 'BOOLEAN', 'DATE']"
+            :key="item"
+            :value="item"
+            :label="item"
+          />
+        </el-select>
+      </el-form-item>
+      <el-checkbox
+        :model-value="payload.required === true"
+        :disabled="disabled"
+        @update:model-value="set('required', $event)"
+      >
+        必填属性
+      </el-checkbox>
+    </template>
+    <template v-if="kind === 'RELATION'">
+      <el-form-item label="关系基数">
+        <el-select
+          :model-value="text('cardinality')"
+          :disabled="disabled"
+          @update:model-value="set('cardinality', $event)"
+        >
+          <el-option
+            v-for="item in ['ONE_TO_ONE', 'ONE_TO_MANY', 'MANY_TO_MANY']"
+            :key="item"
+            :value="item"
+            :label="item"
+          />
+        </el-select>
+      </el-form-item>
+      <div class="row">
+        <el-checkbox
+          :model-value="payload.transitive === true"
+          :disabled="disabled"
+          @update:model-value="set('transitive', $event)"
+        >
+          传递关系
+        </el-checkbox>
+        <el-checkbox
+          :model-value="payload.symmetric === true"
+          :disabled="disabled"
+          @update:model-value="set('symmetric', $event)"
+        >
+          对称关系（超 EL）
+        </el-checkbox>
+      </div>
+    </template>
+  </div>
+</template>
+
+
+--- FILE: web/apps/onto-admin/src/features/p3\SourcesView.vue ---
+<script setup lang="ts">
+/** 数据源目录负责权限与请求编排；配置、上传、探测和不可变元数据各有独立组件。 */
+import { computed, onMounted, ref, shallowRef, watch } from 'vue'
+import type {
+  Datasource,
+  ManagedFile,
+  MetadataDiff,
+  MetadataSnapshot,
+  MetadataSummary,
+  SourceCapability,
+  SourceProbe,
+  SourceSync,
+  SourceWrite,
+  Space,
+} from '@onto/api-client'
+import { useDraftDocument } from '../p2/useDraftDocument'
+import { useSession } from '../../stores/session'
+import { useResource } from '../../composables/useResource'
+import { useMutation, confirmAction } from '../../composables/useMutation'
+import AsyncState from '@onto/shared-ui/AsyncState.vue'
+import SourceForm from './SourceForm.vue'
+import ManagedUpload from './ManagedUpload.vue'
+import MetadataPanel from './MetadataPanel.vue'
+import { sourceLabels } from './sourceFields'
+const api = useSession().api
+const editor = useDraftDocument(async (id) => {
+  const [sources, files, capabilities] = await Promise.all([
+    api.get<Datasource[]>(`/datasources?spaceId=${id}`),
+    api.get<ManagedFile[]>(`/data-files?spaceId=${id}`),
+    api.get<SourceCapability[]>(`/datasources/capabilities?spaceId=${id}`),
+  ])
+  return { sources, files, capabilities }
+})
+const selected = ref(''),
+  snapshotId = ref(''),
+  open = ref(false),
+  editing = shallowRef<Datasource | null>(null)
+const snapshots = useResource<MetadataSummary[]>([]),
+  metadata = useResource<MetadataSnapshot | null>(null),
+  probe = useResource<SourceProbe | null>(null)
+const diff = shallowRef<MetadataDiff | null>(null),
+  probeMutation = useMutation()
+const data = computed(() => editor.resource.data.value?.items)
+const owner = computed(() => editor.workspace.space?.role === 'OWNER' && editor.workspace.canWrite)
+const busy = computed(() => editor.mutation.pending.value || probeMutation.pending.value)
+const source = computed(() => data.value?.sources.find((item) => item.id === selected.value))
+async function load() {
+  if (open.value || busy.value) return
+  await editor.load()
+}
+async function loadSnapshots() {
+  const id = selected.value,
+    spaceId = editor.workspace.space?.id
+  if (!id || !spaceId) return
+  await snapshots.load(() =>
+    editor.api.get<MetadataSummary[]>(`/datasources/${id}/snapshots?spaceId=${spaceId}`),
+  )
+}
+async function loadSnapshot() {
+  const id = selected.value,
+    key = snapshotId.value,
+    spaceId = editor.workspace.space?.id
+  if (!id || !key || !spaceId) return
+  await metadata.load(() =>
+    editor.api.get<MetadataSnapshot>(`/datasources/${id}/snapshots/${key}?spaceId=${spaceId}`),
+  )
+}
+watch(selected, () => {
+  snapshots.reset()
+  metadata.reset()
+  probe.reset()
+  diff.value = null
+  snapshotId.value = ''
+  void loadSnapshots()
+})
+watch(snapshotId, () => {
+  metadata.reset()
+  if (snapshotId.value) void loadSnapshot()
+})
+function edit(item: Datasource | null) {
+  if (!owner.value || !editor.resource.data.value) return
+  editing.value = item
+  open.value = true
+  editor.mutation.error.value = ''
+}
+async function save(value: SourceWrite) {
+  const spaceId = editor.workspace.space?.id,
+    id = editing.value?.id
+  if (!spaceId || !owner.value) return
+  if (
+    await editor.save((expectedDraftRev) =>
+      id
+        ? editor.api.put<Space>(`/datasources/${id}`, { ...value, spaceId, expectedDraftRev })
+        : editor.api.post<Space>('/datasources', { ...value, spaceId, expectedDraftRev }),
+    )
+  ) {
+    open.value = false
+    await editor.load()
+  }
+}
+async function remove(item: Datasource) {
+  const context = editor.workspace.captureContext(),
+    spaceId = editor.workspace.space?.id,
+    revision = editor.resource.data.value?.space.draftRev
+  if (!owner.value || !spaceId || revision === undefined) return
+  if (!(await confirmAction(`删除“${item.name}”？被映射引用时服务端会拒绝并给出影响对象。`))) return
+  if (!editor.workspace.isCurrentContext(context)) return
+  if (
+    await editor.save(() =>
+      editor.api.delete<Space>(
+        `/datasources/${item.id}?spaceId=${spaceId}&expectedDraftRev=${revision}`,
+      ),
+    )
+  ) {
+    if (selected.value === item.id) selected.value = ''
+    await editor.load()
+  }
+}
+async function test() {
+  const id = selected.value,
+    spaceId = editor.workspace.space?.id
+  if (!id || !spaceId || !owner.value) return
+  await probeMutation.run(async ({ isCurrent }) => {
+    // 源选择在探测期间锁定；useResource 在切源/卸载时同时撤销迟到结果。
+    const result = await probe.load(() =>
+      editor.api.post<SourceProbe>(`/datasources/${id}/probe`, { spaceId }),
+    )
+    if (!isCurrent() || !result) return
+  })
+}
+async function sync() {
+  const id = selected.value,
+    spaceId = editor.workspace.space?.id
+  if (!id || !spaceId || !owner.value) return
+  let result: SourceSync | undefined
+  if (
+    await editor.save(async (expectedDraftRev) => {
+      result = await editor.api.post<SourceSync>(`/datasources/${id}/sync`, {
+        spaceId,
+        expectedDraftRev,
+      })
+      return result.space
+    })
+  ) {
+    if (result) {
+      diff.value = result.diff
+      metadata.data.value = result.snapshot
+    }
+    await editor.load()
+    await loadSnapshots()
+  }
+}
+async function upload(file: File) {
+  const spaceId = editor.workspace.space?.id
+  if (!spaceId || !owner.value || open.value) return
+  if (
+    await editor.save(async (expectedDraftRev) => {
+      const body = new FormData()
+      body.append('file', file)
+      return (
+        await editor.api.post<{ space: Space; file: ManagedFile }>(
+          `/data-files?spaceId=${spaceId}&expectedDraftRev=${expectedDraftRev}`,
+          body,
+        )
+      ).space
+    })
+  )
+    await editor.load()
+}
+onMounted(load)
+</script>
+<template>
+  <div class="page-heading">
+    <div>
+      <h1>数据源管理</h1>
+      <p class="muted">空间内安全配置、连接探测、元数据快照与受管文件。</p>
+    </div>
+    <div class="row">
+      <el-button :disabled="open || busy" @click="load">刷新目录</el-button>
+      <el-button v-if="owner" type="primary" :disabled="!data || busy" @click="edit(null)">
+        新增数据源
+      </el-button>
+    </div>
+  </div>
+  <div class="stack">
+    <p v-if="editor.mutation.error.value" class="error-text" role="alert">
+      {{ editor.mutation.error.value }}
+    </p>
+    <AsyncState
+      :loading="editor.resource.loading.value"
+      :error="editor.resource.error.value"
+      @retry="load"
+    >
+      <template v-if="data">
+        <section class="panel">
+          <el-table :data="data.sources" empty-text="尚无数据源">
+            <el-table-column prop="name" label="名称" />
+            <el-table-column prop="code" label="编码" />
+            <el-table-column label="类别">
+              <template #default="{ row }">
+                {{ sourceLabels[row.kind as keyof typeof sourceLabels] }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="dialect" label="协议" />
+            <el-table-column prop="status" label="状态" />
+            <el-table-column prop="lastTestAt" label="上次探测" />
+            <el-table-column label="操作" min-width="200">
+              <template #default="{ row }">
+                <el-button text :disabled="busy || open" @click="selected = row.id">
+                  元数据
+                </el-button>
+                <el-button v-if="owner" text :disabled="busy || open" @click="edit(row)">
+                  编辑
+                </el-button>
+                <el-button
+                  v-if="owner"
+                  text
+                  type="danger"
+                  :disabled="busy || open"
+                  @click="remove(row)"
+                >
+                  删除
+                </el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </section>
+        <section v-if="open" class="panel">
+          <h2>{{ editing ? '编辑数据源' : '新增数据源' }}</h2>
+          <SourceForm
+            :value="editing"
+            :files="data.files"
+            :can-write="owner"
+            :pending="busy"
+            :stale="editor.draft.stale.value"
+            :error="editor.mutation.error.value"
+            @save="save"
+            @cancel="open = false"
+          />
+        </section>
+        <section v-if="source" class="panel stack">
+          <h2>{{ source.name }} · 元数据</h2>
+          <p class="muted">访问范围：{{ source.accessScope.join('、') }}</p>
+          <div class="row">
+            <el-button v-if="owner" :disabled="busy || open" @click="test">
+              连接三阶段测试
+            </el-button>
+            <el-button v-if="owner" :disabled="busy || open" @click="sync">同步元数据</el-button>
+          </div>
+          <AsyncState
+            :loading="snapshots.loading.value"
+            :error="snapshots.error.value"
+            @retry="loadSnapshots"
+          >
+            <el-form label-position="top">
+              <el-form-item label="不可变元数据快照">
+                <el-select v-model="snapshotId" :disabled="busy || open" placeholder="选择历史快照">
+                  <el-option
+                    v-for="item in snapshots.data.value"
+                    :key="item.id"
+                    :value="item.id"
+                    :label="`${item.capturedAt} · ${item.sha256}`"
+                  />
+                </el-select>
+              </el-form-item>
+            </el-form>
+            <p v-if="!snapshots.data.value.length" class="muted">尚无快照，请 OWNER 同步元数据。</p>
+          </AsyncState>
+        </section>
+        <AsyncState :loading="probe.loading.value" :error="probe.error.value" @retry="test">
+          <MetadataPanel :snapshot="null" :diff="null" :probe="probe.data.value" />
+        </AsyncState>
+        <AsyncState
+          :loading="metadata.loading.value"
+          :error="metadata.error.value"
+          @retry="loadSnapshot"
+        >
+          <MetadataPanel :snapshot="metadata.data.value" :diff="diff" :probe="null" />
+        </AsyncState>
+        <ManagedUpload
+          :can-write="owner && !open"
+          :pending="busy"
+          :stale="editor.draft.stale.value"
+          :files="data.files"
+          @upload="upload"
+        />
+        <section class="panel">
+          <h2>协议能力与验收状态</h2>
+          <p class="muted">
+            “已实现”表示代码能力；本地验收证据与当前源连通性分别展示，不能据此认定外部实例已连接。
+          </p>
+          <div
+            v-for="item in data.capabilities"
+            :key="`${item.kind}-${item.dialect}`"
+            class="stack capability"
+          >
+            <h3>{{ sourceLabels[item.kind] }} / {{ item.dialect }}</h3>
+            <div class="row">
+              <span class="pill">{{ item.implemented ? '已实现' : '未实现' }}</span>
+              <span class="pill">
+                {{ item.verifiedLocally ? '本地真实实例已验收' : '真实实例待外部验收' }}
+              </span>
+            </div>
+            <p>{{ item.verificationNote }}</p>
+            <p class="muted">
+              查询：{{ item.capabilities.join('、') }}
+              <br />
+              限制：{{ item.limits.join('；') }}
+            </p>
+          </div>
+        </section>
+      </template>
+    </AsyncState>
+  </div>
+</template>
+<style scoped>
+.capability {
+  padding: 18px 0;
+  border-top: 1px solid var(--line);
+  gap: 8px;
+}
+.capability p,
+.capability h3 {
+  margin-bottom: 0;
+}
+</style>
+
+
+--- FILE: web/apps/onto-admin/src/features/p3\SourceForm.vue ---
+<script setup lang="ts">
+/** OWNER 专用配置表单：读取 DTO 不含凭据；null 明确保留已有连接。 */
+import { computed, reactive, ref, watch } from 'vue'
+import type { Datasource, ManagedFile, SourceKind, SourceWrite } from '@onto/api-client'
+import { connectionFields, dialects, lines, objectJson, sourceLabels } from './sourceFields'
+const props = defineProps<{
+  value: Datasource | null
+  files?: ManagedFile[]
+  canWrite: boolean
+  pending: boolean
+  stale: boolean
+  error?: string
+}>()
+const emit = defineEmits<{ save: [value: SourceWrite]; cancel: [] }>()
+const fields = reactive({
+  code: '',
+  name: '',
+  kind: 'RELATIONAL' as SourceKind,
+  scope: '',
+  dialect: 'postgresql',
+  endpoints: '',
+  headers: '',
+})
+const connection = reactive<Record<string, string>>({}),
+  replace = ref(false),
+  localError = ref('')
+watch(
+  () => props.value,
+  (value) => {
+    Object.assign(fields, {
+      code: value?.code ?? '',
+      name: value?.name ?? '',
+      kind: value?.kind ?? 'RELATIONAL',
+      scope: value?.accessScope.join('\n') ?? '',
+      dialect: value?.dialect || 'postgresql',
+      endpoints: '',
+      headers: '',
+    })
+    for (const key of Object.keys(connection)) delete connection[key]
+    replace.value = !value
+    localError.value = ''
+  },
+  { immediate: true },
+)
+watch(
+  () => fields.kind,
+  (kind) => {
+    fields.dialect = dialects[kind]?.[0] ?? ''
+  },
+)
+watch(
+  () => connection.fileId,
+  (id) => {
+    const file = props.files?.find((item) => item.id === id)
+    if (file) {
+      fields.scope = file.resource
+      fields.dialect = /\.xlsx$/i.test(file.name)
+        ? 'excel'
+        : /\.json$/i.test(file.name)
+          ? 'json'
+          : 'csv'
+    }
+  },
+)
+const disabled = computed(() => !props.canWrite || props.pending || props.stale)
+function save() {
+  localError.value = ''
+  if (disabled.value) return
+  try {
+    if (!fields.code.trim() || !fields.name.trim() || !lines(fields.scope).length)
+      throw new Error('编码、名称与访问范围必填。')
+    let config: Record<string, unknown> | null = null
+    if (replace.value) {
+      config = { dialect: fields.dialect }
+      for (const field of connectionFields[fields.kind]) {
+        // 凭据是精确字节语义，密码首尾空格不能被表单擅自规范化。
+        const raw = connection[field.key] ?? ''
+        const value = field.secret ? raw : raw.trim()
+        if (field.required && !value.trim()) throw new Error(`${field.label}必填。`)
+        if (value)
+          config[field.key] =
+            field.key === 'contactPoints'
+              ? lines(value)
+              : field.key === 'port' || (fields.kind === 'KEY_VALUE' && field.key === 'database')
+                ? Number(value)
+                : value
+      }
+      if (fields.kind === 'FILE') {
+        const file = props.files?.find((item) => item.id === connection.fileId)
+        const scope = lines(fields.scope)
+        if (!file || scope.length !== 1 || scope[0] !== file.resource)
+          throw new Error('受管文件访问范围必须精确匹配所选文件的服务端资源名。')
+      }
+      if (fields.kind === 'HTTP') {
+        config.endpoints = lines(fields.endpoints)
+        const headers = objectJson(fields.headers, '请求头')
+        if (headers) config.headers = headers
+      }
+    }
+    emit('save', {
+      code: fields.code.trim(),
+      name: fields.name.trim(),
+      kind: fields.kind,
+      connection: config,
+      accessScope: lines(fields.scope),
+    })
+  } catch (cause) {
+    localError.value = cause instanceof Error ? cause.message : '请检查源配置。'
+  }
+}
+</script>
+<template>
+  <el-form label-position="top" data-editor="source" @submit.prevent="save">
+    <div class="form-columns">
+      <el-form-item label="源编码">
+        <el-input v-model="fields.code" :disabled="disabled" />
+      </el-form-item>
+      <el-form-item label="源名称">
+        <el-input v-model="fields.name" :disabled="disabled" />
+      </el-form-item>
+    </div>
+    <el-form-item label="源类别">
+      <el-select v-model="fields.kind" :disabled="disabled || !!value">
+        <el-option v-for="(label, kind) in sourceLabels" :key="kind" :label="label" :value="kind" />
+      </el-select>
+    </el-form-item>
+    <el-form-item label="访问范围（资源名，每行一个）">
+      <el-input v-model="fields.scope" type="textarea" :disabled="disabled" :rows="3" />
+    </el-form-item>
+    <el-checkbox v-if="value" v-model="replace" :disabled="disabled">
+      明确修改连接配置（整体替换，需重新输入凭据）
+    </el-checkbox>
+    <p class="muted">
+      旧凭据不会回显。未勾选修改时保留服务端加密连接。访问范围同时约束元数据与实际查询。
+    </p>
+    <template v-if="replace">
+      <el-form-item label="协议 / 方言">
+        <el-select v-model="fields.dialect" :disabled="disabled">
+          <el-option
+            v-for="item in dialects[fields.kind]"
+            :key="item"
+            :value="item"
+            :label="item"
+          />
+        </el-select>
+      </el-form-item>
+      <el-form-item
+        v-for="item in connectionFields[fields.kind]"
+        :key="item.key"
+        :label="item.label"
+      >
+        <el-select v-if="item.key === 'fileId'" v-model="connection.fileId" :disabled="disabled">
+          <el-option
+            v-for="file in files?.filter((file) => /\.(csv|json|xlsx)$/i.test(file.name))"
+            :key="file.id"
+            :value="file.id"
+            :label="`${file.name} (${file.resource})`"
+          />
+        </el-select>
+        <el-input
+          v-else
+          v-model="connection[item.key]"
+          :type="item.secret ? 'password' : 'text'"
+          :show-password="item.secret"
+          autocomplete="new-password"
+          :disabled="disabled"
+        />
+      </el-form-item>
+      <p v-if="fields.kind === 'FILE'" class="muted">
+        先上传受管 CSV / JSON / XLSX，再复制返回的文件 ID；不能输入本地绝对路径。PDF / DOCX / TXT
+        仅用于建模抽取。
+      </p>
+      <template v-if="fields.kind === 'HTTP'">
+        <el-form-item label="允许接口路径（每行一个）">
+          <el-input v-model="fields.endpoints" type="textarea" :disabled="disabled" />
+        </el-form-item>
+        <el-form-item label="可选请求头（JSON 对象，可能含凭据）">
+          <el-input
+            v-model="fields.headers"
+            type="password"
+            show-password
+            :disabled="disabled"
+            autocomplete="new-password"
+          />
+        </el-form-item>
+      </template>
+    </template>
+    <p v-if="localError || error" class="error-text" role="alert">{{ localError || error }}</p>
+    <p v-if="stale" class="readonly-note">此表单修订已过期。输入仍保留，请关闭并刷新后重新编辑。</p>
+    <div class="row">
+      <el-button type="primary" native-type="submit" :disabled="disabled">保存数据源</el-button>
+      <el-button :disabled="pending" @click="emit('cancel')">关闭表单</el-button>
+    </div>
+  </el-form>
+</template>
+
+
+--- FILE: web/apps/onto-admin/src/features/p3\sourceFields.ts ---
+import type { SourceKind } from '@onto/api-client'
+
+export const sourceLabels: Record<SourceKind, string> = {
+  RELATIONAL: '关系数据库',
+  WAREHOUSE: '数据仓库',
+  LAKE: '数据湖 / Parquet',
+  FILE: '受管结构文件',
+  HTTP: 'HTTP 接口',
+  DOCUMENT: '文档数据库',
+  KEY_VALUE: '键值数据库',
+  WIDE_COLUMN: '宽列数据库',
+  GRAPH: '图数据库',
+}
+interface ConnectionField {
+  key: string
+  label: string
+  secret?: boolean
+  required?: boolean
+}
+/** 源配置从不读取旧连接；这些字段只用于创建或显式整体替换加密配置。 */
+export const connectionFields: Record<SourceKind, ConnectionField[]> = {
+  RELATIONAL: [
+    { key: 'url', label: 'JDBC 地址', secret: true, required: true },
+    { key: 'user', label: '用户名', required: true },
+    { key: 'password', label: '密码', secret: true },
+  ],
+  WAREHOUSE: [
+    { key: 'url', label: 'JDBC 地址', secret: true, required: true },
+    { key: 'user', label: '用户名', required: true },
+    { key: 'password', label: '密码', secret: true },
+  ],
+  LAKE: [
+    { key: 'endpoint', label: 'S3 / MinIO 地址', required: true },
+    { key: 'bucket', label: '存储桶', required: true },
+    { key: 'accessKey', label: '访问密钥', secret: true, required: true },
+    { key: 'secretKey', label: '秘密密钥', secret: true, required: true },
+  ],
+  FILE: [{ key: 'fileId', label: '受管文件 ID', required: true }],
+  HTTP: [
+    { key: 'baseUrl', label: '接口根地址', required: true },
+    { key: 'pageParam', label: '分页参数名' },
+  ],
+  DOCUMENT: [
+    { key: 'uri', label: 'MongoDB 连接 URI', secret: true, required: true },
+    { key: 'database', label: '数据库', required: true },
+  ],
+  KEY_VALUE: [
+    { key: 'host', label: '主机', required: true },
+    { key: 'port', label: '端口', required: true },
+    { key: 'database', label: '数据库编号', required: true },
+    { key: 'password', label: '密码', secret: true },
+  ],
+  WIDE_COLUMN: [
+    { key: 'contactPoints', label: '联系节点（每行一个）', required: true },
+    { key: 'port', label: '端口', required: true },
+    { key: 'datacenter', label: '数据中心', required: true },
+    { key: 'keyspace', label: '键空间', required: true },
+    { key: 'user', label: '用户名' },
+    { key: 'password', label: '密码', secret: true },
+  ],
+  GRAPH: [
+    { key: 'uri', label: 'Neo4j 连接 URI', secret: true, required: true },
+    { key: 'database', label: '数据库', required: true },
+    { key: 'user', label: '用户名', required: true },
+    { key: 'password', label: '密码', secret: true },
+  ],
+}
+export const dialects: Partial<Record<SourceKind, string[]>> = {
+  RELATIONAL: ['postgresql'],
+  WAREHOUSE: ['clickhouse'],
+  LAKE: ['s3-parquet'],
+  FILE: ['csv', 'json', 'excel'],
+  HTTP: ['json'],
+  DOCUMENT: ['mongodb'],
+  KEY_VALUE: ['redis'],
+  WIDE_COLUMN: ['cassandra'],
+  GRAPH: ['neo4j'],
+}
+export function lines(text: string) {
+  return text
+    .split(/[\n,]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+export function objectJson(text: string, field: string): Record<string, unknown> | null {
+  if (!text.trim()) return null
+  const value: unknown = JSON.parse(text)
+  if (!value || Array.isArray(value) || typeof value !== 'object')
+    throw new Error(`${field}必须是 JSON 对象`)
+  return value as Record<string, unknown>
+}
+
+
+--- FILE: web/apps/onto-admin/src/features/p3\SourceEvidence.vue ---
+<script setup lang="ts">
+/** 来源证据只渲染服务端定位信息，不补造页码、摘录或概率。 */
+defineProps<{ location: Record<string, unknown> }>()
+function display(value: unknown) {
+  return typeof value === 'string' ? value : JSON.stringify(value)
+}
+</script>
+<template>
+  <dl class="details-grid">
+    <template v-for="(value, key) in location" :key="key">
+      <dt>{{ key }}</dt>
+      <dd>{{ display(value) }}</dd>
+    </template>
+  </dl>
+</template>
+
+
+--- FILE: web/apps/onto-admin/src/features/p3\p3.test.ts ---
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
+import { defineComponent, h, type Component } from 'vue'
+import { createPinia, setActivePinia } from 'pinia'
+import ElementPlus from 'element-plus'
+import { ApiClient } from '@onto/api-client'
+import { router } from '../../router'
+
+const modules = import.meta.glob<{ default: Component }>('./*.vue')
+const wrappers: VueWrapper[] = []
+// 与既有 P2 测试一致：仅隔离 jsdom 不支持的下拉浮层，保留真实业务表单。
+const select = defineComponent({
+  props: { modelValue: [String, Array], multiple: Boolean, disabled: Boolean },
+  emits: ['update:modelValue', 'change'],
+  setup(props, { emit, slots }) {
+    return () =>
+      h(
+        'select',
+        {
+          value: props.modelValue,
+          multiple: props.multiple,
+          disabled: props.disabled,
+          onChange: (event: Event) => {
+            const input = event.target as HTMLSelectElement
+            const value = props.multiple
+              ? Array.from(input.selectedOptions, (item) => item.value)
+              : input.value
+            emit('update:modelValue', value)
+            emit('change', value)
+          },
+        },
+        slots.default?.(),
+      )
+  },
+})
+const option = defineComponent({
+  props: { value: String, label: String },
+  setup: (props) => () => h('option', { value: props.value }, props.label),
+})
+beforeEach(() => setActivePinia(createPinia()))
+async function form(name: string, props: Record<string, unknown>) {
+  const load = modules[`./${name}.vue`]
+  expect(load, `${name} 应是独立组件`).toBeDefined()
+  const wrapper = mount((await load!()).default, {
+    props,
+    global: {
+      plugins: [ElementPlus],
+      stubs: { teleport: true, ElSelect: select, ElOption: option },
+    },
+  })
+  wrappers.push(wrapper)
+  await flushPromises()
+  return wrapper
+}
+afterEach(() => {
+  wrappers.splice(0).forEach((wrapper) => wrapper.unmount())
+  vi.restoreAllMocks()
+})
+describe('P3 数据管理关键反例', () => {
+  it('受管文件上传保留 FormData 和浏览器 multipart boundary', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(JSON.stringify({ code: 'OK', data: {} })))
+    const body = new FormData()
+    body.append('file', new File(['id,name\n1,a'], 'devices.csv'))
+    await new ApiClient(
+      () => 'token',
+      () => {},
+      fetcher,
+    ).post('/data-files?spaceId=s&expectedDraftRev=5', body)
+    const options = fetcher.mock.calls[0]![1]!
+    expect(options.body).toBe(body)
+    expect(new Headers(options.headers).has('Content-Type')).toBe(false)
+  })
+  it('五个数据工作台页面均有可直接访问路由', () => {
+    const paths = router.getRoutes().map((route) => route.path)
+    for (const path of ['datasources', 'mappings', 'data-query', 'suggestions', 'data-catalog'])
+      expect(paths).toContain(`/spaces/:spaceId/${path}`)
+  })
+  it('编辑源不回显凭据，未明确更改连接时提交 null', async () => {
+    const wrapper = await form('SourceForm', {
+      value: {
+        id: 'd',
+        code: 'devices',
+        name: '设备库',
+        kind: 'RELATIONAL',
+        accessScope: ['public.devices'],
+      },
+      canWrite: true,
+      pending: false,
+      stale: false,
+    })
+    expect(
+      wrapper
+        .findAll<HTMLInputElement>('input[type=password]')
+        .every((item) => item.element.value === ''),
+    ).toBe(true)
+    await wrapper.get('form').trigger('submit')
+    expect(wrapper.emitted('save')?.[0]?.[0]).toMatchObject({ connection: null, code: 'devices' })
+  })
+  it('新源缺连接配置时禁止写入并显示可恢复错误', async () => {
+    const wrapper = await form('SourceForm', {
+      value: null,
+      canWrite: true,
+      pending: false,
+      stale: false,
+    })
+    await wrapper.findAll('input')[0]!.setValue('devices')
+    await wrapper.findAll('input')[1]!.setValue('设备库')
+    await wrapper.get('textarea').setValue('public.devices')
+    await wrapper.get('form').trigger('submit')
+    expect(wrapper.emitted('save')).toBeUndefined()
+    expect(wrapper.text()).toContain('JDBC 地址必填')
+  })
+  it('候选默认不接受，拒绝不要求名称，来源摘录可见', async () => {
+    const wrapper = await form('SuggestionReview', {
+      items: [
+        {
+          id: 'q',
+          batchId: 'b',
+          sourceKind: 'DOCUMENT',
+          kind: 'CLASS',
+          payload: { name: '设备' },
+          confidence: 0.7,
+          location: { page: 1, excerpt: '设备用于测量。' },
+          status: 'PENDING',
+        },
+      ],
+      canWrite: true,
+      pending: false,
+      stale: false,
+    })
+    expect(wrapper.text()).toContain('设备用于测量。')
+    await wrapper.get('form').trigger('submit')
+    expect(wrapper.emitted('decide')).toBeUndefined()
+    expect(wrapper.text()).toContain('选择')
+  })
+  it('实例查询必须拒绝不属于当前对象映射的关系映射', async () => {
+    const wrapper = await form('DataQueryForm', {
+      value: {
+        mode: 'RELATION',
+        objectMappingId: 'o',
+        relationMappingId: 'foreign',
+        propertyIds: ['p'],
+        filters: [],
+      },
+      mappings: {
+        objects: [{ id: 'o', sourceResource: 'devices', targetClassId: 'c' }],
+        properties: [{ objectMappingId: 'o', targetPropertyId: 'p' }],
+        relations: [],
+      },
+      properties: [{ id: 'p', name: '名称' }],
+      inputParams: [],
+      canWrite: true,
+      pending: false,
+      stale: false,
+    })
+    await wrapper.get('form').trigger('submit')
+    expect(wrapper.emitted('save')).toBeUndefined()
+    expect(wrapper.text()).toContain('关系映射')
+  })
+  it('零覆盖分母不显示全部完成，并展示定位问题', async () => {
+    const wrapper = await form('MappingCoverage', {
+      value: {
+        valid: false,
+        coverage: { mapped: 0, pending: 0, unmappable: 0 },
+        coverageBasis: '当前活动类与属性',
+        affectedOperations: [],
+        checks: [
+          {
+            kind: 'CLASS_OBJECT',
+            passed: false,
+            issues: [{ code: 'MISSING', message: '缺少对象映射', entityId: 'class-a' }],
+          },
+        ],
+      },
+    })
+    expect(wrapper.text()).toContain('无可统计项')
+    expect(wrapper.text()).toContain('class-a')
+    expect(wrapper.text()).not.toContain('100%')
+  })
+  it('候选批量拒绝可保留空名称且不提交载荷', async () => {
+    const wrapper = await form('SuggestionReview', {
+      items: [
+        {
+          id: 'q',
+          batchId: 'b',
+          sourceKind: 'FILE',
+          kind: 'CLASS',
+          payload: { name: '' },
+          confidence: 0.6,
+          location: { sourceName: 'devices.csv', column: 'id' },
+          status: 'PENDING',
+        },
+      ],
+      canWrite: true,
+      pending: false,
+      stale: false,
+    })
+    await wrapper.get('input[type=checkbox]').setValue(true)
+    await wrapper
+      .findAll('button')
+      .find((item) => item.text() === '将勾选项设为拒绝')!
+      .trigger('click')
+    await wrapper.get('form').trigger('submit')
+    expect(wrapper.emitted('decide')?.[0]?.[0]).toEqual([{ id: 'q', decision: 'REJECT' }])
+  })
+  it('过期候选表单保留编辑名称且不提交', async () => {
+    const wrapper = await form('SuggestionReview', {
+      items: [
+        {
+          id: 'q',
+          batchId: 'b',
+          sourceKind: 'TABLE',
+          kind: 'CLASS',
+          payload: { name: '原名' },
+          confidence: 0.8,
+          location: { sourceName: 'devices', resource: 'public.devices' },
+          status: 'PENDING',
+        },
+      ],
+      canWrite: true,
+      pending: false,
+      stale: false,
+    })
+    await wrapper.get('input:not([type=checkbox])').setValue('我编辑的名称')
+    await wrapper.get('select').setValue('ACCEPT')
+    await wrapper.setProps({ stale: true })
+    await wrapper.get('form').trigger('submit')
+    expect(wrapper.emitted('decide')).toBeUndefined()
+    expect(wrapper.get<HTMLInputElement>('input:not([type=checkbox])').element.value).toBe(
+      '我编辑的名称',
+    )
+  })
+  it('上传前拒绝可执行扩展名和超过 8 MiB 文件', async () => {
+    const wrapper = await form('ManagedUpload', {
+      canWrite: true,
+      pending: false,
+      stale: false,
+      files: [],
+    })
+    const input = wrapper.get<HTMLInputElement>('input[type=file]')
+    Object.defineProperty(input.element, 'files', {
+      value: [new File(['x'], 'script.exe')],
+      configurable: true,
+    })
+    await input.trigger('change')
+    expect(wrapper.emitted('upload')).toBeUndefined()
+    expect(wrapper.text()).toContain('仅允许')
+    const huge = new File(['x'], 'big.csv')
+    Object.defineProperty(huge, 'size', { value: 8 * 1024 * 1024 + 1 })
+    Object.defineProperty(input.element, 'files', { value: [huge], configurable: true })
+    await input.trigger('change')
+    expect(wrapper.emitted('upload')).toBeUndefined()
+    expect(wrapper.text()).toContain('不能超过 8 MiB')
+  })
+  it('连接密码保留用户输入的首尾空格', async () => {
+    const wrapper = await form('SourceForm', {
+      value: null,
+      canWrite: true,
+      pending: false,
+      stale: false,
+    })
+    const field = (label: string) =>
+      wrapper
+        .findAll('.el-form-item')
+        .find((item) => item.find('.el-form-item__label').text() === label)!
+    await field('源编码').get('input').setValue('devices')
+    await field('源名称').get('input').setValue('设备库')
+    await field('访问范围（资源名，每行一个）').get('textarea').setValue('public.devices')
+    await field('JDBC 地址').get('input').setValue('jdbc:postgresql://localhost/onto')
+    await field('用户名').get('input').setValue('onto')
+    await field('密码').get('input').setValue(' secret ')
+    await wrapper.get('form').trigger('submit')
+    expect(wrapper.emitted('save')?.[0]?.[0]).toMatchObject({
+      connection: { password: ' secret ' },
+    })
+  })
+  it('受管文件的访问范围必须精确匹配服务端资源名', async () => {
+    const wrapper = await form('SourceForm', {
+      value: null,
+      files: [{ id: 'f', name: 'devices.json', resource: 'safe.json' }],
+      canWrite: true,
+      pending: false,
+      stale: false,
+    })
+    await wrapper.findAll('input')[0]!.setValue('devices')
+    await wrapper.findAll('input')[1]!.setValue('设备库')
+    await wrapper.get('select').setValue('FILE')
+    await flushPromises()
+    await wrapper.findAll('select')[2]!.setValue('f')
+    await flushPromises()
+    await wrapper.get('textarea').setValue('other.json')
+    await wrapper.get('form').trigger('submit')
+    expect(wrapper.emitted('save')).toBeUndefined()
+    expect(wrapper.text()).toContain('访问范围')
+  })
+})
+
+
+--- FILE: web/apps/onto-admin/src/features/p3\MetadataPanel.vue ---
+<script setup lang="ts">
+/** 不可变快照、元数据差异与受影响引用分别展示，便于定位映射失效原因。 */
+import type { MetadataSnapshot, MetadataDiff, SourceProbe } from '@onto/api-client'
+defineProps<{
+  snapshot: MetadataSnapshot | null
+  diff: MetadataDiff | null
+  probe: SourceProbe | null
+}>()
+const stages = { CONNECTIVITY: '连通性', AUTHENTICATION: '身份认证', SCOPE: '访问范围' }
+const statuses = { PASSED: '通过', FAILED: '失败', NOT_RUN: '未执行' }
+</script>
+<template>
+  <div class="stack">
+    <section v-if="probe" class="panel">
+      <h2>连接三阶段 · {{ probe.testedAt }}</h2>
+      <el-table :data="probe.stages">
+        <el-table-column label="阶段">
+          <template #default="{ row }">{{ stages[row.stage as keyof typeof stages] }}</template>
+        </el-table-column>
+        <el-table-column label="结果">
+          <template #default="{ row }">
+            {{ statuses[row.status as keyof typeof statuses] }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="code" label="代码" />
+        <el-table-column prop="message" label="说明" />
+      </el-table>
+    </section>
+    <section v-if="diff" class="panel">
+      <h2>元数据变更影响</h2>
+      <template
+        v-for="(changes, label) in { 新增: diff.added, 移除: diff.removed, 变化: diff.changed }"
+        :key="label"
+      >
+        <h3>{{ label }} · {{ changes.length }}</h3>
+        <dl v-for="item in changes" :key="item.path" class="details-grid">
+          <dt>{{ item.kind }} {{ item.path }}</dt>
+          <dd>
+            之前：{{ JSON.stringify(item.before) ?? '无' }}
+            <br />
+            之后：{{ JSON.stringify(item.after) ?? '无' }}
+          </dd>
+        </dl>
+      </template>
+      <h3>受影响映射 · {{ diff.affectedMappings.length }}</h3>
+      <p v-for="item in diff.affectedMappings" :key="item.id">
+        {{ item.kind }} {{ item.id }}：{{ item.reason }}；操作
+        {{ item.operationIds.join('、') || '无' }}
+      </p>
+      <p class="muted">旧候选保留冻结快照；当前映射需重新校验后再生成候选。</p>
+    </section>
+    <section v-if="snapshot" class="panel stack">
+      <h2>元数据快照</h2>
+      <p class="mono">
+        {{ snapshot.id }} · {{ snapshot.capturedAt }}
+        <br />
+        SHA-256：{{ snapshot.sha256 }}
+      </p>
+      <div v-for="resource in snapshot.resources" :key="resource.name">
+        <h3>{{ resource.name }}</h3>
+        <p class="muted">主键：{{ resource.primaryKey.join('、') || '未声明' }}</p>
+        <el-table :data="resource.fields">
+          <el-table-column prop="name" label="字段" />
+          <el-table-column prop="type" label="类型" />
+          <el-table-column label="可空">
+            <template #default="{ row }">{{ row.nullable ? '是' : '否' }}</template>
+          </el-table-column>
+        </el-table>
+        <p class="muted">
+          索引：{{
+            resource.indexes
+              .map((item) => `${item.name} (${item.columns.join(', ')})`)
+              .join('；') || '未提供'
+          }}；关系：{{
+            resource.relations
+              .map((item) => `${item.fromColumn} → ${item.targetResource}.${item.targetColumn}`)
+              .join('；') || '未提供'
+          }}
+        </p>
+      </div>
+    </section>
+  </div>
+</template>
+
+
+--- FILE: web/apps/onto-admin/src/features/p3\MappingsView.vue ---
+<script setup lang="ts">
+/** 三层工作台的读基线固定到一致性快照；变更先读取影响，再打开可审查表单。 */
+import { computed, onMounted, ref, shallowRef } from 'vue'
+import type {
+  Codebook,
+  Datasource,
+  Mapping,
+  MappingCollection,
+  MappingImpact,
+  MappingKind,
+  MappingValidation,
+  OntClass,
+  OntProperty,
+  Relation,
+  Space,
+} from '@onto/api-client'
+import { useSession } from '../../stores/session'
+import { useDraftDocument } from '../p2/useDraftDocument'
+import { useResource } from '../../composables/useResource'
+import { confirmAction } from '../../composables/useMutation'
+import AsyncState from '@onto/shared-ui/AsyncState.vue'
+import MappingForm from './MappingForm.vue'
+import MappingCoverage from './MappingCoverage.vue'
+import MappingList from './MappingList.vue'
+const api = useSession().api
+const editor = useDraftDocument(async (id) => {
+  const [mappings, sources, classes, properties, relations, codebooks, validation] =
+    await Promise.all([
+      api.get<MappingCollection>(`/mappings?spaceId=${id}`),
+      api.get<Datasource[]>(`/datasources?spaceId=${id}`),
+      api.get<OntClass[]>(`/classes?spaceId=${id}`),
+      api.get<OntProperty[]>(`/spaces/${id}/properties`),
+      api.get<Relation[]>(`/relations?spaceId=${id}`),
+      api.get<Codebook[]>(`/codebooks?spaceId=${id}`),
+      api.get<MappingValidation>(`/mappings/validate?spaceId=${id}`),
+    ])
+  return { mappings, sources, classes, properties, relations, codebooks, validation }
+})
+const data = computed(() => editor.resource.data.value?.items),
+  kind = ref<MappingKind>('objects')
+const open = ref(false),
+  editing = shallowRef<Mapping | null>(null),
+  impact = useResource<MappingImpact | null>(null)
+const labels: Record<MappingKind, string> = {
+  objects: '对象映射',
+  properties: '属性映射',
+  relations: '关系映射',
+}
+async function load() {
+  if (!open.value && !editor.mutation.pending.value) {
+    impact.reset()
+    await editor.load()
+  }
+}
+async function inspect(item: Mapping | null) {
+  if (!editor.resource.data.value || !editor.workspace.canWrite) return
+  editing.value = item
+  open.value = true
+  impact.reset()
+  editor.mutation.error.value = ''
+  if (item) {
+    const spaceId = editor.workspace.space?.id,
+      currentKind = kind.value
+    await impact.load(() =>
+      api.get<MappingImpact>(
+        `/mappings/impact?spaceId=${spaceId}&kind=${currentKind}&id=${item.id}`,
+      ),
+    )
+  }
+}
+async function save(value: Record<string, unknown>) {
+  const id = editor.workspace.space?.id,
+    itemId = editing.value?.id,
+    currentKind = kind.value
+  if (!id || (editing.value && !impact.data.value)) return
+  if (
+    await editor.save((expectedDraftRev) =>
+      itemId
+        ? api.put<Space>(`/mappings/${currentKind}/${itemId}`, {
+            ...value,
+            spaceId: id,
+            expectedDraftRev,
+          })
+        : api.post<Space>(`/mappings/${currentKind}`, { ...value, spaceId: id, expectedDraftRev }),
+    )
+  ) {
+    open.value = false
+    await editor.load()
+  }
+}
+async function remove() {
+  const id = editor.workspace.space?.id,
+    itemId = editing.value?.id,
+    currentKind = kind.value,
+    revision = editor.resource.data.value?.space.draftRev
+  const context = editor.workspace.captureContext()
+  if (!id || !itemId || revision === undefined || !impact.data.value || !editor.workspace.canWrite)
+    return
+  if (!(await confirmAction('删除当前映射？请先检查上方受影响操作与引用问题。'))) return
+  if (!editor.workspace.isCurrentContext(context)) return
+  if (
+    await editor.save(() =>
+      api.delete<Space>(
+        `/mappings/${currentKind}/${itemId}?spaceId=${id}&expectedDraftRev=${revision}`,
+      ),
+    )
+  ) {
+    open.value = false
+    await editor.load()
+  }
+}
+onMounted(load)
+</script>
+<template>
+  <div class="page-heading">
+    <div>
+      <h1>三层映射工作台</h1>
+      <p class="muted">元数据资源与本体模型的对象、属性、关系映射。</p>
+    </div>
+    <el-button :disabled="open || editor.mutation.pending.value" @click="load">刷新映射</el-button>
+  </div>
+  <AsyncState
+    :loading="editor.resource.loading.value"
+    :error="editor.resource.error.value"
+    @retry="load"
+  >
+    <div v-if="data" class="stack">
+      <MappingList
+        v-model:kind="kind"
+        :mappings="data.mappings"
+        :classes="data.classes"
+        :properties="data.properties"
+        :relations="data.relations"
+        :can-write="editor.workspace.canWrite"
+        :disabled="open"
+        @edit="inspect"
+      />
+      <section v-if="open" class="panel stack">
+        <h2>{{ editing ? '编辑' : '新增' }}{{ labels[kind] }}</h2>
+        <AsyncState
+          :loading="impact.loading.value"
+          :error="impact.error.value"
+          @retry="inspect(editing)"
+        >
+          <div v-if="impact.data.value">
+            <h3>变更前影响</h3>
+            <p>
+              操作：{{
+                impact.data.value.operations
+                  .map((item) => `${item.name} (${item.code})`)
+                  .join('、') || '无'
+              }}
+            </p>
+            <p
+              v-for="issue in impact.data.value.issues"
+              :key="`${issue.code}-${issue.entityId}`"
+              class="error-text"
+            >
+              {{ issue.message }} · {{ issue.entityId }} {{ issue.field }}
+            </p>
+          </div>
+          <MappingForm
+            v-if="!editing || impact.data.value"
+            :key="`${kind}-${editing?.id || 'new'}`"
+            :kind="kind"
+            :value="editing"
+            :sources="data.sources"
+            :mappings="data.mappings"
+            :classes="data.classes"
+            :properties="data.properties"
+            :relations="data.relations"
+            :codebooks="data.codebooks"
+            :can-write="editor.workspace.canWrite"
+            :pending="editor.mutation.pending.value"
+            :stale="editor.draft.stale.value"
+            :error="editor.mutation.error.value"
+            @save="save"
+            @cancel="open = false"
+          />
+          <el-button
+            v-if="editing"
+            type="danger"
+            :disabled="
+              !editor.workspace.canWrite || editor.mutation.pending.value || !impact.data.value
+            "
+            @click="remove"
+          >
+            删除映射
+          </el-button>
+        </AsyncState>
+        <el-button v-if="impact.error.value" @click="open = false">关闭影响预览</el-button>
+      </section>
+      <MappingCoverage :value="data.validation" />
+    </div>
+  </AsyncState>
+</template>
+
+
+--- FILE: web/apps/onto-admin/src/features/p3\MappingList.vue ---
+<script setup lang="ts">
+/** 映射列表独立呈现目标名称与来源链，表单开着时不允许切层或切编辑对象。 */
+import type {
+  Mapping,
+  MappingCollection,
+  MappingKind,
+  OntClass,
+  OntProperty,
+  Relation,
+} from '@onto/api-client'
+const props = defineProps<{
+  mappings: MappingCollection
+  classes: OntClass[]
+  properties: OntProperty[]
+  relations: Relation[]
+  canWrite: boolean
+  disabled: boolean
+}>()
+const kind = defineModel<MappingKind>('kind', { required: true })
+const emit = defineEmits<{ edit: [value: Mapping | null] }>()
+const labels: Record<MappingKind, string> = {
+  objects: '对象映射',
+  properties: '属性映射',
+  relations: '关系映射',
+}
+function summary(item: Mapping) {
+  if ('sourceResource' in item)
+    return `${item.sourceResource} → ${props.classes.find((c) => c.id === item.targetClassId)?.name || item.targetClassId}`
+  if ('sourceField' in item)
+    return `${item.sourceField} → ${props.properties.find((p) => p.id === item.targetPropertyId)?.name || item.targetPropertyId}`
+  return `${item.fromObjectMappingId} → ${item.toObjectMappingId} · ${props.relations.find((r) => r.id === item.relationId)?.name || item.relationId}`
+}
+function trace(item: Mapping) {
+  if ('objectMappingId' in item) {
+    const parent = props.mappings.objects.find((value) => value.id === item.objectMappingId)
+    return `对象映射 ${item.objectMappingId} / 源 ${parent?.datasourceId ?? '引用不可达'} / ${parent?.sourceResource ?? ''} / 字段 ${item.sourceField} / 快照 ${parent?.metaSnapshotId ?? ''}`
+  }
+  return `源 ${item.datasourceId} / 快照 ${item.metaSnapshotId}`
+}
+</script>
+<template>
+  <section class="panel stack">
+    <div class="row">
+      <el-button
+        v-for="(label, key) in labels"
+        :key="key"
+        :type="kind === key ? 'primary' : 'default'"
+        :disabled="disabled"
+        @click="kind = key"
+      >
+        {{ label }} · {{ mappings[key].length }}
+      </el-button>
+      <el-button v-if="canWrite" :disabled="disabled" @click="emit('edit', null)">
+        新增{{ labels[kind] }}
+      </el-button>
+    </div>
+    <el-table :data="mappings[kind]" empty-text="当前层尚无映射">
+      <el-table-column prop="id" label="映射标识" />
+      <el-table-column label="来源与目标" min-width="260">
+        <template #default="{ row }">
+          {{ summary(row) }}
+          <p class="muted">{{ trace(row) }}</p>
+          <details>
+            <summary>查看完整定义</summary>
+            <dl class="details-grid">
+              <template v-for="(value, key) in row" :key="key">
+                <dt>{{ key }}</dt>
+                <dd>{{ typeof value === 'object' ? JSON.stringify(value) : value }}</dd>
+              </template>
+            </dl>
+          </details>
+        </template>
+      </el-table-column>
+      <el-table-column label="操作">
+        <template #default="{ row }">
+          <el-button v-if="canWrite" text :disabled="disabled" @click="emit('edit', row)">
+            影响 / 编辑
+          </el-button>
+          <span v-else>只读</span>
+        </template>
+      </el-table-column>
+    </el-table>
+  </section>
+</template>
+
+
+--- FILE: web/apps/onto-admin/src/features/p3\MappingForm.vue ---
+<script setup lang="ts">
+/** 三层映射使用可追溯选择器；复杂过滤才接受 JSON，不接受任意脚本或 SQL。 */
+import { computed, reactive, ref } from 'vue'
+import type {
+  Codebook,
+  Datasource,
+  Mapping,
+  MappingCollection,
+  MappingKind,
+  ObjectMapping,
+  OntClass,
+  OntProperty,
+  PropertyMapping,
+  Relation,
+  RelationMapping,
+} from '@onto/api-client'
+import { objectJson } from './sourceFields'
+import { useMetadataSelection } from './useMetadataSelection'
+import AsyncState from '@onto/shared-ui/AsyncState.vue'
+const props = defineProps<{
+  kind: MappingKind
+  value: Mapping | null
+  sources: Datasource[]
+  mappings: MappingCollection
+  classes: OntClass[]
+  properties: OntProperty[]
+  relations: Relation[]
+  codebooks: Codebook[]
+  canWrite: boolean
+  pending: boolean
+  stale: boolean
+  error?: string
+}>()
+const emit = defineEmits<{ save: [value: Record<string, unknown>]; cancel: [] }>()
+const object = props.kind === 'objects' ? (props.value as ObjectMapping | null) : null
+const property = props.kind === 'properties' ? (props.value as PropertyMapping | null) : null
+const relation = props.kind === 'relations' ? (props.value as RelationMapping | null) : null
+const fields = reactive({
+  datasourceId: object?.datasourceId ?? relation?.datasourceId ?? '',
+  metaSnapshotId: object?.metaSnapshotId ?? relation?.metaSnapshotId ?? '',
+  sourceResource: object?.sourceResource ?? '',
+  targetClassId: object?.targetClassId ?? '',
+  objectKeyExpr: object?.objectKeyExpr ?? '',
+  filter: object?.filter ? JSON.stringify(object.filter, null, 2) : '',
+  objectMappingId: property?.objectMappingId ?? '',
+  sourceField: property?.sourceField ?? '',
+  targetPropertyId: property?.targetPropertyId ?? '',
+  required: property?.required ?? false,
+  transform: property?.transform?.kind ?? 'IDENTITY',
+  codebookId: property?.transform?.codebookId ?? '',
+  relationId: relation?.relationId ?? '',
+  fromObjectMappingId: relation?.fromObjectMappingId ?? '',
+  toObjectMappingId: relation?.toObjectMappingId ?? '',
+  fromKeyExpr: relation?.fromKeyExpr ?? '',
+  toKeyExpr: relation?.toKeyExpr ?? '',
+  fromField: relation?.join.fromField ?? '',
+  toField: relation?.join.toField ?? '',
+  cardinalityCheck: relation?.cardinalityCheck ?? true,
+})
+const error = ref(''),
+  disabled = computed(() => !props.canWrite || props.pending || props.stale)
+const parent = computed(() =>
+  props.mappings.objects.find((item) => item.id === fields.objectMappingId),
+)
+const meta = useMetadataSelection(
+  () => (props.kind === 'properties' ? (parent.value?.datasourceId ?? '') : fields.datasourceId),
+  () =>
+    props.kind === 'properties' ? (parent.value?.metaSnapshotId ?? '') : fields.metaSnapshotId,
+)
+const resources = computed(() => meta.snapshot.data.value?.resources ?? [])
+const resource = computed(() =>
+  resources.value.find(
+    (item) =>
+      item.name ===
+      (props.kind === 'properties' ? parent.value?.sourceResource : fields.sourceResource),
+  ),
+)
+const candidates = computed(() =>
+  props.mappings.objects.filter(
+    (item) =>
+      item.datasourceId === fields.datasourceId && item.metaSnapshotId === fields.metaSnapshotId,
+  ),
+)
+const from = computed(() =>
+    candidates.value.find((item) => item.id === fields.fromObjectMappingId),
+  ),
+  to = computed(() => candidates.value.find((item) => item.id === fields.toObjectMappingId))
+const fromFields = computed(
+  () => resources.value.find((item) => item.name === from.value?.sourceResource)?.fields ?? [],
+)
+const toFields = computed(
+  () => resources.value.find((item) => item.name === to.value?.sourceResource)?.fields ?? [],
+)
+function sourceChanged() {
+  fields.metaSnapshotId = ''
+  fields.sourceResource = ''
+  fields.fromObjectMappingId = ''
+  fields.toObjectMappingId = ''
+}
+function snapshotChanged() {
+  fields.sourceResource = ''
+  fields.fromObjectMappingId = ''
+  fields.toObjectMappingId = ''
+}
+function objectChanged() {
+  fields.sourceField = ''
+  fields.targetPropertyId = ''
+}
+function save() {
+  error.value = ''
+  if (disabled.value) return
+  try {
+    if (!meta.snapshot.data.value) throw new Error('请先选择并读取同源元数据快照。')
+    let body: Record<string, unknown>
+    if (props.kind === 'objects') {
+      if (
+        !fields.datasourceId ||
+        !fields.metaSnapshotId ||
+        !resource.value ||
+        !fields.targetClassId ||
+        !fields.objectKeyExpr.trim()
+      )
+        throw new Error('源、快照、资源、目标类和对象标识模板必填。')
+      const names = new Set(resource.value.fields.map((item) => item.name))
+      const template = fields.objectKeyExpr.trim(),
+        matches = [...template.matchAll(/\$\{([^}]+)\}/g)]
+      if (
+        !matches.length ||
+        matches.some((item) => !names.has(item[1]!)) ||
+        /[^\w:/.#-]/.test(template.replace(/\$\{[^}]+\}/g, ''))
+      )
+        throw new Error('对象标识只能使用当前资源的 ${字段} 与固定分隔符。')
+      body = {
+        datasourceId: fields.datasourceId,
+        metaSnapshotId: fields.metaSnapshotId,
+        sourceResource: fields.sourceResource,
+        targetClassId: fields.targetClassId,
+        objectKeyExpr: template,
+        filter: objectJson(fields.filter, '过滤条件'),
+      }
+    } else if (props.kind === 'properties') {
+      if (
+        !parent.value ||
+        !resource.value?.fields.some((item) => item.name === fields.sourceField) ||
+        !fields.targetPropertyId
+      )
+        throw new Error('对象映射、来源字段与目标属性必填。')
+      if (fields.transform === 'CODEBOOK' && !fields.codebookId)
+        throw new Error('码表转换必须选择码表。')
+      body = {
+        objectMappingId: fields.objectMappingId,
+        sourceField: fields.sourceField,
+        targetPropertyId: fields.targetPropertyId,
+        required: fields.required,
+        transform: {
+          kind: fields.transform,
+          ...(fields.transform === 'CODEBOOK' ? { codebookId: fields.codebookId } : {}),
+        },
+      }
+    } else {
+      if (
+        !from.value ||
+        !to.value ||
+        !fields.relationId ||
+        !fields.fromKeyExpr ||
+        !fields.toKeyExpr ||
+        !fromFields.value.some((item) => item.name === fields.fromField) ||
+        !toFields.value.some((item) => item.name === fields.toField)
+      )
+        throw new Error('关系、同源同快照的两端对象映射、连接字段和标识模板必填。')
+      body = {
+        datasourceId: fields.datasourceId,
+        metaSnapshotId: fields.metaSnapshotId,
+        relationId: fields.relationId,
+        fromObjectMappingId: fields.fromObjectMappingId,
+        toObjectMappingId: fields.toObjectMappingId,
+        fromKeyExpr: fields.fromKeyExpr,
+        toKeyExpr: fields.toKeyExpr,
+        join: { fromField: fields.fromField, toField: fields.toField },
+        cardinalityCheck: fields.cardinalityCheck,
+      }
+    }
+    emit('save', body)
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : '请检查映射字段。'
+  }
+}
+</script>
+<template>
+  <el-form label-position="top" data-editor="mapping" @submit.prevent="save">
+    <template v-if="kind !== 'properties'">
+      <el-form-item label="数据源">
+        <el-select v-model="fields.datasourceId" :disabled="disabled" @change="sourceChanged">
+          <el-option
+            v-for="item in sources"
+            :key="item.id"
+            :value="item.id"
+            :label="`${item.name} (${item.code})`"
+          />
+        </el-select>
+      </el-form-item>
+      <AsyncState
+        :loading="meta.summaries.loading.value"
+        :error="meta.summaries.error.value"
+        @retry="meta.loadSummaries"
+      >
+        <el-form-item label="元数据快照">
+          <el-select v-model="fields.metaSnapshotId" :disabled="disabled" @change="snapshotChanged">
+            <el-option
+              v-for="item in meta.summaries.data.value"
+              :key="item.id"
+              :value="item.id"
+              :label="`${item.capturedAt} · ${item.sha256}`"
+            />
+          </el-select>
+        </el-form-item>
+      </AsyncState>
+    </template>
+    <el-form-item v-if="kind === 'properties'" label="所属对象映射">
+      <el-select v-model="fields.objectMappingId" :disabled="disabled" @change="objectChanged">
+        <el-option
+          v-for="item in mappings.objects"
+          :key="item.id"
+          :value="item.id"
+          :label="`${item.sourceResource} → ${classes.find((c) => c.id === item.targetClassId)?.name || item.targetClassId} (${item.id})`"
+        />
+      </el-select>
+    </el-form-item>
+    <AsyncState
+      :loading="meta.snapshot.loading.value"
+      :error="meta.snapshot.error.value"
+      @retry="meta.loadSnapshot"
+    >
+      <template v-if="kind === 'objects'">
+        <el-form-item label="来源资源">
+          <el-select
+            v-model="fields.sourceResource"
+            :disabled="disabled"
+            @change="fields.objectKeyExpr = ''"
+          >
+            <el-option
+              v-for="item in resources"
+              :key="item.name"
+              :value="item.name"
+              :label="item.name"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="目标本体类">
+          <el-select v-model="fields.targetClassId" :disabled="disabled">
+            <el-option v-for="item in classes" :key="item.id" :value="item.id" :label="item.name" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="对象标识模板">
+          <el-input
+            v-model="fields.objectKeyExpr"
+            :disabled="disabled"
+            placeholder="例如 device:${id}"
+          />
+        </el-form-item>
+        <div class="row">
+          <el-button
+            v-for="item in resource?.fields"
+            :key="item.name"
+            text
+            :disabled="disabled"
+            @click="fields.objectKeyExpr += '${' + item.name + '}'"
+          >
+            插入 {{ item.name }}
+          </el-button>
+        </div>
+        <el-form-item label="可选复杂过滤（JSON 对象）">
+          <el-input v-model="fields.filter" type="textarea" :rows="3" :disabled="disabled" />
+        </el-form-item>
+      </template>
+      <template v-else-if="kind === 'properties'">
+        <p v-if="parent" class="muted">
+          来源 {{ parent.datasourceId }} / {{ parent.sourceResource }} / 快照
+          {{ parent.metaSnapshotId }}
+        </p>
+        <el-form-item label="来源字段">
+          <el-select v-model="fields.sourceField" :disabled="disabled">
+            <el-option
+              v-for="item in resource?.fields"
+              :key="item.name"
+              :value="item.name"
+              :label="`${item.name} (${item.type})`"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="目标本体属性">
+          <el-select v-model="fields.targetPropertyId" :disabled="disabled">
+            <el-option
+              v-for="item in properties.filter(
+                (item) => item.domainClassId === parent?.targetClassId,
+              )"
+              :key="item.id"
+              :value="item.id"
+              :label="`${item.name} (${item.rangeType})`"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="类型转换">
+          <el-select v-model="fields.transform" :disabled="disabled">
+            <el-option
+              v-for="item in ['IDENTITY', 'TO_STRING', 'TO_NUMBER', 'TO_BOOLEAN', 'CODEBOOK']"
+              :key="item"
+              :value="item"
+              :label="item"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="fields.transform === 'CODEBOOK'" label="转换码表">
+          <el-select v-model="fields.codebookId" :disabled="disabled">
+            <el-option
+              v-for="item in codebooks"
+              :key="item.id"
+              :value="item.id"
+              :label="item.name"
+            />
+          </el-select>
+        </el-form-item>
+        <el-checkbox v-model="fields.required" :disabled="disabled">必填属性</el-checkbox>
+      </template>
+      <template v-else>
+        <el-form-item label="目标本体关系">
+          <el-select v-model="fields.relationId" :disabled="disabled">
+            <el-option
+              v-for="item in relations"
+              :key="item.id"
+              :value="item.id"
+              :label="item.name"
+            />
+          </el-select>
+        </el-form-item>
+        <div class="form-columns">
+          <div>
+            <el-form-item label="起点对象映射">
+              <el-select v-model="fields.fromObjectMappingId" :disabled="disabled">
+                <el-option
+                  v-for="item in candidates"
+                  :key="item.id"
+                  :value="item.id"
+                  :label="`${item.sourceResource} (${item.id})`"
+                />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="起点连接字段">
+              <el-select v-model="fields.fromField" :disabled="disabled">
+                <el-option
+                  v-for="item in fromFields"
+                  :key="item.name"
+                  :value="item.name"
+                  :label="item.name"
+                />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="起点标识模板">
+              <el-input v-model="fields.fromKeyExpr" :disabled="disabled" />
+            </el-form-item>
+          </div>
+          <div>
+            <el-form-item label="终点对象映射">
+              <el-select v-model="fields.toObjectMappingId" :disabled="disabled">
+                <el-option
+                  v-for="item in candidates"
+                  :key="item.id"
+                  :value="item.id"
+                  :label="`${item.sourceResource} (${item.id})`"
+                />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="终点连接字段">
+              <el-select v-model="fields.toField" :disabled="disabled">
+                <el-option
+                  v-for="item in toFields"
+                  :key="item.name"
+                  :value="item.name"
+                  :label="item.name"
+                />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="终点标识模板">
+              <el-input v-model="fields.toKeyExpr" :disabled="disabled" />
+            </el-form-item>
+          </div>
+        </div>
+        <el-checkbox v-model="fields.cardinalityCheck" :disabled="disabled">
+          校验关系基数
+        </el-checkbox>
+      </template>
+    </AsyncState>
+    <p class="muted">
+      标识模板仅允许 ${字段} 与固定分隔符。协议是否支持 JOIN、转换与引用一致性以服务端校验为准。
+    </p>
+    <p v-if="error || props.error" class="error-text" role="alert">{{ error || props.error }}</p>
+    <p v-if="stale" class="readonly-note">旧表单已暂停提交，输入保留。请关闭并刷新再编辑。</p>
+    <div class="row">
+      <el-button
+        type="primary"
+        native-type="submit"
+        :disabled="disabled || meta.snapshot.loading.value"
+      >
+        保存映射
+      </el-button>
+      <el-button :disabled="pending" @click="emit('cancel')">关闭表单</el-button>
+    </div>
+  </el-form>
+</template>
+
+
+--- FILE: web/apps/onto-admin/src/features/p3\MappingCoverage.vue ---
+<script setup lang="ts">
+/** 覆盖率只用服务端非负计数和明确分母；零分母显示无可统计项。 */
+import { computed } from 'vue'
+import type { MappingValidation } from '@onto/api-client'
+const props = defineProps<{ value: MappingValidation }>()
+const total = computed(
+  () =>
+    props.value.coverage.mapped + props.value.coverage.pending + props.value.coverage.unmappable,
+)
+const labels = {
+  CLASS_OBJECT: '类与对象映射',
+  REQUIRED_PROPERTY: '必填属性',
+  RELATION_KEYS: '关系连接键',
+  REACHABLE_REFERENCE: '可达引用',
+}
+</script>
+<template>
+  <section class="panel stack">
+    <h2>完整性与覆盖度</h2>
+    <p>
+      {{ value.valid ? '完整性校验通过' : '存在待修复问题' }} ·
+      {{ total ? `已映射 ${value.coverage.mapped} / 分母 ${total}` : '无可统计项' }}
+    </p>
+    <p class="muted">
+      分母依据：{{ value.coverageBasis }}
+      <br />
+      待映射 {{ value.coverage.pending }} · 不可映射 {{ value.coverage.unmappable }}
+    </p>
+    <div v-for="check in value.checks" :key="check.kind">
+      <h3>{{ labels[check.kind] }} · {{ check.passed ? '通过' : '未通过' }}</h3>
+      <p v-for="(issue, index) in check.issues" :key="index" class="error-text">
+        {{ issue.code }}：{{ issue.message }}
+        <code>{{ issue.entityId }} {{ issue.field }}</code>
+      </p>
+    </div>
+    <p>
+      受影响操作：{{
+        value.affectedOperations.map((item) => `${item.name} (${item.code})`).join('、') || '无'
+      }}
+    </p>
+  </section>
+</template>
+
+
+--- FILE: web/apps/onto-admin/src/features/p3\ManagedUpload.vue ---
+<script setup lang="ts">
+/** 文件输入只形成 multipart；8 MiB 和扩展名仅提前反馈，内容判定仍由服务端执行。 */
+import { ref } from 'vue'
+import type { ManagedFile } from '@onto/api-client'
+defineProps<{ canWrite: boolean; pending: boolean; stale: boolean; files: ManagedFile[] }>()
+const emit = defineEmits<{ upload: [file: File] }>(),
+  error = ref('')
+function choose(event: Event) {
+  error.value = ''
+  const input = event.target as HTMLInputElement,
+    file = input.files?.[0]
+  if (!file) return
+  if (file.size > 8 * 1024 * 1024) error.value = '文件不能超过 8 MiB。'
+  else if (!/\.(csv|json|xlsx|pdf|docx|txt)$/i.test(file.name))
+    error.value = '仅允许 CSV / JSON / XLSX / PDF / DOCX / TXT。'
+  else emit('upload', file)
+  input.value = ''
+}
+</script>
+<template>
+  <section class="panel stack">
+    <h2>受管文件上传</h2>
+    <p class="muted">
+      OWNER 可上传最大 8 MiB 文件。结构文件用于映射与抽取，文档用于建模抽取；服务端校验真实内容。
+    </p>
+    <label>
+      选择文件
+      <input
+        type="file"
+        accept=".csv,.json,.xlsx,.pdf,.docx,.txt"
+        :disabled="!canWrite || pending || stale"
+        @change="choose"
+      />
+    </label>
+    <p v-if="error" class="error-text" role="alert">{{ error }}</p>
+    <dl v-for="file in files" :key="file.id" class="details-grid">
+      <dt>{{ file.name }}</dt>
+      <dd>
+        {{ file.size }} bytes ·
+        <code>{{ file.id }}</code>
+        <br />
+        访问范围：
+        <code>{{ file.resource }}</code>
+        <br />
+        SHA-256：
+        <code>{{ file.sha256 }}</code>
+      </dd>
+    </dl>
+  </section>
+</template>
+
+
+--- FILE: web/apps/onto-admin/src/features/p3\flows.test.ts ---
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
+import { defineComponent, h, type Component } from 'vue'
+import { createPinia, setActivePinia } from 'pinia'
+import ElementPlus from 'element-plus'
+import {
+  ApiError,
+  type Datasource,
+  type MetadataSnapshot,
+  type SourceSync,
+  type Space,
+} from '@onto/api-client'
+import { useSession } from '../../stores/session'
+import { useWorkspace } from '../../stores/workspace'
+import SourcesView from './SourcesView.vue'
+import SuggestionsView from './SuggestionsView.vue'
+
+const select = defineComponent({
+  props: { modelValue: [String, Array], multiple: Boolean, disabled: Boolean },
+  emits: ['update:modelValue', 'change'],
+  setup(props, { emit, slots }) {
+    return () =>
+      h(
+        'select',
+        {
+          value: props.modelValue,
+          multiple: props.multiple,
+          disabled: props.disabled,
+          onChange: (event: Event) => {
+            const input = event.target as HTMLSelectElement
+            const value = props.multiple
+              ? Array.from(input.selectedOptions, (item) => item.value)
+              : input.value
+            emit('update:modelValue', value)
+            emit('change', value)
+          },
+        },
+        slots.default?.(),
+      )
+  },
+})
+const option = defineComponent({
+  props: { value: String, label: String },
+  setup: (props) => () => h('option', { value: props.value }, props.label),
+})
+const global = {
+  plugins: [ElementPlus],
+  stubs: { teleport: true, ElSelect: select, ElOption: option },
+}
+const space = { id: 's', name: '测试空间', role: 'OWNER', status: 'ACTIVE', draftRev: 5 } as Space
+const source: Datasource = {
+  id: 'd',
+  spaceId: 's',
+  code: 'devices',
+  name: '设备库',
+  kind: 'RELATIONAL',
+  dialect: 'postgresql',
+  accessScope: ['public.devices'],
+  status: 'ACTIVE',
+  lastTestAt: null,
+}
+const snapshot: MetadataSnapshot = {
+  id: 'm',
+  sha256: 'sha-m',
+  capturedAt: '2026-10-20T00:00:00Z',
+  resources: [
+    {
+      name: 'public.devices',
+      fields: [{ name: 'id', type: 'INTEGER', nullable: false }],
+      primaryKey: ['id'],
+      relations: [],
+      indexes: [],
+    },
+  ],
+}
+const modules = import.meta.glob<{ default: Component }>('./*.vue')
+const wrappers: VueWrapper[] = []
+function button(wrapper: VueWrapper, text: string) {
+  const result = wrapper.findAll('button').find((item) => item.text() === text)
+  expect(result, text).toBeDefined()
+  return result!
+}
+function field(wrapper: VueWrapper, label: string) {
+  const result = wrapper
+    .findAll('.el-form-item')
+    .find((item) => item.find('.el-form-item__label').text() === label)
+  expect(result, label).toBeDefined()
+  return result!
+}
+function deferred<T>() {
+  let resolve!: (value: T) => void, reject!: (cause: unknown) => void
+  const promise = new Promise<T>((yes, no) => {
+    resolve = yes
+    reject = no
+  })
+  return { promise, resolve, reject }
+}
+async function page(component: Component) {
+  const wrapper = mount(component, { global })
+  wrappers.push(wrapper)
+  await flushPromises()
+  return wrapper
+}
+function response(path: string): unknown {
+  if (path === '/spaces/s') return { ...space, role: useWorkspace().space?.role ?? 'OWNER' }
+  if (path === '/datasources?spaceId=s') return [source]
+  if (path === '/datasources/capabilities?spaceId=s')
+    return [
+      {
+        kind: 'WAREHOUSE',
+        dialect: 'clickhouse',
+        implemented: true,
+        verifiedLocally: false,
+        capabilities: ['SELECT'],
+        limits: ['仅 MergeTree'],
+        verificationNote: '待真实 ClickHouse 外部实例验收',
+      },
+    ]
+  if (path === '/data-files?spaceId=s')
+    return [
+      {
+        id: 'f',
+        name: 'devices.csv',
+        resource: 'safe.csv',
+        mediaType: 'text/csv',
+        size: 20,
+        sha256: 'file-sha',
+      },
+    ]
+  if (path === '/datasources/d/snapshots?spaceId=s')
+    return [{ id: 'm', sha256: snapshot.sha256, capturedAt: snapshot.capturedAt }]
+  if (path === '/datasources/d/snapshots/m?spaceId=s') return snapshot
+  if (path === '/classes?spaceId=s')
+    return [{ id: 'c', name: '设备', spaceId: 's', parentId: null }]
+  if (path.startsWith('/suggestions?spaceId=s'))
+    return [
+      {
+        id: 'q',
+        batchId: 'b',
+        sourceKind: 'TABLE',
+        kind: 'CLASS',
+        payload: { name: '设备候选', description: '', parentId: null },
+        confidence: 0.8,
+        location: { sourceName: '设备库', resource: 'public.devices' },
+        status: 'PENDING',
+      },
+    ]
+  if (path === '/mappings?spaceId=s') return { objects: [], properties: [], relations: [] }
+  if (
+    path === '/spaces/s/properties' ||
+    path === '/relations?spaceId=s' ||
+    path === '/codebooks?spaceId=s'
+  )
+    return []
+  if (path === '/mappings/validate?spaceId=s')
+    return {
+      valid: false,
+      checks: [],
+      coverage: { mapped: 0, pending: 1, unmappable: 0 },
+      coverageBasis: '当前活动类',
+      affectedOperations: [],
+    }
+  throw new Error(`未定义真实契约路径：${path}`)
+}
+beforeEach(() => {
+  setActivePinia(createPinia())
+  useWorkspace().space = { ...space }
+  vi.spyOn(useSession().api, 'get').mockImplementation(
+    async <T>(path: string): Promise<T> => response(path) as T,
+  )
+})
+afterEach(() => {
+  wrappers.splice(0).forEach((wrapper) => wrapper.unmount())
+  vi.restoreAllMocks()
+})
+
+describe('P3 页面修订与异步隔离', () => {
+  it('数据源 409 保留输入，旧表单不得借空间新修订提交', async () => {
+    const write = vi
+      .spyOn(useSession().api, 'put')
+      .mockRejectedValue(new ApiError('DRAFT_REV_CONFLICT', '草稿已变化', 409))
+    const wrapper = await page(SourcesView)
+    await button(wrapper, '编辑').trigger('click')
+    await field(wrapper, '源名称').get('input').setValue('我的保留输入')
+    useWorkspace().space = { ...space, draftRev: 99 }
+    await wrapper.get('form[data-editor=source]').trigger('submit')
+    await flushPromises()
+    expect(write).toHaveBeenCalledWith(
+      '/datasources/d',
+      expect.objectContaining({
+        spaceId: 's',
+        expectedDraftRev: 5,
+        name: '我的保留输入',
+        connection: null,
+      }),
+    )
+    expect(field(wrapper, '源名称').get<HTMLInputElement>('input').element.value).toBe(
+      '我的保留输入',
+    )
+    expect(useWorkspace().stale).toBe(true)
+    useWorkspace().refreshed({ ...space, draftRev: 100 })
+    await wrapper.get('form[data-editor=source]').trigger('submit')
+    await flushPromises()
+    expect(write).toHaveBeenCalledTimes(1)
+  })
+  it('源目录权限失败可重试，失败时不回退演示源', async () => {
+    const get = vi.mocked(useSession().api.get)
+    get.mockImplementation(async <T>(path: string): Promise<T> => {
+      if (path.startsWith('/datasources?'))
+        throw new ApiError('FORBIDDEN', '没有当前空间来源读取权限', 403)
+      return response(path) as T
+    })
+    const wrapper = await page(SourcesView)
+    expect(wrapper.text()).toContain('没有当前空间来源读取权限')
+    expect(wrapper.text()).not.toContain('设备库')
+    get.mockImplementation(async <T>(path: string): Promise<T> => response(path) as T)
+    await button(wrapper, '重新加载').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('设备库')
+    expect(wrapper.text()).toContain('真实实例待外部验收')
+  })
+  it('VIEWER 只能读取源和能力，不能配置或上传', async () => {
+    useWorkspace().space = { ...space, role: 'VIEWER' }
+    const wrapper = await page(SourcesView)
+    expect(
+      wrapper
+        .findAll('button')
+        .some((item) => ['编辑', '删除', '新增数据源'].includes(item.text())),
+    ).toBe(false)
+    expect(wrapper.get<HTMLInputElement>('input[type=file]').element.disabled).toBe(true)
+    expect(wrapper.text()).toContain('设备库')
+  })
+  it('旧同步成功不能污染同空间重新进入后的修订', async () => {
+    const pending = deferred<SourceSync>()
+    vi.spyOn(useSession().api, 'post').mockImplementation(() => pending.promise)
+    const wrapper = await page(SourcesView)
+    await button(wrapper, '元数据').trigger('click')
+    await flushPromises()
+    await button(wrapper, '同步元数据').trigger('click')
+    await flushPromises()
+    wrapper.unmount()
+    await useWorkspace().load('s')
+    pending.resolve({
+      space: { ...space, draftRev: 6 },
+      snapshot,
+      diff: { added: [], removed: [], changed: [], affectedMappings: [] },
+    })
+    await flushPromises()
+    expect(useWorkspace().space?.draftRev).toBe(5)
+    expect(useWorkspace().stale).toBe(false)
+  })
+  it('切源迟到快照列表不能覆盖当前源', async () => {
+    const pending = deferred<unknown>()
+    vi.mocked(useSession().api.get).mockImplementation(async <T>(path: string): Promise<T> => {
+      if (path === '/datasources?spaceId=s')
+        return [source, { ...source, id: 'd2', name: '第二数据源' }] as T
+      if (path === '/datasources/d/snapshots?spaceId=s') return (await pending.promise) as T
+      if (path === '/datasources/d2/snapshots?spaceId=s')
+        return [{ id: 'm2', sha256: 'sha-second', capturedAt: 'second' }] as T
+      return response(path) as T
+    })
+    const wrapper = await page(SourcesView)
+    const actions = wrapper.findAll('button').filter((item) => item.text() === '元数据')
+    await actions[0]!.trigger('click')
+    await flushPromises()
+    await actions[1]!.trigger('click')
+    await flushPromises()
+    pending.resolve([{ id: 'm-old', sha256: 'sha-old', capturedAt: 'old' }])
+    await flushPromises()
+    expect(wrapper.text()).toContain('sha-second')
+    expect(wrapper.text()).not.toContain('sha-old')
+  })
+  it('抽取预览只请求候选批次，不自动接受；人工决定可编辑名称', async () => {
+    const post = vi
+      .spyOn(useSession().api, 'post')
+      .mockResolvedValue({ space: { ...space, draftRev: 6 }, batchId: 'b', count: 1 })
+    const wrapper = await page(SuggestionsView)
+    await field(wrapper, '抽取来源').get('select').setValue('FILE')
+    await flushPromises()
+    await field(wrapper, '受管文件').get('select').setValue('f')
+    await wrapper.get('form[data-editor=extraction]').trigger('submit')
+    await flushPromises()
+    expect(post).toHaveBeenCalledTimes(1)
+    expect(post).toHaveBeenCalledWith('/suggestions/extract', {
+      spaceId: 's',
+      expectedDraftRev: 5,
+      sourceKind: 'FILE',
+      fileId: 'f',
+    })
+    await field(wrapper, '候选名称').get('input').setValue('人工修正名称')
+    await field(wrapper, '人工决定').get('select').setValue('ACCEPT')
+    post.mockResolvedValue({ ...space, draftRev: 7 })
+    await wrapper.get('form[data-editor=suggestion-review]').trigger('submit')
+    await flushPromises()
+    expect(post).toHaveBeenLastCalledWith(
+      '/suggestions/decide',
+      expect.objectContaining({
+        decisions: [
+          {
+            id: 'q',
+            decision: 'ACCEPT',
+            payload: { name: '人工修正名称', description: '', parentId: null },
+          },
+        ],
+      }),
+    )
+  })
+  it('映射工作台使用同空间真实选择器，缺快照时不能提交', async () => {
+    const wrapper = await page((await modules['./MappingsView.vue']!()).default)
+    await button(wrapper, '新增对象映射').trigger('click')
+    await flushPromises()
+    await wrapper.get('form[data-editor=mapping]').trigger('submit')
+    expect(wrapper.text()).toContain('请先选择并读取同源元数据快照')
+    expect(wrapper.text()).toContain('分母 1')
+  })
+})
+
+
+--- FILE: web/apps/onto-admin/src/features/p3\ExtractionForm.vue ---
+<script setup lang="ts">
+/** 三种抽取只生成待确认批次，来源只能选当前空间的快照或受管文件。 */
+import { computed, reactive, ref } from 'vue'
+import type { Datasource, ExtractionRequest, ManagedFile } from '@onto/api-client'
+import { useMetadataSelection } from './useMetadataSelection'
+import AsyncState from '@onto/shared-ui/AsyncState.vue'
+const props = defineProps<{
+  sources: Datasource[]
+  files: ManagedFile[]
+  canWrite: boolean
+  pending: boolean
+  stale: boolean
+}>()
+const emit = defineEmits<{ extract: [value: ExtractionRequest] }>()
+const state = reactive({
+  sourceKind: 'TABLE' as ExtractionRequest['sourceKind'],
+  datasourceId: '',
+  metaSnapshotId: '',
+  resource: '',
+  fileId: '',
+})
+const meta = useMetadataSelection(
+    () => state.datasourceId,
+    () => state.metaSnapshotId,
+  ),
+  error = ref('')
+const disabled = computed(() => !props.canWrite || props.pending || props.stale)
+const files = computed(() =>
+  props.files.filter((item) =>
+    state.sourceKind === 'FILE'
+      ? /\.(csv|json|xlsx)$/i.test(item.name)
+      : /\.(pdf|docx|txt)$/i.test(item.name),
+  ),
+)
+function sourceChanged() {
+  state.metaSnapshotId = ''
+  state.resource = ''
+}
+function preview() {
+  error.value = ''
+  if (disabled.value) return
+  if (state.sourceKind === 'TABLE') {
+    if (
+      !state.datasourceId ||
+      !state.metaSnapshotId ||
+      !meta.snapshot.data.value?.resources.some((item) => item.name === state.resource)
+    ) {
+      error.value = '请选择已授权的源、快照与资源。'
+      return
+    }
+    emit('extract', {
+      sourceKind: 'TABLE',
+      datasourceId: state.datasourceId,
+      metaSnapshotId: state.metaSnapshotId,
+      resource: state.resource,
+    })
+  } else {
+    if (!files.value.some((item) => item.id === state.fileId)) {
+      error.value = '请选择当前空间内符合来源类型的受管文件。'
+      return
+    }
+    emit('extract', { sourceKind: state.sourceKind, fileId: state.fileId })
+  }
+}
+</script>
+<template>
+  <el-form label-position="top" data-editor="extraction" @submit.prevent="preview">
+    <el-form-item label="抽取来源">
+      <el-select v-model="state.sourceKind" :disabled="disabled" @change="state.fileId = ''">
+        <el-option value="TABLE" label="表结构" />
+        <el-option value="FILE" label="CSV / JSON / XLSX 文件" />
+        <el-option value="DOCUMENT" label="PDF / DOCX / TXT 文档" />
+      </el-select>
+    </el-form-item>
+    <template v-if="state.sourceKind === 'TABLE'">
+      <el-form-item label="数据源">
+        <el-select v-model="state.datasourceId" :disabled="disabled" @change="sourceChanged">
+          <el-option v-for="item in sources" :key="item.id" :value="item.id" :label="item.name" />
+        </el-select>
+      </el-form-item>
+      <AsyncState
+        :loading="meta.summaries.loading.value"
+        :error="meta.summaries.error.value"
+        @retry="meta.loadSummaries"
+      >
+        <el-form-item label="元数据快照">
+          <el-select
+            v-model="state.metaSnapshotId"
+            :disabled="disabled"
+            @change="state.resource = ''"
+          >
+            <el-option
+              v-for="item in meta.summaries.data.value"
+              :key="item.id"
+              :value="item.id"
+              :label="`${item.capturedAt} · ${item.sha256}`"
+            />
+          </el-select>
+        </el-form-item>
+      </AsyncState>
+      <AsyncState
+        :loading="meta.snapshot.loading.value"
+        :error="meta.snapshot.error.value"
+        @retry="meta.loadSnapshot"
+      >
+        <el-form-item label="来源资源">
+          <el-select v-model="state.resource" :disabled="disabled">
+            <el-option
+              v-for="item in meta.snapshot.data.value?.resources"
+              :key="item.name"
+              :value="item.name"
+              :label="item.name"
+            />
+          </el-select>
+        </el-form-item>
+      </AsyncState>
+    </template>
+    <el-form-item v-else label="受管文件">
+      <el-select v-model="state.fileId" :disabled="disabled">
+        <el-option
+          v-for="item in files"
+          :key="item.id"
+          :value="item.id"
+          :label="`${item.name} (${item.id})`"
+        />
+      </el-select>
+    </el-form-item>
+    <p class="muted">
+      规则式抽取仅生成 PENDING 预览，不直接改变本体模型。请逐项审阅名称、关联和来源证据后批量确认。
+    </p>
+    <p v-if="error" class="error-text" role="alert">{{ error }}</p>
+    <el-button type="primary" native-type="submit" :disabled="disabled">生成抽取预览</el-button>
+  </el-form>
+</template>
+
+
+--- FILE: web/apps/onto-admin/src/features/p3\DataQueryView.vue ---
+<script setup lang="ts">
+/** 切操作先撤销上一操作配置；每次读取建立独立修订，409 不自动换基线。 */
+import { computed, onMounted, ref, watch } from 'vue'
+import type {
+  AssistantDeclaration,
+  DataQuery,
+  MappingCollection,
+  OntProperty,
+  Operation,
+  OperationDataQuery,
+  Space,
+} from '@onto/api-client'
+import { useSession } from '../../stores/session'
+import { useWorkspace } from '../../stores/workspace'
+import { useResource } from '../../composables/useResource'
+import { useDraftDocument } from '../p2/useDraftDocument'
+import AsyncState from '@onto/shared-ui/AsyncState.vue'
+import DataQueryForm from './DataQueryForm.vue'
+const api = useSession().api,
+  workspace = useWorkspace(),
+  selected = ref(''),
+  operations = useResource<Operation[]>([])
+const editor = useDraftDocument(async (id) => {
+  const operationId = selected.value
+  const [query, mappings, properties, assistant] = await Promise.all([
+    api.get<OperationDataQuery>(`/operations/${operationId}/data-query?spaceId=${id}`),
+    api.get<MappingCollection>(`/mappings?spaceId=${id}`),
+    api.get<OntProperty[]>(`/spaces/${id}/properties`),
+    api.get<AssistantDeclaration>(`/operations/${operationId}/assistant?spaceId=${id}`),
+  ])
+  return { query, mappings, properties, assistant }
+})
+const data = computed(() => editor.resource.data.value?.items)
+const inputParams = computed(() => {
+  const value = data.value?.assistant.inputSchema?.properties
+  return value && typeof value === 'object' && !Array.isArray(value) ? Object.keys(value) : []
+})
+async function loadOperations() {
+  const id = workspace.space?.id
+  if (id) await operations.load(() => api.get<Operation[]>(`/operations?spaceId=${id}`))
+}
+async function refresh() {
+  await loadOperations()
+  if (selected.value) await editor.load()
+}
+watch(selected, () => {
+  editor.resource.reset()
+  if (selected.value) void editor.load()
+})
+async function save(dataQuery: DataQuery | null) {
+  const spaceId = workspace.space?.id,
+    operationId = selected.value
+  if (!spaceId || !operationId) return
+  if (
+    await editor.save((expectedDraftRev) =>
+      api.put<Space>(`/operations/${operationId}/data-query`, {
+        spaceId,
+        expectedDraftRev,
+        dataQuery,
+      }),
+    )
+  )
+    await editor.load()
+}
+onMounted(loadOperations)
+</script>
+<template>
+  <div class="page-heading">
+    <div>
+      <h1>操作数据查询</h1>
+      <p class="muted">为现有模型操作绑定冻结映射与参数化过滤。</p>
+    </div>
+    <el-button :disabled="editor.mutation.pending.value" @click="refresh">刷新查询配置</el-button>
+  </div>
+  <section class="panel stack">
+    <AsyncState
+      :loading="operations.loading.value"
+      :error="operations.error.value"
+      @retry="loadOperations"
+    >
+      <el-form label-position="top">
+        <el-form-item label="草稿操作">
+          <el-select v-model="selected" :disabled="editor.mutation.pending.value">
+            <el-option
+              v-for="item in operations.data.value"
+              :key="item.id"
+              :value="item.id"
+              :label="`${item.name} (${item.code})`"
+            />
+          </el-select>
+        </el-form-item>
+      </el-form>
+    </AsyncState>
+    <AsyncState
+      v-if="selected"
+      :loading="editor.resource.loading.value"
+      :error="editor.resource.error.value"
+      @retry="editor.load"
+    >
+      <DataQueryForm
+        v-if="data"
+        :key="`${selected}-${editor.resource.data.value?.space.draftRev}`"
+        :value="data.query.dataQuery"
+        :mappings="data.mappings"
+        :properties="data.properties"
+        :input-params="inputParams"
+        :can-write="workspace.canWrite"
+        :pending="editor.mutation.pending.value"
+        :stale="editor.draft.stale.value"
+        :error="editor.mutation.error.value"
+        @save="save"
+      />
+    </AsyncState>
+  </section>
+</template>
+
+
+--- FILE: web/apps/onto-admin/src/features/p3\DataQueryForm.vue ---
+<script setup lang="ts">
+/** MODEL 与实例查询分开配置；参数绑定通过助手输入字段选择，不接受执行 SQL。 */
+import { computed, reactive, ref } from 'vue'
+import type { DataQuery, MappingCollection, OntProperty } from '@onto/api-client'
+const props = defineProps<{
+  value: DataQuery | null
+  mappings: MappingCollection
+  properties: OntProperty[]
+  inputParams: string[]
+  canWrite: boolean
+  pending: boolean
+  stale: boolean
+  error?: string
+}>()
+const emit = defineEmits<{ save: [value: DataQuery | null] }>()
+const mode = ref<'MODEL' | 'OBJECT' | 'RELATION'>(props.value?.mode ?? 'MODEL')
+const state = reactive({
+  objectMappingId: props.value?.objectMappingId ?? '',
+  relationMappingId: props.value?.relationMappingId ?? '',
+  propertyIds: [...(props.value?.propertyIds ?? [])],
+  filters: props.value?.filters.map((item) => ({ ...item })) ?? [],
+})
+const error = ref(''),
+  disabled = computed(() => !props.canWrite || props.pending || props.stale)
+const available = computed(() => {
+  const ids = new Set(
+    props.mappings.properties
+      .filter((item) => item.objectMappingId === state.objectMappingId)
+      .map((item) => item.targetPropertyId),
+  )
+  return props.properties.filter((item) => ids.has(item.id))
+})
+function objectChanged() {
+  state.propertyIds = []
+  state.filters = []
+  state.relationMappingId = ''
+}
+function save() {
+  error.value = ''
+  if (disabled.value) return
+  if (mode.value === 'MODEL') {
+    emit('save', null)
+    return
+  }
+  if (
+    !props.mappings.objects.some((item) => item.id === state.objectMappingId) ||
+    (mode.value === 'RELATION' &&
+      !props.mappings.relations.some(
+        (item) =>
+          item.id === state.relationMappingId && item.fromObjectMappingId === state.objectMappingId,
+      ))
+  ) {
+    error.value = '请选择对象映射及关系模式所需的关系映射。'
+    return
+  }
+  if (
+    !state.propertyIds.length ||
+    state.propertyIds.some((id) => !available.value.some((item) => item.id === id))
+  ) {
+    error.value = '至少选择一个已映射属性。'
+    return
+  }
+  if (
+    state.filters.some(
+      (item) =>
+        !available.value.some((property) => property.id === item.propertyId) ||
+        !props.inputParams.includes(item.inputParam),
+    )
+  ) {
+    error.value = '每个过滤条件必须选择映射属性与助手输入参数。'
+    return
+  }
+  emit('save', {
+    mode: mode.value,
+    objectMappingId: state.objectMappingId,
+    ...(mode.value === 'RELATION' ? { relationMappingId: state.relationMappingId } : {}),
+    propertyIds: [...state.propertyIds],
+    filters: state.filters.map((item) => ({ ...item })),
+  })
+}
+</script>
+<template>
+  <el-form label-position="top" data-editor="data-query" @submit.prevent="save">
+    <el-form-item label="查询模式">
+      <el-select v-model="mode" :disabled="disabled">
+        <el-option value="MODEL" label="MODEL · 模型元查询" />
+        <el-option value="OBJECT" label="OBJECT · 对象实例查询" />
+        <el-option value="RELATION" label="RELATION · 关系实例查询" />
+      </el-select>
+    </el-form-item>
+    <template v-if="mode !== 'MODEL'">
+      <p class="readonly-note">
+        实例查询需要完整助手声明与必需守卫绑定；缺少守卫时服务端在访问数据源前拒绝。请先维护助手声明、策略与空间授权。
+      </p>
+      <el-form-item label="对象映射">
+        <el-select v-model="state.objectMappingId" :disabled="disabled" @change="objectChanged">
+          <el-option
+            v-for="item in mappings.objects"
+            :key="item.id"
+            :value="item.id"
+            :label="`${item.sourceResource} (${item.id})`"
+          />
+        </el-select>
+      </el-form-item>
+      <el-form-item v-if="mode === 'RELATION'" label="关系映射">
+        <el-select v-model="state.relationMappingId" :disabled="disabled">
+          <el-option
+            v-for="item in mappings.relations.filter(
+              (item) => item.fromObjectMappingId === state.objectMappingId,
+            )"
+            :key="item.id"
+            :value="item.id"
+            :label="`${item.relationId} (${item.id})`"
+          />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="输出属性">
+        <el-select v-model="state.propertyIds" multiple :disabled="disabled">
+          <el-option
+            v-for="item in available"
+            :key="item.id"
+            :value="item.id"
+            :label="`${item.name} (${item.rangeType})`"
+          />
+        </el-select>
+      </el-form-item>
+      <h3>参数化过滤</h3>
+      <div v-for="(item, index) in state.filters" :key="index" class="panel">
+        <el-form-item label="过滤属性">
+          <el-select v-model="item.propertyId" :disabled="disabled">
+            <el-option
+              v-for="property in available"
+              :key="property.id"
+              :value="property.id"
+              :label="property.name"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="比较方式">
+          <el-select v-model="item.operator" :disabled="disabled">
+            <el-option
+              v-for="operator in ['EQ', 'IN', 'GT', 'GE', 'LT', 'LE']"
+              :key="operator"
+              :value="operator"
+              :label="operator"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="助手输入参数">
+          <el-select v-model="item.inputParam" :disabled="disabled">
+            <el-option v-for="param in inputParams" :key="param" :value="param" :label="param" />
+          </el-select>
+        </el-form-item>
+        <el-button :disabled="disabled" @click="state.filters.splice(index, 1)">移除条件</el-button>
+      </div>
+      <el-button
+        :disabled="disabled"
+        @click="state.filters.push({ propertyId: '', operator: 'EQ', inputParam: '' })"
+      >
+        添加过滤条件
+      </el-button>
+    </template>
+    <p v-if="error || props.error" class="error-text" role="alert">{{ error || props.error }}</p>
+    <p v-if="stale" class="readonly-note">此配置已过期，输入保留。刷新后重新编辑。</p>
+    <el-button type="primary" native-type="submit" :disabled="disabled">保存查询配置</el-button>
+  </el-form>
+</template>
+
+
+--- FILE: web/apps/onto-admin/src/features/p3\DataCatalogView.vue ---
+<script setup lang="ts">
+/** 数据目录为服务端同空间读取视图，映射计数与关联不由客户端猜测。 */
+import { onMounted } from 'vue'
+import type { DataCatalog } from '@onto/api-client'
+import { useSession } from '../../stores/session'
+import { useWorkspace } from '../../stores/workspace'
+import { useResource } from '../../composables/useResource'
+import AsyncState from '@onto/shared-ui/AsyncState.vue'
+const api = useSession().api,
+  workspace = useWorkspace(),
+  catalog = useResource<DataCatalog | null>(null)
+async function load() {
+  const id = workspace.space?.id
+  if (id) await catalog.load(() => api.get<DataCatalog>(`/data-catalog?spaceId=${id}`))
+}
+onMounted(load)
+</script>
+<template>
+  <div class="page-heading">
+    <div>
+      <h1>数据目录</h1>
+      <p class="muted">数据源、快照、映射、本体类与操作的可追溯关系。</p>
+    </div>
+    <el-button @click="load">刷新目录</el-button>
+  </div>
+  <AsyncState :loading="catalog.loading.value" :error="catalog.error.value" @retry="load">
+    <div v-if="catalog.data.value" class="stack">
+      <section class="panel">
+        <h2>源与最新快照</h2>
+        <el-table :data="catalog.data.value.datasources" empty-text="尚无数据源">
+          <el-table-column prop="name" label="数据源" />
+          <el-table-column prop="dialect" label="协议" />
+          <el-table-column prop="latestSnapshotId" label="最新快照" />
+          <el-table-column prop="mappingCount" label="映射计数" />
+          <el-table-column label="本体类 / 操作">
+            <template #default="{ row }">
+              类：{{ row.classIds.join('、') || '无' }}
+              <br />
+              操作：{{ row.operationIds.join('、') || '无' }}
+            </template>
+          </el-table-column>
+        </el-table>
+      </section>
+      <section class="panel">
+        <h2>资源与模型绑定</h2>
+        <el-table :data="catalog.data.value.bindings" empty-text="尚无映射绑定">
+          <el-table-column prop="datasourceId" label="源 ID" />
+          <el-table-column prop="resource" label="来源资源" />
+          <el-table-column prop="objectMappingId" label="对象映射" />
+          <el-table-column prop="className" label="目标类" />
+          <el-table-column prop="propertyCount" label="属性数" />
+          <el-table-column prop="relationCount" label="关系数" />
+          <el-table-column label="相关操作">
+            <template #default="{ row }">{{ row.operationIds.join('、') || '无' }}</template>
+          </el-table-column>
+        </el-table>
+      </section>
+    </div>
+  </AsyncState>
+</template>
+
+
+--- FILE: web/packages/api-client/src/data.ts ---
+import type { JsonObject } from './supply'
+import type { Space } from './types'
+
+/** P3 契约独立维护；所有来源标识均由当前空间的服务端读取提供。 */
+export type SourceKind =
+  | 'RELATIONAL'
+  | 'WAREHOUSE'
+  | 'LAKE'
+  | 'FILE'
+  | 'HTTP'
+  | 'DOCUMENT'
+  | 'KEY_VALUE'
+  | 'WIDE_COLUMN'
+  | 'GRAPH'
+export interface Datasource {
+  id: string
+  spaceId: string
+  code: string
+  name: string
+  kind: SourceKind
+  dialect: string
+  accessScope: string[]
+  status: string
+  lastTestAt: string | null
+}
+export interface SourceWrite {
+  code: string
+  name: string
+  kind: SourceKind
+  connection: JsonObject | null
+  accessScope: string[]
+}
+export interface SourceCapability {
+  kind: SourceKind
+  dialect: string
+  implemented: boolean
+  verifiedLocally: boolean
+  capabilities: string[]
+  limits: string[]
+  verificationNote: string
+}
+export interface SourceProbe {
+  stages: {
+    stage: 'CONNECTIVITY' | 'AUTHENTICATION' | 'SCOPE'
+    status: 'PASSED' | 'FAILED' | 'NOT_RUN'
+    code: string
+    message: string
+  }[]
+  testedAt: string
+}
+export interface MetadataResource {
+  name: string
+  fields: { name: string; type: string; nullable: boolean }[]
+  primaryKey: string[]
+  relations: { fromColumn: string; targetResource: string; targetColumn: string }[]
+  indexes: { name: string; columns: string[]; unique: boolean }[]
+}
+export interface MetadataSummary {
+  id: string
+  sha256: string
+  capturedAt: string
+}
+export interface MetadataSnapshot extends MetadataSummary {
+  resources: MetadataResource[]
+}
+export interface MetadataDiff {
+  added: MetadataChange[]
+  removed: MetadataChange[]
+  changed: MetadataChange[]
+  affectedMappings: {
+    id: string
+    kind: 'OBJECT' | 'PROPERTY' | 'RELATION'
+    reason: string
+    operationIds: string[]
+  }[]
+}
+export interface MetadataChange {
+  path: string
+  kind: 'RESOURCE' | 'FIELD' | 'PRIMARY_KEY' | 'RELATION' | 'INDEX'
+  before?: unknown
+  after?: unknown
+}
+export interface SourceSync {
+  space: Space
+  snapshot: MetadataSnapshot
+  diff: MetadataDiff
+}
+export interface ManagedFile {
+  id: string
+  name: string
+  mediaType: string
+  size: number
+  sha256: string
+  resource: string
+}
+export interface ObjectMapping {
+  id: string
+  datasourceId: string
+  sourceResource: string
+  targetClassId: string
+  objectKeyExpr: string
+  filter: JsonObject | null
+  metaSnapshotId: string
+}
+export interface PropertyMapping {
+  id: string
+  objectMappingId: string
+  sourceField: string
+  targetPropertyId: string
+  transform: {
+    kind: 'IDENTITY' | 'TO_STRING' | 'TO_NUMBER' | 'TO_BOOLEAN' | 'CODEBOOK'
+    codebookId?: string
+  } | null
+  required: boolean
+}
+export interface RelationMapping {
+  id: string
+  datasourceId: string
+  relationId: string
+  fromObjectMappingId: string
+  toObjectMappingId: string
+  fromKeyExpr: string
+  toKeyExpr: string
+  join: { fromField: string; toField: string }
+  cardinalityCheck: boolean
+  metaSnapshotId: string
+}
+export interface MappingCollection {
+  objects: ObjectMapping[]
+  properties: PropertyMapping[]
+  relations: RelationMapping[]
+}
+export type MappingKind = keyof MappingCollection
+export type Mapping = ObjectMapping | PropertyMapping | RelationMapping
+export interface MappingValidation {
+  valid: boolean
+  checks: {
+    kind: 'CLASS_OBJECT' | 'REQUIRED_PROPERTY' | 'RELATION_KEYS' | 'REACHABLE_REFERENCE'
+    passed: boolean
+    issues: MappingIssue[]
+  }[]
+  coverage: { mapped: number; pending: number; unmappable: number }
+  coverageBasis: string
+  affectedOperations: { id: string; code: string; name: string }[]
+}
+export interface MappingIssue {
+  code: string
+  message: string
+  entityId?: string
+  field?: string
+}
+export interface MappingImpact {
+  operations: { id: string; code: string; name: string }[]
+  issues: MappingIssue[]
+}
+export interface DataQuery {
+  mode: 'OBJECT' | 'RELATION'
+  objectMappingId: string
+  relationMappingId?: string
+  propertyIds: string[]
+  filters: {
+    propertyId: string
+    operator: 'EQ' | 'IN' | 'GT' | 'GE' | 'LT' | 'LE'
+    inputParam: string
+  }[]
+}
+export interface OperationDataQuery {
+  operationId: string
+  dataQuery: DataQuery | null
+}
+export interface Suggestion {
+  id: string
+  batchId: string
+  sourceKind: 'TABLE' | 'FILE' | 'DOCUMENT'
+  kind: 'CLASS' | 'PROPERTY' | 'RELATION'
+  payload: JsonObject
+  confidence: number
+  location: JsonObject
+  status: 'PENDING' | 'ACCEPTED' | 'REJECTED'
+}
+export interface SuggestionDecision {
+  id: string
+  decision: 'ACCEPT' | 'REJECT'
+  payload?: JsonObject
+}
+export interface ExtractionRequest {
+  sourceKind: 'TABLE' | 'FILE' | 'DOCUMENT'
+  datasourceId?: string
+  metaSnapshotId?: string
+  resource?: string
+  fileId?: string
+}
+/** 目录读取视图保留服务端提供的来源和关联，不推造未定义的统计分母。 */
+export interface DataCatalog {
+  datasources: (Datasource & {
+    latestSnapshotId: string | null
+    mappingCount: number
+    classIds: string[]
+    operationIds: string[]
+  })[]
+  bindings: {
+    datasourceId: string
+    objectMappingId: string
+    resource: string
+    classId: string
+    className: string
+    propertyCount: number
+    relationCount: number
+    operationIds: string[]
+  }[]
+}
+
+
+--- FILE: web/packages/api-client/src/index.ts ---
+export * from './types'
+export * from './supply'
+export * from './data'
+export type { components, paths } from './generated'
+
+/** 所有 HTTP、信封与网络失败共用此错误，页面据此提供刷新或重新登录。 */
+export class ApiError extends Error {
+  constructor(
+    public readonly code: string,
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}
+export interface Envelope<T> {
+  code: string
+  message?: string
+  data: T
+  meta?: unknown
+}
+export class ApiClient {
+  constructor(
+    private readonly token: () => string | null,
+    private readonly expired: () => void,
+    private readonly fetcher: typeof fetch = fetch,
+  ) {}
+  /** 令牌仅在请求时读取内存；不接触 localStorage/sessionStorage。 */
+  async request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
+    return (await this.requestEnvelope<T>(path, method, body)).data
+  }
+  /** 内部候选调用需保留 preview 与摘要元数据，业务结果仍独立置于 data。 */
+  async requestEnvelope<T>(path: string, method = 'GET', body?: unknown): Promise<Envelope<T>> {
+    const headers = new Headers({ Accept: 'application/json' })
+    const token = this.token()
+    if (token) headers.set('Authorization', `Bearer ${token}`)
+    // multipart boundary 由浏览器生成；否则受管文件会被误序列化为空 JSON。
+    const multipart = body instanceof FormData
+    if (body !== undefined && !multipart) headers.set('Content-Type', 'application/json')
+    let response: Response
+    try {
+      // 原生 fetch 按全局函数调用，避免实例代理改变浏览器要求的调用上下文。
+      const fetcher = this.fetcher
+      response = await fetcher(`/onto${path}`, {
+        method,
+        headers,
+        body: body === undefined ? undefined : multipart ? body : JSON.stringify(body),
+      })
+    } catch {
+      throw new ApiError('NETWORK_ERROR', '无法连接服务，请检查网络后重试。', 0)
+    }
+    // 旧会话的迟到响应只能使旧请求失败，不能注销用户重新登录后的新会话。
+    if (response.status === 401 && token === this.token()) this.expired()
+    let envelope: Envelope<T>
+    try {
+      const parsed: unknown = await response.json()
+      if (
+        typeof parsed !== 'object' ||
+        parsed === null ||
+        !('code' in parsed) ||
+        typeof parsed.code !== 'string' ||
+        ('message' in parsed && typeof parsed.message !== 'string') ||
+        (parsed.code !== 'OK' && !('message' in parsed)) ||
+        !('data' in parsed)
+      )
+        throw new Error('Invalid envelope')
+      envelope = parsed as Envelope<T>
+    } catch {
+      throw new ApiError('INVALID_RESPONSE', '服务响应无法读取，请稍后重试。', response.status)
+    }
+    if (!response.ok || envelope.code !== 'OK')
+      throw new ApiError(
+        envelope.code || 'HTTP_ERROR',
+        envelope.message ||
+          (response.status === 403 ? '当前账号没有此操作权限。' : '操作失败，请重试。'),
+        response.status,
+      )
+    return envelope
+  }
+  get<T>(path: string) {
+    return this.request<T>(path)
+  }
+  post<T>(path: string, body: unknown) {
+    return this.request<T>(path, 'POST', body)
+  }
+  put<T>(path: string, body: unknown) {
+    return this.request<T>(path, 'PUT', body)
+  }
+  delete<T>(path: string) {
+    return this.request<T>(path, 'DELETE')
+  }
+}
+
+
+--- FILE: web/apps/onto-admin/src/router.ts ---
+import { createRouter, createWebHistory } from 'vue-router'
+import { useSession } from './stores/session'
+export const router = createRouter({
+  history: createWebHistory(),
+  routes: [
+    { path: '/login', component: () => import('./views/LoginView.vue') },
+    {
+      path: '/',
+      component: () => import('./layouts/WorkbenchLayout.vue'),
+      children: [
+        { path: '', redirect: '/spaces' },
+        { path: 'spaces', component: () => import('./views/SpacesView.vue') },
+        { path: 'spaces/:spaceId', redirect: (to) => `/spaces/${String(to.params.spaceId)}/model` },
+        { path: 'spaces/:spaceId/model', component: () => import('./views/ModelView.vue') },
+        {
+          path: 'spaces/:spaceId/codebooks',
+          component: () => import('./features/p1/CodebooksView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/relations',
+          component: () => import('./features/p1/RelationsView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/constraints',
+          component: () => import('./features/p1/ConstraintsView.vue'),
+        },
+        { path: 'spaces/:spaceId/rules', component: () => import('./features/p1/RulesView.vue') },
+        {
+          path: 'spaces/:spaceId/strategies',
+          component: () => import('./features/p1/StrategiesView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/imports',
+          component: () => import('./features/p1/ImportsView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/test-cases',
+          component: () => import('./features/p1/TestCasesView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/operations',
+          component: () => import('./views/OperationsView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/assistant',
+          component: () => import('./features/p2/AssistantView.vue'),
+        },
+        { path: 'spaces/:spaceId/guards', component: () => import('./features/p2/GuardsView.vue') },
+        { path: 'spaces/:spaceId/grants', component: () => import('./features/p2/GrantsView.vue') },
+        {
+          path: 'spaces/:spaceId/knowledge',
+          component: () => import('./features/p2/KnowledgeView.vue'),
+        },
+        { path: 'spaces/:spaceId/supply', component: () => import('./features/p2/SupplyView.vue') },
+        {
+          path: 'spaces/:spaceId/datasources',
+          component: () => import('./features/p3/SourcesView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/mappings',
+          component: () => import('./features/p3/MappingsView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/data-query',
+          component: () => import('./features/p3/DataQueryView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/suggestions',
+          component: () => import('./features/p3/SuggestionsView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/data-catalog',
+          component: () => import('./features/p3/DataCatalogView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/candidates',
+          component: () => import('./views/CandidatesView.vue'),
+        },
+        {
+          path: 'spaces/:spaceId/executions',
+          component: () => import('./views/ExecutionsView.vue'),
+        },
+      ],
+    },
+    { path: '/:pathMatch(.*)*', redirect: '/spaces' },
+  ],
+})
+router.beforeEach((to) => (!useSession().token && to.path !== '/login' ? '/login' : true))
+
+
+--- FILE: web/apps/onto-admin/src/layouts/WorkbenchLayout.vue ---
+<script setup lang="ts">
+/** 共享工作台导航与空间授权上下文；切空间先撤销旧上下文，序号隔离迟到结果及错误。 */
+import { computed, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useSession } from '../stores/session'
+import { useWorkspace } from '../stores/workspace'
+import { errorMessage } from '../composables/useResource'
+import { roleLabels } from '../composables/labels'
+import AsyncState from '@onto/shared-ui/AsyncState.vue'
+const route = useRoute(),
+  router = useRouter(),
+  session = useSession(),
+  workspace = useWorkspace()
+const loading = ref(false),
+  error = ref(''),
+  signingOut = ref(false)
+const spaceId = computed(() =>
+  typeof route.params.spaceId === 'string' ? route.params.spaceId : '',
+)
+let sequence = 0
+async function loadSpace() {
+  const ticket = ++sequence
+  error.value = ''
+  loading.value = !!spaceId.value
+  if (!spaceId.value) {
+    workspace.clear()
+    return
+  }
+  try {
+    await workspace.load(spaceId.value)
+  } catch (cause) {
+    if (ticket === sequence) error.value = errorMessage(cause)
+  } finally {
+    if (ticket === sequence) loading.value = false
+  }
+}
+watch(spaceId, loadSpace, { immediate: true })
+const tabs = [
+  { path: 'model', label: '对象与属性' },
+  { path: 'codebooks', label: '码表管理' },
+  { path: 'relations', label: '关系与逆关系' },
+  { path: 'constraints', label: '约束管理' },
+  { path: 'rules', label: '规则与评分' },
+  { path: 'strategies', label: '执行策略' },
+  { path: 'operations', label: '模型操作' },
+  { path: 'assistant', label: '助手声明' },
+  { path: 'knowledge', label: '知识管理' },
+  { path: 'guards', label: '空间守卫' },
+  { path: 'grants', label: '主体授权', ownerOnly: true },
+  { path: 'datasources', label: '数据源管理' },
+  { path: 'mappings', label: '三层映射' },
+  { path: 'data-query', label: '操作数据查询' },
+  { path: 'suggestions', label: '三来源建模抽取' },
+  { path: 'data-catalog', label: '数据目录' },
+  { path: 'imports', label: 'TTL / OWL 导入导出' },
+  { path: 'test-cases', label: '用例管理' },
+  { path: 'candidates', label: '候选与试执行' },
+  { path: 'supply', label: '候选供给' },
+  { path: 'executions', label: '执行记录' },
+]
+async function logout() {
+  if (signingOut.value) return
+  signingOut.value = true
+  try {
+    await session.logout()
+  } catch {
+    /* 即使撤销请求失败，本地令牌也已在 finally 清理。 */
+  } finally {
+    signingOut.value = false
+    await router.replace('/login')
+  }
+}
+</script>
+<template>
+  <div class="workbench">
+    <aside class="navigation">
+      <router-link to="/spaces" class="brand">
+        <span class="brand-symbol">本</span>
+        <span>
+          领域本体
+          <small>建模工作台</small>
+        </span>
+      </router-link>
+      <div class="nav-label">工作空间</div>
+      <router-link to="/spaces" class="nav-item">空间管理</router-link>
+      <template v-if="spaceId">
+        <div class="nav-label">{{ workspace.space?.name || '当前空间' }}</div>
+        <router-link
+          v-for="tab in tabs.filter((tab) => !tab.ownerOnly || workspace.space?.role === 'OWNER')"
+          :key="tab.path"
+          :to="`/spaces/${spaceId}/${tab.path}`"
+          class="nav-item"
+        >
+          {{ tab.label }}
+        </router-link>
+      </template>
+      <div class="nav-foot">
+        模型查询工作台
+        <br />
+        候选版本仅供试执行
+      </div>
+    </aside>
+    <div class="work-area">
+      <header class="topbar">
+        <span class="muted">
+          {{ workspace.space?.name || '工作空间' }}
+          <template v-if="workspace.space">
+            /
+            <span class="mono">r{{ workspace.space.draftRev }}</span>
+            <span class="pill">{{ roleLabels[workspace.space.role] }}</span>
+          </template>
+        </span>
+        <div class="row">
+          <span class="muted">{{ session.user?.displayName }}</span>
+          <el-button text :loading="signingOut" @click="logout">退出登录</el-button>
+        </div>
+      </header>
+      <main class="main-content">
+        <div v-if="workspace.stale" class="readonly-note" role="alert">
+          草稿已被其他编辑更新，当前空间已暂停写入。请关闭编辑框，并使用页面的刷新按钮载入最新内容后重新编辑。
+        </div>
+        <AsyncState :loading="loading" :error="error" @retry="loadSpace">
+          <template v-if="workspace.space?.status === 'ARCHIVED'">
+            <div class="readonly-note">此空间已归档，可浏览已有模型、候选与执行记录。</div>
+          </template>
+          <template v-else-if="workspace.space?.role === 'VIEWER'">
+            <div class="readonly-note">你拥有查看权限，编辑与试执行需要空间编辑者授权。</div>
+          </template>
+          <router-view v-if="!spaceId || workspace.space" :key="spaceId" />
+        </AsyncState>
+      </main>
+    </div>
+  </div>
+</template>
+<style scoped>
+.workbench {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+}
+.navigation {
+  background: var(--nav);
+  color: #bed0e5;
+  padding: 28px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.brand {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  color: white;
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0 8px 34px;
+}
+.brand small {
+  display: block;
+  font-size: 11px;
+  color: #98b2d0;
+  letter-spacing: 2px;
+  margin-top: 5px;
+}
+.brand-symbol {
+  display: grid;
+  place-items: center;
+  border: 1px solid #6887b4;
+  border-radius: 6px;
+  width: 36px;
+  height: 40px;
+  font-size: 22px;
+}
+.nav-label {
+  font-size: 11px;
+  color: #8ea8c6;
+  padding: 20px 14px 8px;
+  overflow-wrap: anywhere;
+}
+.nav-item {
+  padding: 12px 14px;
+  border-radius: 6px;
+  color: #c4d2e4;
+  font-size: 14px;
+}
+.nav-item:hover {
+  background: #203c60;
+}
+.nav-item.router-link-active {
+  background: #284f80;
+  color: #fff;
+  box-shadow: inset 3px 0 #7ca7ff;
+}
+.nav-foot {
+  margin-top: auto;
+  padding: 40px 14px 0;
+  font-size: 11px;
+  line-height: 1.8;
+  color: #8ea8c6;
+}
+.work-area {
+  min-width: 0;
+}
+.topbar {
+  height: 66px;
+  background: #fff;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 32px;
+  gap: 12px;
+}
+.topbar .pill {
+  margin-left: 8px;
+}
+.main-content {
+  padding: 30px 32px;
+  max-width: 1600px;
+  margin: auto;
+}
+@media (max-width: 900px) {
+  .workbench {
+    grid-template-columns: 176px minmax(0, 1fr);
+  }
+  .main-content {
+    padding: 24px 18px;
+  }
+  .topbar {
+    padding: 0 18px;
+  }
+}
+@media (max-width: 650px) {
+  .workbench {
+    display: block;
+  }
+  .navigation {
+    padding: 14px;
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+  }
+  .brand {
+    font-size: 16px;
+    margin: 0 16px 0 0;
+  }
+  .brand-symbol {
+    width: 28px;
+    height: 32px;
+    font-size: 18px;
+  }
+  .brand small,
+  .nav-label,
+  .nav-foot {
+    display: none;
+  }
+  .nav-item {
+    font-size: 12px;
+    padding: 9px;
+  }
+  .topbar {
+    height: auto;
+    min-height: 58px;
+    flex-wrap: wrap;
+    padding: 10px 16px;
+  }
+  .main-content {
+    padding: 22px 12px;
+  }
+}
+</style>
+

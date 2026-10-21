@@ -1,0 +1,37 @@
+{
+  "checkedAt": "2026-10-20T20:52:00+08:00",
+  "base": "http://127.0.0.1:15184",
+  "tool": "Playwright CLI / Chromium",
+  "spaceId": "9c7e2171-efa1-4be0-a07b-3854ce224ff4",
+  "candidateId": "fee2c4fc-1380-4806-8b15-b6d46d7ce6b8",
+  "candidateSha256": "1b13c15858e5759333473ff0ef02adb57c4a3d99515c1dc36fc87389123abe29",
+  "desktopExecutionId": "1ed197e1-c915-4d77-83c8-c5aec8d6305f",
+  "mobileExecutionId": "0a19724d-9878-4e4d-9968-be1b3a8877b7",
+  "checks": [
+    "真实登录表单提交并进入空间列表",
+    "新建空间并进入建模页面",
+    "新建两个根对象，使用真实父级下拉创建子对象",
+    "使用真实类型下拉选择 INTEGER，勾选必填并保存属性",
+    "保存模型 SELECT 操作",
+    "确认冻结草稿 r5，候选中可选择对应冻结操作",
+    "桌面试执行 SUCCEEDED，返回任务、侦察任务、算法三行",
+    "执行记录详情显示同一跟踪标识、摘要和三个执行步骤",
+    "390×844 窄屏选择操作并成功试执行，返回三行",
+    "窄屏属性表横向滚动到编辑入口并打开编辑对话框"
+  ],
+  "layout": {
+    "desktopViewport": [1440, 1000],
+    "mobileViewport": [390, 844],
+    "mobileDocumentWidth": 390,
+    "candidatePanelClientWidth": 364,
+    "candidatePanelScrollWidth": 364,
+    "candidateContentClientWidth": 332,
+    "candidateContentScrollWidth": 332,
+    "propertyTableClientWidth": 332,
+    "propertyTableScrollWidth": 565,
+    "propertyTableVerifiedScrollLeft": 233
+  },
+  "pageErrorsDuringFinalFlow": [],
+  "result": "PASSED",
+  "scope": "本地 Chromium、管理员 OWNER 闭环；其他角色反例由后端集成测试覆盖，未声称所有浏览器及完整 P1 功能均已验收。"
+}

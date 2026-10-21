@@ -1,0 +1,357 @@
+{
+  "command": "mvn.cmd -B -DargLine=-Xmx512m -Djava.io.tmpdir=<ASCII工程路径>/.runtime/tmp -Djdk.net.unixdomain.tmpdir=<ASCII工程路径>/.runtime/tmp verify",
+  "log": ".runtime/c8-full-verify-interrupted.log",
+  "startedAt": "2026-10-21T02:16:38.0857261Z",
+  "finishedLine": null,
+  "durationLine": null,
+  "result": "INTERRUPTED",
+  "environment": {
+    "java": "21",
+    "mavenHeapMiB": 512,
+    "testForkHeapMiB": 512,
+    "database": "onto_test_p4",
+    "storage": "real MinIO",
+    "externalAcceptance": false
+  },
+  "totals": {
+    "tests": 234,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "suites": [
+    {
+      "module": "onto-artifact",
+      "name": "cn.ontorepo.artifact.ArtifactStoreTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 2.502
+    },
+    {
+      "module": "onto-contract",
+      "name": "cn.ontorepo.contract.ContractReviewRegressionTest",
+      "tests": 51,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.517
+    },
+    {
+      "module": "onto-contract",
+      "name": "cn.ontorepo.contract.ContractTest",
+      "tests": 12,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.059
+    },
+    {
+      "module": "onto-contract",
+      "name": "cn.ontorepo.contract.P3GuardTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.008
+    },
+    {
+      "module": "onto-contract",
+      "name": "cn.ontorepo.contract.SchemaRecursionTest",
+      "tests": 26,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.142
+    },
+    {
+      "module": "onto-data",
+      "name": "cn.ontorepo.data.domain.DataBoundaryTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.188
+    },
+    {
+      "module": "onto-data",
+      "name": "cn.ontorepo.data.domain.JdbcAdapterTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 1.466
+    },
+    {
+      "module": "onto-data",
+      "name": "cn.ontorepo.data.domain.LocalAdaptersTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 1.534
+    },
+    {
+      "module": "onto-data",
+      "name": "cn.ontorepo.data.domain.NativeGuardsTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.003
+    },
+    {
+      "module": "onto-data",
+      "name": "cn.ontorepo.data.domain.ParquetIntegrationTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 1.065
+    },
+    {
+      "module": "onto-data",
+      "name": "cn.ontorepo.data.domain.QueryPlannerTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.014
+    },
+    {
+      "module": "onto-data",
+      "name": "cn.ontorepo.data.domain.TransformFiltersTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.241
+    },
+    {
+      "module": "onto-data",
+      "name": "cn.ontorepo.data.domain.TransformJdbcTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 2.701
+    },
+    {
+      "module": "onto-data",
+      "name": "cn.ontorepo.data.domain.TransformProtocolBoundaryTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.008
+    },
+    {
+      "module": "onto-data",
+      "name": "cn.ontorepo.data.domain.TransformValidationOrderTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.098
+    },
+    {
+      "module": "onto-data",
+      "name": "cn.ontorepo.data.domain.ValueTransformTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.008
+    },
+    {
+      "module": "onto-data",
+      "name": "cn.ontorepo.data.infra.FileIntegrityAuditTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.063
+    },
+    {
+      "module": "onto-data",
+      "name": "cn.ontorepo.data.infra.GraphPlanTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.002
+    },
+    {
+      "module": "onto-data",
+      "name": "cn.ontorepo.data.infra.ReviewRegressionTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.269
+    },
+    {
+      "module": "onto-data",
+      "name": "cn.ontorepo.data.infra.S3BoundaryTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.004
+    },
+    {
+      "module": "onto-designer-api",
+      "name": "cn.ontorepo.BoundaryTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 4.708
+    },
+    {
+      "module": "onto-designer-api",
+      "name": "cn.ontorepo.C1ReviewRegressionTest",
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 42.981
+    },
+    {
+      "module": "onto-designer-api",
+      "name": "cn.ontorepo.ConsistencyFallbackTest",
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 1.298
+    },
+    {
+      "module": "onto-designer-api",
+      "name": "cn.ontorepo.DataAuditRegressionTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.313
+    },
+    {
+      "module": "onto-designer-api",
+      "name": "cn.ontorepo.ExecutionAuditTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 38.729
+    },
+    {
+      "module": "onto-designer-api",
+      "name": "cn.ontorepo.IamAuthenticationTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 22.712
+    },
+    {
+      "module": "onto-designer-api",
+      "name": "cn.ontorepo.IamBoundaryTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 10.695
+    },
+    {
+      "module": "onto-release",
+      "name": "cn.ontorepo.release.application.ReleaseHistoryServiceTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.101
+    },
+    {
+      "module": "onto-release",
+      "name": "cn.ontorepo.release.application.ReleaseRestoreTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 38.981
+    },
+    {
+      "module": "onto-release",
+      "name": "cn.ontorepo.release.application.TraceAuditServiceTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 2.023
+    },
+    {
+      "module": "onto-release",
+      "name": "cn.ontorepo.release.domain.OutboxPolicyTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.012
+    },
+    {
+      "module": "onto-release",
+      "name": "cn.ontorepo.release.domain.ReleaseGatePolicyTest",
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.01
+    },
+    {
+      "module": "onto-release",
+      "name": "cn.ontorepo.release.infra.JdbcOutboxStoreTest",
+      "tests": 13,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 8.365
+    },
+    {
+      "module": "onto-release",
+      "name": "cn.ontorepo.release.infra.OutboxClockAuditTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.776
+    },
+    {
+      "module": "onto-release",
+      "name": "cn.ontorepo.release.infra.OutboxLeaseWaitAuditTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 11.182
+    },
+    {
+      "module": "onto-release",
+      "name": "cn.ontorepo.release.infra.OutboxRelayTest",
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 6.363
+    },
+    {
+      "module": "onto-release",
+      "name": "cn.ontorepo.release.infra.ReleaseEventServiceTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 1.161
+    }
+  ]
+}

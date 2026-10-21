@@ -1,0 +1,52 @@
+{
+  "checkedAt": "2026-10-20T16:45:24.353Z",
+  "spaceId": "b93aac68-935e-47b9-b656-a5d80d6f387f",
+  "candidates": [
+    {
+      "candidateId": "9a12edb2-4c9b-45b1-8f68-0b954f2ee69d",
+      "candidateSha256": "ea03a66cfaaf7850bc1c3850ab13a97d8483575fb892c98ec28625900ef43b61",
+      "operationId": "a6649ca8-7c68-4890-afd4-72786a841e75",
+      "opCode": "convert_valid",
+      "expectedFailure": false,
+      "executionId": "0bcfdb08-2f94-42ed-b9f6-abcf58e091e7"
+    },
+    {
+      "candidateId": "ec789a37-849a-44cb-b1ca-cc58bd367685",
+      "candidateSha256": "2e93bfafd6b5cb543ae04116aff65cfef527da81dcf79af917a7dc942971ff8e",
+      "operationId": "4d2c3d14-9629-4d35-86a2-44316e6d4d39",
+      "opCode": "convert_late_bad",
+      "expectedFailure": true,
+      "executionId": "86fa7343-66d2-454a-840c-498386e0ae67"
+    },
+    {
+      "candidateId": "c5f38201-3b2c-489d-aa4c-365832e73b53",
+      "candidateSha256": "6d01d74016b774421e11897f16f93729611899047c0372f7f504affd2d843ce3",
+      "operationId": "0de65d3b-2d2f-4c16-bd6c-9ba8cdd54508",
+      "opCode": "convert_filtered_bad",
+      "expectedFailure": true,
+      "executionId": "25fadd03-0f0e-4aae-a2b5-9628b49d6d11"
+    }
+  ],
+  "checks": [
+    {
+      "name": "valid转换授权与LIMIT语义",
+      "status": "PASSED"
+    },
+    {
+      "name": "late_bad转换授权与LIMIT语义",
+      "status": "PASSED"
+    },
+    {
+      "name": "filtered_bad转换授权与LIMIT语义",
+      "status": "PASSED"
+    },
+    {
+      "name": "映射引用中的码表删除拒绝",
+      "status": "PASSED"
+    },
+    {
+      "name": "更新草稿码表后旧候选仍使用冻结分组",
+      "status": "PASSED"
+    }
+  ]
+}
