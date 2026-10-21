@@ -7,6 +7,7 @@ import type {
   PublicationCandidate,
 } from '../../../../../packages/api-client/src/release'
 import { useWorkspace } from '../../stores/workspace'
+import { publicationStatusLabels } from './publication'
 import { useSession } from '../../stores/session'
 import { useResource } from '../../composables/useResource'
 import { useMutation, confirmAction } from '../../composables/useMutation'
@@ -137,7 +138,7 @@ async function freeze() {
           >
             <b>草稿 r{{ item.draftRev }}</b>
             <p class="muted">
-              {{ item.status }} · {{ item.preVersionNo ? `v${item.preVersionNo}` : '历史候选' }}
+              {{ publicationStatusLabels[item.status] ?? item.status }} · {{ item.preVersionNo ? `v${item.preVersionNo}` : '历史候选' }}
             </p>
             <span class="identity">{{ item.sha256 }}</span>
           </button>

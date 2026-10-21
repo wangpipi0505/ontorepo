@@ -8,6 +8,7 @@ import { errorMessage } from '../composables/useResource'
 import { pagePermission, spacePagePermissions } from '../composables/pagePermissions'
 import { roleLabels } from '../composables/labels'
 import RequirementTags from '../components/RequirementTags.vue'
+import Breadcrumbs from '../components/Breadcrumbs.vue'
 import AsyncState from '@onto/shared-ui/AsyncState.vue'
 const route = useRoute(),
   router = useRouter(),
@@ -203,6 +204,7 @@ async function logout() {
           <el-button text :loading="signingOut" @click="logout">退出登录</el-button>
         </div>
       </header>
+      <Breadcrumbs v-if="spaceId" />
       <main class="main-content">
         <div v-if="workspace.stale" class="readonly-note" role="alert">
           草稿已被其他编辑更新，当前空间已暂停写入。请关闭编辑框，并使用页面的刷新按钮载入最新内容后重新编辑。

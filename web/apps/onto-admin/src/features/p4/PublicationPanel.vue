@@ -19,12 +19,17 @@ import CandidateTestsPanel from '../p1/CandidateTestsPanel.vue'
 import {
   allArtifactsReady,
   canWaiveConsistency,
+  checkConclusionLabels,
   gateKinds,
   gateLabels,
   gatePassed,
+  publicationStatusLabels,
 } from './publication'
 import './p4.css'
 const props = defineProps<{ candidate: PublicationCandidate }>()
+function conclusionLabel(value?: string) {
+  return value ? (checkConclusionLabels[value] ?? value) : '尚未执行'
+}
 const emit = defineEmits<{
   committed: [release: Release]
   busy: [value: boolean]
@@ -215,7 +220,7 @@ async function action(kind: 'validate' | 'review' | 'prepare' | 'commit' | 'canc
     <AsyncState :loading="state.loading.value" :error="state.error.value" @retry="load">
       <template v-if="publication">
         <div class="row">
-          <el-tag>{{ publication.status }}</el-tag>
+          <el-tag>{{ publicationStatusLabels[publication.status] ?? publication.status }}</el-tag>
           <b v-if="publication.preVersionNo">预分配 v{{ publication.preVersionNo }}</b>
         </div>
         <p v-if="legacy" class="readonly-note">
@@ -236,7 +241,7 @@ async function action(kind: 'validate' | 'review' | 'prepare' | 'commit' | 'canc
             <h3>{{ gateLabels[kind] }}</h3>
             <b>
               {{
-                publication.checks.find((check) => check.kind === kind)?.conclusion ?? '尚未执行'
+                conclusionLabel(publication.checks.find((check) => check.kind === kind)?.conclusion)
               }}
             </b>
             <p class="muted">

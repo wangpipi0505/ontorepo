@@ -113,13 +113,13 @@ describe('发布目录与详情事实同步', () => {
     vi.spyOn(useSession().api, 'post').mockResolvedValue(detail('a', 'READY_TO_COMMIT'))
     const wrapper = await page()
     const panel = wrapper.getComponent(PublicationPanel).element
-    expect(record(wrapper, 'a').text()).toContain('REVIEWING')
-    expect(record(wrapper, 'b').text()).toContain('VALIDATING')
+    expect(record(wrapper, 'a').text()).toContain('待人工复核')
+    expect(record(wrapper, 'b').text()).toContain('机器检查中')
     await wrapper.get('[data-testid=publication-reason]').setValue('保留原人工复核说明')
     await wrapper.get('input[type=checkbox]').setValue(true)
     await button(wrapper, '准备发布制品').trigger('click')
     await flushPromises()
-    expect(record(wrapper, 'a').text()).toContain('READY_TO_COMMIT')
+    expect(record(wrapper, 'a').text()).toContain('待提交发布')
     expect(wrapper.getComponent(PublicationPanel).element === panel).toBe(true)
     expect(wrapper.get<HTMLTextAreaElement>('[data-testid=publication-reason]').element.value).toBe(
       '保留原人工复核说明',
@@ -146,7 +146,7 @@ describe('发布目录与详情事实同步', () => {
     await wrapper.get('[data-testid=publication-reason]').setValue('提交后仍保留')
     await button(wrapper, '提交正式发布').trigger('click')
     await flushPromises()
-    expect(record(wrapper, 'a').text()).toContain('COMMITTED')
+    expect(record(wrapper, 'a').text()).toContain('已提交发布')
     expect(wrapper.get<HTMLTextAreaElement>('[data-testid=publication-reason]').element.value).toBe(
       '提交后仍保留',
     )
@@ -164,8 +164,8 @@ describe('发布目录与详情事实同步', () => {
       })
       await button(wrapper, '准备发布制品').trigger('click')
       await flushPromises()
-      expect(record(wrapper, 'a').text()).toContain('REVIEWING')
-      expect(record(wrapper, 'a').text()).not.toContain('READY_TO_COMMIT')
+      expect(record(wrapper, 'a').text()).toContain('待人工复核')
+      expect(record(wrapper, 'a').text()).not.toContain('待提交发布')
       expect(wrapper.text()).toContain('响应不属于当前候选摘要与修订')
     },
   )
@@ -182,8 +182,8 @@ describe('发布目录与详情事实同步', () => {
     await flushPromises()
     pending.resolve(detail('a', 'COMMITTED'))
     await flushPromises()
-    expect(record(wrapper, 'b').text()).toContain('TESTING')
-    expect(record(wrapper, 'a').text()).toContain('VALIDATING')
+    expect(record(wrapper, 'b').text()).toContain('验收测试中')
+    expect(record(wrapper, 'a').text()).toContain('机器检查中')
     expect(wrapper.getComponent(PublicationPanel).text()).toContain('候选 b')
   })
   it('详情刷新晚于同空间重新进入时不得回传旧状态', async () => {
@@ -199,8 +199,8 @@ describe('发布目录与详情事实同步', () => {
     await useWorkspace().load('s')
     pending.resolve(detail('a', 'COMMITTED'))
     await flushPromises()
-    expect(record(wrapper, 'a').text()).toContain('REVIEWING')
-    expect(record(wrapper, 'a').text()).not.toContain('COMMITTED')
+    expect(record(wrapper, 'a').text()).toContain('待人工复核')
+    expect(record(wrapper, 'a').text()).not.toContain('已提交发布')
   })
   it('并行两次详情刷新仅最新响应可同步目录', async () => {
     const wrapper = await page()
@@ -219,6 +219,6 @@ describe('发布目录与详情事实同步', () => {
     await flushPromises()
     first.resolve(detail('a', 'TESTING'))
     await flushPromises()
-    expect(record(wrapper, 'a').text()).toContain('READY_TO_COMMIT')
+    expect(record(wrapper, 'a').text()).toContain('待提交发布')
   })
 })
