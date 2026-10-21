@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /** 事件绑定状态与版本当前状态分开展示；重放只提交原事件 id。 */
-import { computed, reactive, watch } from 'vue'
+import { computed, inject, reactive, watch } from 'vue'
+import { routeLocationKey } from 'vue-router'
 import type { ReleaseEvent, EventReceipt } from '../../../../../packages/api-client/src/release'
 import { useWorkspace } from '../../stores/workspace'
 import { useSession } from '../../stores/session'
@@ -8,11 +9,20 @@ import { useResource } from '../../composables/useResource'
 import { useMutation } from '../../composables/useMutation'
 import AsyncState from '@onto/shared-ui/AsyncState.vue'
 import './p4.css'
-const workspace = useWorkspace(),
+const route = inject(routeLocationKey, undefined),
+  workspace = useWorkspace(),
   api = useSession().api,
   mutation = useMutation()
 const state = useResource<{ events: ReleaseEvent[]; inbox: EventReceipt[] } | null>(null)
 const reasons = reactive<Record<number, string>>({})
+const releaseId = computed(() =>
+  typeof route?.query.releaseId === 'string' ? route.query.releaseId : '',
+)
+const events = computed(() =>
+  releaseId.value
+    ? (state.data.value?.events ?? []).filter((item) => item.releaseId === releaseId.value)
+    : (state.data.value?.events ?? []),
+)
 const owner = computed(() => workspace.space?.role === 'OWNER' && workspace.canWrite)
 function load() {
   const id = workspace.space?.id
@@ -67,8 +77,8 @@ async function replay(item: ReleaseEvent) {
       <template v-if="state.data.value">
         <section class="panel stack">
           <h2>投递队列</h2>
-          <p v-if="!state.data.value.events.length" class="muted">暂无发布事件。</p>
-          <article v-for="item in state.data.value.events" :key="item.id" class="record stack">
+          <p v-if="!events.length" class="muted">暂无发布事件。</p>
+          <article v-for="item in events" :key="item.id" class="record stack">
             <div class="row spread">
               <h3>#{{ item.id }} · {{ item.type }}</h3>
               <el-tag

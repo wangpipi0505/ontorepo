@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /** 版本选择只加载真实端点目录；授权、凭据和调用各自持有独立可重试状态。 */
-import { computed, ref, watch } from 'vue'
+import { computed, inject, ref, watch } from 'vue'
+import { routeLocationKey } from 'vue-router'
 import type { Release, Endpoint } from '../../../../../packages/api-client/src/release'
 import { useWorkspace } from '../../stores/workspace'
 import { useSession } from '../../stores/session'
@@ -11,7 +12,8 @@ import EndpointGrantsPanel from './EndpointGrantsPanel.vue'
 import CredentialsPanel from './CredentialsPanel.vue'
 import ServiceCallPanel from './ServiceCallPanel.vue'
 import './p4.css'
-const workspace = useWorkspace(),
+const route = inject(routeLocationKey, undefined),
+  workspace = useWorkspace(),
   session = useSession(),
   api = session.api
 const releases = useResource<Release[]>([]),
@@ -21,10 +23,14 @@ const releases = useResource<Release[]>([]),
   mutation = useMutation()
 const release = computed(() => releases.data.value.find((item) => item.id === selected.value))
 const endpoint = computed(() => endpoints.data.value.find((item) => item.id === endpointId.value))
-function load() {
+async function load() {
   const id = workspace.space?.id
   if (!id) return
-  return releases.load(() => api.get<Release[]>(`/releases?spaceId=${id}`))
+  const result = await releases.load(() => api.get<Release[]>(`/releases?spaceId=${id}`))
+  const requested = typeof route?.query.releaseId === 'string' ? route.query.releaseId : ''
+  if (result)
+    selected.value = result.some((item) => item.id === requested) ? requested : result[0]?.id || ''
+  return result
 }
 async function loadEndpoints() {
   if (!selected.value) return

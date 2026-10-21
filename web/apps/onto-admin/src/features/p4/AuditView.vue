@@ -1,19 +1,27 @@
 <script setup lang="ts">
 /** 审计按对象/动作/时间检索；游标只追加，不覆盖已读事实。 */
-import { reactive, ref, shallowRef, watch } from 'vue'
+import { inject, reactive, ref, shallowRef, watch } from 'vue'
+import { routeLocationKey } from 'vue-router'
 import type { AuditPage } from '../../../../../packages/api-client/src/release'
 import { useWorkspace } from '../../stores/workspace'
 import { useSession } from '../../stores/session'
 import { useResource } from '../../composables/useResource'
 import './p4.css'
-const workspace = useWorkspace(),
+const route = inject(routeLocationKey, undefined),
+  workspace = useWorkspace(),
   api = useSession().api,
   request = useResource<AuditPage | null>(null)
 const items = shallowRef<AuditPage['items']>([]),
   cursor = ref<number | null>(null),
   initialized = ref(false),
   lastAppend = ref(false)
-const filters = reactive({ action: '', subjectType: '', subjectId: '', from: '', to: '' })
+const filters = reactive({
+  action: '',
+  subjectType: typeof route?.query.subjectType === 'string' ? route.query.subjectType : '',
+  subjectId: typeof route?.query.subjectId === 'string' ? route.query.subjectId : '',
+  from: '',
+  to: '',
+})
 const subjectTypes = ['CANDIDATE', 'RELEASE', 'DATASOURCE', 'MAPPING', 'OPERATION', 'SPACE']
 const actionLabels: Record<string, string> = {
   SPACE_CREATE: '创建空间',

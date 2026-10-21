@@ -162,6 +162,23 @@ async function restored() {
               <dt>发布时间</dt>
               <dd>{{ detail.data.value.release.publishedAt }}</dd>
             </dl>
+            <div class="row">
+              <RouterLink
+                :to="`/spaces/${workspace.space?.id}/consumption?releaseId=${detail.data.value.release.id}`"
+              >
+                去服务消费 →
+              </RouterLink>
+              <RouterLink
+                :to="`/spaces/${workspace.space?.id}/events?releaseId=${detail.data.value.release.id}`"
+              >
+                查看事件 →
+              </RouterLink>
+              <RouterLink
+                :to="`/spaces/${workspace.space?.id}/audit?subjectType=RELEASE&subjectId=${detail.data.value.release.id}`"
+              >
+                查看审计 →
+              </RouterLink>
+            </div>
             <ArtifactList :artifacts="detail.data.value.artifacts" />
             <details>
               <summary>冻结门禁报告</summary>
