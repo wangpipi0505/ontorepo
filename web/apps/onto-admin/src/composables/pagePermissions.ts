@@ -41,6 +41,9 @@ export function pagePermission(path: string) {
   if (path.startsWith('/system/audit')) return { read: 'system.audit.read', write: '' }
   if (path === '/spaces' || /^\/spaces\/[^/]+$/.test(path))
     return { read: 'space.read', write: 'space.write' }
+  const segments = path.split('/').filter(Boolean)
+  const first = segments[0] ?? ''
+  if (spacePagePermissions[first]) return spacePagePermissions[first]
   const tab = path.split('/')[3]
   return spacePagePermissions[tab] || null
 }

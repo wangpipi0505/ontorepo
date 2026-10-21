@@ -60,6 +60,8 @@ const tabs: Record<string, Record<string, string>> = {
 }
 export function breadcrumbs(path: string, queryTab?: string): Crumb[] {
   const segments = path.split('/').filter(Boolean)
+  if (['data', 'delivery', 'trace'].includes(segments[0] ?? ''))
+    return [{ label: pages[segments[0]!] ?? '功能模块' }]
   const index = segments.indexOf('spaces')
   const rest = index >= 0 ? segments.slice(index + 2) : []
   if (!rest.length) return [{ label: '空间概览' }]

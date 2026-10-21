@@ -4,8 +4,12 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import TestingView from './TestingView.vue'
 import ReleaseHubView from './ReleaseHubView.vue'
+import ModuleSpacePicker from '../components/ModuleSpacePicker.vue'
 const route = useRoute(),
   router = useRouter()
+const spaceId = computed(() =>
+  typeof route.query.spaceId === 'string' ? route.query.spaceId : '',
+)
 type Tab = 'testing' | 'delivery'
 const tab = computed<Tab>(() => (route.query.tab === 'delivery' ? 'delivery' : 'testing'))
 function select(name: string | number) {
@@ -13,7 +17,13 @@ function select(name: string | number) {
 }
 </script>
 <template>
-  <section class="module-page">
+  <ModuleSpacePicker
+    v-if="!spaceId"
+    title="测试与服务封装"
+    note="独立模块：选择本体空间查看用例、候选、发布与服务；后续支持跨空间测试与发布视图。"
+    base="/delivery"
+  />
+  <section v-else class="module-page">
     <header class="module-heading">
       <div>
         <h1>测试与服务封装</h1>

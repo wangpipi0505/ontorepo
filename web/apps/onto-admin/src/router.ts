@@ -81,16 +81,28 @@ export const router = createRouter({
         },
         {
           path: 'spaces/:spaceId/data',
-          component: () => import('./views/KnowledgeDataView.vue'),
+          redirect: (to) => ({
+            path: '/data',
+            query: { ...to.query, spaceId: String(to.params.spaceId) },
+          }),
         },
         {
           path: 'spaces/:spaceId/delivery',
-          component: () => import('./views/DeliveryView.vue'),
+          redirect: (to) => ({
+            path: '/delivery',
+            query: { ...to.query, spaceId: String(to.params.spaceId) },
+          }),
         },
         {
           path: 'spaces/:spaceId/trace',
-          component: () => import('./views/TraceAuditView.vue'),
+          redirect: (to) => ({
+            path: '/trace',
+            query: { ...to.query, spaceId: String(to.params.spaceId) },
+          }),
         },
+        { path: 'data', component: () => import('./views/KnowledgeDataView.vue') },
+        { path: 'delivery', component: () => import('./views/DeliveryView.vue') },
+        { path: 'trace', component: () => import('./views/TraceAuditView.vue') },
         {
           path: 'spaces/:spaceId/knowledge',
           component: () => import('./features/p2/KnowledgeView.vue'),

@@ -4,8 +4,12 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ExecutionsView from './ExecutionsView.vue'
 import AuditView from '../features/p4/AuditView.vue'
+import ModuleSpacePicker from '../components/ModuleSpacePicker.vue'
 const route = useRoute(),
   router = useRouter()
+const spaceId = computed(() =>
+  typeof route.query.spaceId === 'string' ? route.query.spaceId : '',
+)
 type Tab = 'executions' | 'audit'
 const tab = computed<Tab>(() => (route.query.tab === 'audit' ? 'audit' : 'executions'))
 function select(name: string | number) {
@@ -13,7 +17,13 @@ function select(name: string | number) {
 }
 </script>
 <template>
-  <section class="module-page">
+  <ModuleSpacePicker
+    v-if="!spaceId"
+    title="数据溯源审计"
+    note="独立模块：选择本体空间查看执行追溯与审计；后续支持按本体名称/类型跨空间检索与可视化。"
+    base="/trace"
+  />
+  <section v-else class="module-page">
     <header class="module-heading">
       <div>
         <h1>数据溯源审计</h1>

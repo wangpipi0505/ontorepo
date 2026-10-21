@@ -18,9 +18,10 @@ const route = useRoute(),
 const loading = ref(false),
   error = ref(''),
   signingOut = ref(false)
-const spaceId = computed(() =>
-  typeof route.params.spaceId === 'string' ? route.params.spaceId : '',
-)
+const spaceId = computed(() => {
+  if (typeof route.params.spaceId === 'string') return route.params.spaceId
+  return typeof route.query.spaceId === 'string' ? route.query.spaceId : ''
+})
 const userInitial = computed(() => session.user?.displayName?.slice(0, 1) || '我')
 watch(
   () => route.path,
@@ -89,34 +90,31 @@ async function logout() {
       >
         本体建模
       </router-link>
-      <template v-if="spaceId">
-        <router-link
-          :to="`/spaces/${spaceId}/data`"
-          class="nav-item"
-          active-class=""
-          :class="{ active: route.path.startsWith(`/spaces/${spaceId}/data`) }"
-        >
-          知识与数据
-        </router-link>
-        <router-link
-          :to="`/spaces/${spaceId}/delivery`"
-          class="nav-item"
-          active-class=""
-          :class="{ active: route.path.startsWith(`/spaces/${spaceId}/delivery`) }"
-        >
-          测试与服务封装
-        </router-link>
-        <router-link
-          :to="`/spaces/${spaceId}/trace`"
-          class="nav-item"
-          active-class=""
-          :class="{ active: route.path.startsWith(`/spaces/${spaceId}/trace`) }"
-        >
-          数据溯源审计
-        </router-link>
-      </template>
-      <p v-else class="nav-hint">进入“本体建模”选择一套本体后，功能模块自动展开。</p>
-      <div class="nav-label">系统管理</div>
+            <router-link
+        to="/data"
+        class="nav-item"
+        active-class=""
+        :class="{ active: route.path.startsWith('/data') }"
+      >
+        知识与数据
+      </router-link>
+      <router-link
+        to="/delivery"
+        class="nav-item"
+        active-class=""
+        :class="{ active: route.path.startsWith('/delivery') }"
+      >
+        测试与服务封装
+      </router-link>
+      <router-link
+        to="/trace"
+        class="nav-item"
+        active-class=""
+        :class="{ active: route.path.startsWith('/trace') }"
+      >
+        数据溯源审计
+      </router-link>
+      <p v-if="!spaceId" class="nav-hint">模块内可筛选“全部本体”或某套本体。</p><div class="nav-label">系统管理</div>
       <router-link
         v-for="tab in systemTabs.filter((item) => session.has(item.permission))"
         :key="tab.path"

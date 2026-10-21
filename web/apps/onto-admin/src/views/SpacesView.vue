@@ -222,14 +222,14 @@ onMounted(load)
               <el-button
                 link
                 type="primary"
-                @click="router.push(`/spaces/${row.id}/data?tab=datasources`)"
+                @click="router.push(`/data?spaceId=${row.id}&tab=datasources`)"
               >
                 数据配置
               </el-button>
               <el-button
                 link
                 type="primary"
-                @click="router.push(`/spaces/${row.id}/delivery?tab=testing`)"
+                @click="router.push(`/delivery?spaceId=${row.id}&tab=testing`)"
               >
                 发起测试
               </el-button>
