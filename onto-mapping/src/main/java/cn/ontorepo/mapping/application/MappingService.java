@@ -186,15 +186,20 @@ public class MappingService {
             var p = model(s, "ont_property", d.get("targetPropertyId"));
             if (!Objects.equals(o.get("targetClassId"), p.get("domainClassId")))
                 throw Problem.bad("属性不属于对象映射的本体类");
-            fields(resource(s, o), List.of(Input.text(d, "sourceField", 128)));
+            String sourceField = Input.text(d, "sourceField", 128);
+            fields(resource(s, o), List.of(sourceField));
             if (!(d.get("required") instanceof Boolean)) throw Problem.bad("required必须为布尔值");
-            if (d.get("transform") != null) {
-                var t = map(d.get("transform"));
-                only(t, Set.of("kind", "codebookId"));
+            Map<String, Object> transform =
+                    d.get("transform") == null ? null : map(d.get("transform"));
+            if (transform != null) {
+                only(transform, Set.of("kind", "codebookId"));
                 if (!Set.of("IDENTITY", "TO_STRING", "TO_NUMBER", "TO_BOOLEAN", "CODEBOOK")
-                        .contains(t.get("kind"))) throw Problem.bad("不支持任意映射表达式");
-                if ("CODEBOOK".equals(t.get("kind"))) model(s, "ont_codebook", t.get("codebookId"));
+                        .contains(transform.get("kind")))
+                    throw Problem.bad("不支持任意映射表达式");
+                if ("CODEBOOK".equals(transform.get("kind")))
+                    model(s, "ont_codebook", transform.get("codebookId"));
             }
+            requireTypeCompatible(resource(s, o), sourceField, p, transform);
             for (var pmap : all(s, "properties"))
                 if (!Objects.equals(pmap.get("id"), currentId == null ? null : currentId.toString())
                         && Objects.equals(pmap.get("objectMappingId"), d.get("objectMappingId"))
@@ -241,6 +246,64 @@ public class MappingService {
             if (!(d.get("cardinalityCheck") instanceof Boolean))
                 throw Problem.bad("cardinalityCheck必须为布尔值");
         }
+    }
+
+    /** 源字段类型与本体属性类型在保存期即校验；快照缺类型时保留运行期判定，不伪造兼容。 */
+    private void requireTypeCompatible(
+            Map<String, Object> resource,
+            String sourceField,
+            Map<String, Object> property,
+            Map<String, Object> transform) {
+        String source = sourceType(resource, sourceField);
+        String target = Objects.toString(property.get("rangeType"), "");
+        if (source == null || target.isBlank()) return;
+        String kind = transform == null ? "IDENTITY" : Objects.toString(transform.get("kind"), "");
+        boolean compatible =
+                switch (kind) {
+                    case "TO_STRING" -> target.equals("STRING");
+                    case "TO_NUMBER" ->
+                            Set.of("INTEGER", "DECIMAL").contains(target)
+                                    && Set.of("STRING", "INTEGER", "DECIMAL").contains(source);
+                    case "TO_BOOLEAN" ->
+                            target.equals("BOOLEAN") && Set.of("STRING", "BOOLEAN").contains(source);
+                    case "CODEBOOK" -> target.equals("STRING") && source.equals("STRING");
+                    default ->
+                            source.equals(target)
+                                    || (source.equals("INTEGER") && target.equals("DECIMAL"));
+                };
+        if (!compatible)
+            throw new Problem(
+                    409,
+                    "MAPPING_TYPE_INCOMPATIBLE",
+                    "源字段 " + sourceField + "(" + source + ") 与属性类型 " + target + " 不兼容");
+    }
+
+    private static String sourceType(Map<String, Object> resource, String sourceField) {
+        var fields = node(resource.get("fields"));
+        if (!fields.isArray()) return null;
+        for (var field : fields)
+            if (sourceField.equals(field.path("name").asText()))
+                return normalizeType(field.path("type").asText());
+        return null;
+    }
+
+    private static String normalizeType(String raw) {
+        String type = raw.toUpperCase(java.util.Locale.ROOT);
+        if (type.contains("CHAR")
+                || type.contains("TEXT")
+                || type.contains("UUID")
+                || type.contains("JSON")
+                || type.contains("ENUM")) return "STRING";
+        if (type.contains("BOOL")) return "BOOLEAN";
+        if (type.contains("DATE") || type.contains("TIME")) return "DATE";
+        if (type.contains("INT") || type.contains("SERIAL")) return "INTEGER";
+        if (type.contains("NUM")
+                || type.contains("DEC")
+                || type.contains("REAL")
+                || type.contains("DOUBLE")
+                || type.contains("FLOAT")
+                || type.contains("MONEY")) return "DECIMAL";
+        return null;
     }
 
     private static void only(Map<String, Object> d, Set<String> allowed) {

@@ -580,4 +580,21 @@ class P3MappingTest extends P3Fixture {
         assertEquals(1, result.path("rows").size());
         assertTrue(result.path("rows").toString().contains("T-B"));
     }
+
+    @Test
+    void propertyMappingRejectsIncompatibleSourceTypeAtSave() throws Exception {
+        var x = scenario();
+        String s = x.space();
+        var body = new LinkedHashMap<String, Object>();
+        body.put("spaceId", s);
+        body.put("expectedDraftRev", rev(s));
+        body.put("objectMappingId", x.taskMap());
+        body.put("sourceField", "priority");
+        body.put("targetPropertyId", x.taskProperty());
+        body.put("required", false);
+        var response =
+                call(post("/onto/mappings/properties"), ownerToken, body, 409);
+        assertEquals("MAPPING_TYPE_INCOMPATIBLE", response.path("code").asText());
+        assertTrue(response.path("message").asText().contains("priority"));
+    }
 }
