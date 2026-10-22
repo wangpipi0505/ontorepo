@@ -1,9 +1,10 @@
 <script setup lang="ts">
 /** 测试与服务封装全局视图：跨可见本体汇总候选与正式版本。 */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { Space } from '@onto/api-client'
 import AsyncState from '@onto/shared-ui/AsyncState.vue'
+import PagerBar from '@onto/shared-ui/PagerBar.vue'
 import { useSession } from '../stores/session'
 import { useResource } from '../composables/useResource'
 import { publicationStatusLabels } from '../features/p4/publication'
@@ -61,6 +62,16 @@ const spaceFilter = ref(''),
   keyword = ref(''),
   tab = ref<'candidates' | 'releases' | 'testCases' | 'services'>('candidates')
 const spaceNames = computed(() => new Map(spaces.data.value.map((item) => [item.id, item.name])))
+const pageSize = 30
+const pages = reactive<Record<string, number>>({ candidates: 1, releases: 1, testCases: 1, services: 1 })
+function pageSlice<T>(key: string, rows: T[]) {
+  const start = ((pages[key] ?? 1) - 1) * pageSize
+  return rows.slice(start, start + pageSize)
+}
+function resetPages() {
+  for (const key of Object.keys(pages)) pages[key] = 1
+}
+watch([spaceFilter, keyword], resetPages)
 const caseModeLabels: Record<string, string> = { DIRECT: '直接', NL: '自然语言' }
 const matchModeLabels: Record<string, string> = { EXACT: '精确', CONTAINS: '包含' }
 function filterRows<T extends { spaceId: string; spaceName?: string }>(rows: T[]) {
@@ -80,6 +91,18 @@ const serviceRows = computed(() => services.data.value)
 async function loadServices() {
   await services.load(() => api.get<ServiceRow[]>('/global/services'))
 }
+const activeRows = computed(() => {
+  switch (tab.value) {
+    case 'candidates':
+      return candidates.value
+    case 'releases':
+      return releases.value
+    case 'testCases':
+      return testCases.value
+    default:
+      return serviceRows.value
+  }
+})
 async function load() {
   await Promise.all([
     data.load(() => api.get<GlobalDelivery>('/global/delivery')),
@@ -117,7 +140,7 @@ onMounted(async () => {
       <AsyncState :loading="data.loading.value" :error="data.error.value" @retry="load">
         <el-tabs v-model="tab">
           <el-tab-pane :label="`候选 ${candidates.length}`" name="candidates">
-            <el-table :data="candidates" row-key="id">
+            <el-table :data="pageSlice('candidates', candidates)" row-key="id">
               <el-table-column label="候选" width="180">
                 <template #default="{ row }">
                   <span class="mono">{{ row.id.slice(0, 8) }}</span>
@@ -148,7 +171,7 @@ onMounted(async () => {
             </el-table>
           </el-tab-pane>
           <el-tab-pane :label="`正式版本 ${releases.length}`" name="releases">
-            <el-table :data="releases" row-key="id">
+            <el-table :data="pageSlice('releases', releases)" row-key="id">
               <el-table-column label="版本" width="100">
                 <template #default="{ row }">v{{ row.versionNo }}</template>
               </el-table-column>
@@ -177,7 +200,7 @@ onMounted(async () => {
             </el-table>
           </el-tab-pane>
           <el-tab-pane :label="`用例 ${testCases.length}`" name="testCases">
-            <el-table :data="testCases" row-key="id">
+            <el-table :data="pageSlice('testCases', testCases)" row-key="id">
               <el-table-column prop="name" label="用例" min-width="180" />
               <el-table-column prop="question" label="问题 / 输入" min-width="260" show-overflow-tooltip />
               <el-table-column label="模式" width="100">
@@ -215,7 +238,7 @@ onMounted(async () => {
               empty-text="当前可见版本尚未发布服务端点。"
               @retry="loadServices"
             >
-              <el-table :data="serviceRows" row-key="id">
+              <el-table :data="pageSlice('services', serviceRows)" row-key="id">
                 <el-table-column label="版本" width="90">
                   <template #default="{ row }">v{{ row.versionNo }}</template>
                 </el-table-column>
@@ -253,6 +276,12 @@ onMounted(async () => {
             </AsyncState>
           </el-tab-pane>
         </el-tabs>
+        <PagerBar
+          :page="pages[tab] ?? 1"
+          :total="activeRows.length"
+          :size="pageSize"
+          @update:page="pages[tab] = $event"
+        />
       </AsyncState>
     </section>
   </section>

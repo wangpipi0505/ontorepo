@@ -1,9 +1,10 @@
 <script setup lang="ts">
 /** 知识与数据全局库：跨当前用户可见本体聚合，可按本体筛选；明细仍进入具体本体。 */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { Space } from '@onto/api-client'
 import AsyncState from '@onto/shared-ui/AsyncState.vue'
+import PagerBar from '@onto/shared-ui/PagerBar.vue'
 import { useSession } from '../stores/session'
 import { useResource } from '../composables/useResource'
 interface KnowledgeRow {
@@ -92,8 +93,26 @@ const router = useRouter(),
   data = useResource<GlobalData | null>(null),
   spaces = useResource<Space[]>([])
 const spaceId = ref(''),
-  keyword = ref(''),
-  tab = ref<'knowledge' | 'sources' | 'mappings' | 'snapshots' | 'inventory' | 'suggestions' | 'imports'>('knowledge')
+  keyword = ref('')
+const pageSize = 30
+const pages = reactive<Record<string, number>>({
+  knowledge: 1,
+  sources: 1,
+  mappings: 1,
+  snapshots: 1,
+  inventory: 1,
+  suggestions: 1,
+  imports: 1,
+})
+function pageSlice<T>(key: string, rows: T[]) {
+  const start = ((pages[key] ?? 1) - 1) * pageSize
+  return rows.slice(start, start + pageSize)
+}
+function resetPages() {
+  for (const key of Object.keys(pages)) pages[key] = 1
+}
+watch([spaceId, keyword], resetPages)
+const tab = ref<'knowledge' | 'sources' | 'mappings' | 'snapshots' | 'inventory' | 'suggestions' | 'imports'>('knowledge')
 const spaceNames = computed(
   () => new Map(spaces.data.value.map((space) => [space.id, space.name])),
 )
@@ -182,6 +201,24 @@ function importRows() {
     .filter((item) => !spaceId.value || item.spaceId === spaceId.value)
     .filter((item) => !text || item.spaceName.toLocaleLowerCase().includes(text))
 }
+const activeRows = computed(() => {
+  switch (tab.value) {
+    case 'knowledge':
+      return knowledgeRows()
+    case 'sources':
+      return sourceRows()
+    case 'mappings':
+      return mappingDetailRows()
+    case 'snapshots':
+      return snapshotRows()
+    case 'inventory':
+      return inventoryRows()
+    case 'suggestions':
+      return suggestionRows()
+    default:
+      return importRows()
+  }
+})
 async function load() {
   await Promise.all([
     data.load(() => api.get<GlobalData>('/global/data')),
@@ -220,7 +257,7 @@ onMounted(load)
       >
         <el-tabs v-model="tab">
           <el-tab-pane :label="`知识物料 ${knowledgeRows().length}`" name="knowledge">
-            <el-table :data="knowledgeRows()" row-key="id">
+            <el-table :data="pageSlice('knowledge', knowledgeRows())" row-key="id">
               <el-table-column prop="term" label="术语 / 实体" min-width="180" />
               <el-table-column label="类型" width="120">
                 <template #default="{ row }">{{ enumLabel(row.kind) }}</template>
@@ -245,7 +282,7 @@ onMounted(load)
             </el-table>
           </el-tab-pane>
           <el-tab-pane :label="`数据源 ${sourceRows().length}`" name="sources">
-            <el-table :data="sourceRows()" row-key="id">
+            <el-table :data="pageSlice('sources', sourceRows())" row-key="id">
               <el-table-column prop="code" label="编码" width="150" />
               <el-table-column prop="name" label="名称" min-width="180" />
               <el-table-column prop="kind" label="类型" width="130" />
@@ -269,7 +306,7 @@ onMounted(load)
             </el-table>
           </el-tab-pane>
           <el-tab-pane :label="`映射 ${mappingDetailRows().length}`" name="mappings">
-            <el-table :data="mappingDetailRows()" row-key="id">
+            <el-table :data="pageSlice('mappings', mappingDetailRows())" row-key="id">
               <el-table-column label="类别" width="80">
                 <template #default="{ row }">{{ mappingCategory(row.category) }}</template>
               </el-table-column>
@@ -294,7 +331,7 @@ onMounted(load)
             </el-table>
           </el-tab-pane>
           <el-tab-pane :label="`快照 ${snapshotRows().length}`" name="snapshots">
-            <el-table :data="snapshotRows()" row-key="id">
+            <el-table :data="pageSlice('snapshots', snapshotRows())" row-key="id">
               <el-table-column label="快照" width="180">
                 <template #default="{ row }">
                   <span class="mono">{{ row.id.slice(0, 8) }}</span>
@@ -318,7 +355,7 @@ onMounted(load)
             </el-table>
           </el-tab-pane>
           <el-tab-pane :label="`抽取/导入 ${inventoryRows().length}`" name="inventory">
-            <el-table :data="inventoryRows()" row-key="spaceId">
+            <el-table :data="pageSlice('inventory', inventoryRows())" row-key="spaceId">
               <el-table-column prop="spaceName" label="所属本体" min-width="240" />
               <el-table-column prop="pendingSuggestions" label="待确认抽取" width="130" />
               <el-table-column prop="imports" label="导入记录" width="120" />
@@ -336,7 +373,7 @@ onMounted(load)
             </el-table>
           </el-tab-pane>
           <el-tab-pane :label="`抽取候选 ${suggestionRows().length}`" name="suggestions">
-            <el-table :data="suggestionRows()" row-key="id">
+            <el-table :data="pageSlice('suggestions', suggestionRows())" row-key="id">
               <el-table-column prop="spaceName" label="所属本体" min-width="200" />
               <el-table-column label="类型" width="110">
                 <template #default="{ row }">{{ enumLabel(row.kind) }}</template>
@@ -360,7 +397,7 @@ onMounted(load)
             </el-table>
           </el-tab-pane>
           <el-tab-pane :label="`导入记录 ${importRows().length}`" name="imports">
-            <el-table :data="importRows()" row-key="id">
+            <el-table :data="pageSlice('imports', importRows())" row-key="id">
               <el-table-column prop="spaceName" label="所属本体" min-width="200" />
               <el-table-column label="格式" width="100">
                 <template #default="{ row }">{{ enumLabel(row.kind) }}</template>
@@ -386,6 +423,12 @@ onMounted(load)
             </el-table>
           </el-tab-pane>
         </el-tabs>
+        <PagerBar
+          :page="pages[tab] ?? 1"
+          :total="activeRows.length"
+          :size="pageSize"
+          @update:page="pages[tab] = $event"
+        />
       </AsyncState>
     </section>
   </section>
