@@ -352,8 +352,13 @@ async function logout() {
 @media (max-width: 650px) {
   .workbench {
     display: block;
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
   }
   .navigation {
+    height: auto;
+    overflow: visible;
     padding: 14px;
     display: flex;
     flex-direction: row;
