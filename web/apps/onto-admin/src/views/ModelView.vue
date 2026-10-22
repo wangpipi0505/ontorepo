@@ -208,6 +208,10 @@ async function removeRelation(item: Relation) {
       fromClassId: item.fromClassId,
       toClassId: item.toClassId,
       cardinality: item.cardinality,
+      inverseOf: item.inverseOf,
+      transitive: item.transitive,
+      symmetric: item.symmetric,
+      description: item.description,
     }
     const beforeIds = new Set(relations.data.value.map((entry) => entry.id))
     let deletedId = item.id
