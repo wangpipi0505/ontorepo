@@ -42,6 +42,7 @@ interface MappingDetailRow {
   targetClassId?: string
   targetPropertyId?: string
   relationId?: string
+  targetName?: string
   [key: string]: unknown
 }
 interface SnapshotRow {
@@ -136,6 +137,7 @@ function mappingSource(row: MappingDetailRow) {
   return [row.sourceResource, row.sourceField].filter(Boolean).join(' · ') || '—'
 }
 function mappingTarget(row: MappingDetailRow) {
+  if (row.targetName) return row.targetName
   return [row.targetClassId, row.targetPropertyId, row.relationId].filter(Boolean).join(' · ') || '—'
 }
 function snapshotRows() {

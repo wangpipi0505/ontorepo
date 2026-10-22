@@ -1,5 +1,6 @@
 package cn.ontorepo.application;
 
+import cn.ontorepo.common.infra.Db;
 import cn.ontorepo.operation.application.TestCaseService;
 import cn.ontorepo.release.application.ReleaseGatewayService;
 import cn.ontorepo.release.application.ReleaseHistoryService;
@@ -18,18 +19,21 @@ public class GlobalDeliveryService {
     private final ReleaseHistoryService releases;
     private final TestCaseService testCases;
     private final ReleaseGatewayService gateway;
+    private final Db db;
 
     public GlobalDeliveryService(
             SpaceService spaces,
             CandidateService candidates,
             ReleaseHistoryService releases,
             TestCaseService testCases,
-            ReleaseGatewayService gateway) {
+            ReleaseGatewayService gateway,
+            Db db) {
         this.spaces = spaces;
         this.candidates = candidates;
         this.releases = releases;
         this.testCases = testCases;
         this.gateway = gateway;
+        this.db = db;
     }
 
     public Map<String, Object> data(UUID user) {
@@ -72,6 +76,16 @@ public class GlobalDeliveryService {
                     endpoint.put("spaceName", spaceName);
                     endpoint.put("releaseId", releaseId.toString());
                     endpoint.put("versionNo", release.get("versionNo"));
+                    endpoint.put(
+                            "executionsCount",
+                            db.one(
+                                            "SELECT count(*) c FROM op_execution WHERE space_id=?"
+                                                    + " AND subject_type='RELEASE' AND subject_id=?"
+                                                    + " AND op_code=?",
+                                            spaceId,
+                                            releaseId,
+                                            endpoint.get("opCode"))
+                                    .get("c"));
                     if (owner)
                         endpoint.put(
                                 "grantsCount",

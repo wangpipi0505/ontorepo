@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 本体空间管理首页：列表即入口，行内进入建模、数据配置、测试与设置。 */
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { Space } from '@onto/api-client'
 import AsyncState from '@onto/shared-ui/AsyncState.vue'
@@ -98,7 +98,17 @@ async function archive(space: Space) {
       await load()
     })
 }
-onMounted(load)
+/** 原生 details 菜单在点击外部时关闭，避免同时展开多个行内菜单。 */
+function closeMoreMenus(event: MouseEvent) {
+  const target = event.target as Node | null
+  for (const details of document.querySelectorAll<HTMLDetailsElement>('details.row-more[open]'))
+    if (!target || !details.contains(target)) details.open = false
+}
+onMounted(() => {
+  document.addEventListener('click', closeMoreMenus)
+  void load()
+})
+onBeforeUnmount(() => document.removeEventListener('click', closeMoreMenus))
 </script>
 <template>
   <div class="page-heading">

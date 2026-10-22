@@ -61,12 +61,30 @@ public class GlobalDataService {
                             "properties", ((List<?>) mapping.get("properties")).size(),
                             "relations", ((List<?>) mapping.get("relations")).size()));
             for (String category : List.of("objects", "properties", "relations")) {
+                Map<String, String> names = new HashMap<>();
+                String table =
+                        switch (category) {
+                            case "objects" -> "ont_class";
+                            case "properties" -> "ont_property";
+                            default -> "ont_relation";
+                        };
+                for (Map<String, Object> named :
+                        db.list("SELECT id,name FROM " + table + " WHERE space_id=?", id))
+                    names.put(named.get("id").toString(), String.valueOf(named.get("name")));
                 for (Object entry : (List<?>) mapping.get(category)) {
                     @SuppressWarnings("unchecked")
                     Map<String, Object> row = new LinkedHashMap<>((Map<String, Object>) entry);
                     row.put("spaceId", id.toString());
                     row.put("spaceName", name);
                     row.put("category", category);
+                    String targetId =
+                            switch (category) {
+                                case "objects" -> Objects.toString(row.get("targetClassId"), null);
+                                case "properties" ->
+                                        Objects.toString(row.get("targetPropertyId"), null);
+                                default -> Objects.toString(row.get("relationId"), null);
+                            };
+                    if (targetId != null) row.put("targetName", names.get(targetId));
                     mappingRows.add(row);
                 }
             }
