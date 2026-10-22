@@ -61,6 +61,8 @@ const spaceFilter = ref(''),
   keyword = ref(''),
   tab = ref<'candidates' | 'releases' | 'testCases' | 'services'>('candidates')
 const spaceNames = computed(() => new Map(spaces.data.value.map((item) => [item.id, item.name])))
+const caseModeLabels: Record<string, string> = { DIRECT: '直接', NL: '自然语言' }
+const matchModeLabels: Record<string, string> = { EXACT: '精确', CONTAINS: '包含' }
 function filterRows<T extends { spaceId: string; spaceName?: string }>(rows: T[]) {
   const text = keyword.value.trim().toLocaleLowerCase()
   return rows
@@ -178,8 +180,12 @@ onMounted(async () => {
             <el-table :data="testCases" row-key="id">
               <el-table-column prop="name" label="用例" min-width="180" />
               <el-table-column prop="question" label="问题 / 输入" min-width="260" show-overflow-tooltip />
-              <el-table-column prop="mode" label="模式" width="100" />
-              <el-table-column prop="matchMode" label="匹配" width="100" />
+              <el-table-column label="模式" width="100">
+                <template #default="{ row }">{{ caseModeLabels[row.mode ?? ''] ?? row.mode ?? '—' }}</template>
+              </el-table-column>
+              <el-table-column label="匹配" width="100">
+                <template #default="{ row }">{{ matchModeLabels[row.matchMode] ?? row.matchMode }}</template>
+              </el-table-column>
               <el-table-column label="启用" width="80">
                 <template #default="{ row }">{{ row.enabled ? '是' : '否' }}</template>
               </el-table-column>

@@ -133,6 +133,24 @@ function mappingDetailRows() {
 function mappingCategory(category: string) {
   return category === 'objects' ? '对象' : category === 'properties' ? '属性' : '关系'
 }
+const enumLabels: Record<string, string> = {
+  CLASS: '对象',
+  PROPERTY: '属性',
+  RELATION: '关系',
+  TTL: 'TTL',
+  OWL: 'OWL',
+  PENDING: '待处理',
+  APPLIED: '已应用',
+  VALIDATED: '已校验',
+  FAILED: '失败',
+  SUCCESS: '成功',
+  ACTIVE: '启用',
+  INACTIVE: '停用',
+  DISABLED: '停用',
+}
+function enumLabel(value?: string) {
+  return value ? (enumLabels[value] ?? value) : '—'
+}
 function mappingSource(row: MappingDetailRow) {
   return [row.sourceResource, row.sourceField].filter(Boolean).join(' · ') || '—'
 }
@@ -204,7 +222,9 @@ onMounted(load)
           <el-tab-pane :label="`知识物料 ${knowledgeRows().length}`" name="knowledge">
             <el-table :data="knowledgeRows()" row-key="id">
               <el-table-column prop="term" label="术语 / 实体" min-width="180" />
-              <el-table-column prop="kind" label="类型" width="120" />
+              <el-table-column label="类型" width="120">
+                <template #default="{ row }">{{ enumLabel(row.kind) }}</template>
+              </el-table-column>
               <el-table-column prop="definition" label="定义" min-width="320" show-overflow-tooltip />
               <el-table-column label="所属本体" width="180">
                 <template #default="{ row }">
@@ -318,8 +338,12 @@ onMounted(load)
           <el-tab-pane :label="`抽取候选 ${suggestionRows().length}`" name="suggestions">
             <el-table :data="suggestionRows()" row-key="id">
               <el-table-column prop="spaceName" label="所属本体" min-width="200" />
-              <el-table-column prop="kind" label="类型" width="110" />
-              <el-table-column prop="status" label="状态" width="110" />
+              <el-table-column label="类型" width="110">
+                <template #default="{ row }">{{ enumLabel(row.kind) }}</template>
+              </el-table-column>
+              <el-table-column label="状态" width="110">
+                <template #default="{ row }">{{ enumLabel(row.status) }}</template>
+              </el-table-column>
               <el-table-column prop="confidence" label="置信度" width="100" />
               <el-table-column prop="createdAt" label="创建时间" width="190" />
               <el-table-column label="操作" width="150">
@@ -338,8 +362,12 @@ onMounted(load)
           <el-tab-pane :label="`导入记录 ${importRows().length}`" name="imports">
             <el-table :data="importRows()" row-key="id">
               <el-table-column prop="spaceName" label="所属本体" min-width="200" />
-              <el-table-column prop="kind" label="格式" width="100" />
-              <el-table-column prop="status" label="状态" width="110" />
+              <el-table-column label="格式" width="100">
+                <template #default="{ row }">{{ enumLabel(row.kind) }}</template>
+              </el-table-column>
+              <el-table-column label="状态" width="110">
+                <template #default="{ row }">{{ enumLabel(row.status) }}</template>
+              </el-table-column>
               <el-table-column prop="targetDraftRev" label="目标修订" width="100" />
               <el-table-column label="已应用" width="90">
                 <template #default="{ row }">{{ row.applied ? '是' : '否' }}</template>
