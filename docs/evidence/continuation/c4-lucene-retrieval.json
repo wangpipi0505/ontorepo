@@ -1,56 +1,56 @@
 {
-  "denominator" : 10,
-  "minimumHits" : 8,
-  "hits" : 10,
   "observations" : [ {
     "hit" : true,
-    "expectedTerm" : "设备",
+    "actualTop1" : "设备",
     "question" : "请查询设备信息",
-    "actualTop1" : "设备"
+    "expectedTerm" : "设备"
   }, {
     "hit" : true,
-    "expectedTerm" : "任务",
+    "actualTop1" : "任务",
     "question" : "请查询任务信息",
-    "actualTop1" : "任务"
+    "expectedTerm" : "任务"
   }, {
     "hit" : true,
-    "expectedTerm" : "人员",
+    "actualTop1" : "人员",
     "question" : "请查询人员信息",
-    "actualTop1" : "人员"
+    "expectedTerm" : "人员"
   }, {
     "hit" : true,
-    "expectedTerm" : "组织",
+    "actualTop1" : "组织",
     "question" : "请查询组织信息",
-    "actualTop1" : "组织"
+    "expectedTerm" : "组织"
   }, {
     "hit" : true,
-    "expectedTerm" : "项目",
+    "actualTop1" : "项目",
     "question" : "请查询项目信息",
-    "actualTop1" : "项目"
+    "expectedTerm" : "项目"
   }, {
     "hit" : true,
-    "expectedTerm" : "合同",
+    "actualTop1" : "合同",
     "question" : "请查询合同信息",
-    "actualTop1" : "合同"
+    "expectedTerm" : "合同"
   }, {
     "hit" : true,
-    "expectedTerm" : "订单",
+    "actualTop1" : "订单",
     "question" : "请查询订单信息",
-    "actualTop1" : "订单"
+    "expectedTerm" : "订单"
   }, {
     "hit" : true,
-    "expectedTerm" : "仓库",
+    "actualTop1" : "仓库",
     "question" : "请查询仓库信息",
-    "actualTop1" : "仓库"
+    "expectedTerm" : "仓库"
   }, {
     "hit" : true,
-    "expectedTerm" : "产品",
+    "actualTop1" : "产品",
     "question" : "请查询产品信息",
-    "actualTop1" : "产品"
+    "expectedTerm" : "产品"
   }, {
     "hit" : true,
-    "expectedTerm" : "供应商",
+    "actualTop1" : "供应商",
     "question" : "请查询供应商信息",
-    "actualTop1" : "供应商"
-  } ]
+    "expectedTerm" : "供应商"
+  } ],
+  "hits" : 10,
+  "minimumHits" : 8,
+  "denominator" : 10
 }
