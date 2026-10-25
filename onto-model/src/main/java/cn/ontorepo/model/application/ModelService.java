@@ -60,11 +60,52 @@ public class ModelService {
         String name = Input.text(b, "name", 200), description = Input.description(b);
         UUID parent = b.get("parentId") == null ? null : Input.uuid(b.get("parentId"));
         boolean deprecated = Input.bool(b, "deprecated");
+        // R12 墓碑审计：失效/恢复是治理动作，必须与普通编辑区分留痕（谁、为何、
+        // 实体、前后值）。锁前读取依赖 expectedDraftRev 乐观并发保护——任何并发
+        // 改动都会使本次写入因修订冲突回滚，因此这里的旧值读取与写锁内读取等价。
+        boolean transition = false, previous = false;
+        String reason = null;
+        if (id != null) {
+            var old = db.one("SELECT deprecated FROM ont_class WHERE id=? AND space_id=?", id, space);
+            if (old.isEmpty()) throw new Problem(400, "CROSS_SPACE_REFERENCE", "资源不存在或不属于当前空间");
+            previous = Boolean.TRUE.equals(old.get("deprecated"));
+            transition = previous != deprecated;
+            if (transition && deprecated) {
+                reason = Input.optionalText(b, "deprecateReason", 500);
+                if (reason.isBlank()) throw new Problem(400, "DEPRECATE_REASON_REQUIRED", "弃用必须填写理由");
+            }
+        }
+        final String deprecateReason = reason;
+        final UUID subject = id;
+        final boolean fromDeprecated = previous, toDeprecated = deprecated;
+        // 显式 Supplier 局部变量：write 的 AuditDetail 与 Supplier<AuditDetail> 两个
+        // 重载在三元表达式下无法静态分派；transition=false 时必须仍走 Supplier 重载
+        // （其 audit(detail.get()) 允许 null 明细），否则普通编辑会 NPE。
+        java.util.function.Supplier<cn.ontorepo.common.domain.AuditDetail> detail =
+                transition
+                        ? () ->
+                                new cn.ontorepo.common.domain.AuditDetail(
+                                        "CLASS",
+                                        subject.toString(),
+                                        Map.of(
+                                                "name", name,
+                                                "from", fromDeprecated,
+                                                "to", toDeprecated,
+                                                "reason", String.valueOf(deprecateReason)),
+                                        null,
+                                        null,
+                                        "SUCCEEDED")
+                        : () -> null;
         return spaces.write(
                 user,
                 space,
                 Input.number(b, "expectedDraftRev"),
-                id == null ? "CLASS_CREATE" : "CLASS_UPDATE",
+                id == null
+                        ? "CLASS_CREATE"
+                        : transition
+                                ? (deprecated ? "CLASS_DEPRECATE" : "CLASS_RESTORE")
+                                : "CLASS_UPDATE",
+                detail,
                 () -> {
                     if (id != null) owned("ont_class", id, space);
                     if (parent != null) {

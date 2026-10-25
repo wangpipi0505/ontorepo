@@ -67,6 +67,8 @@ public final class ApiDtos {
             String parentId,
             String description,
             Boolean deprecated,
+            /** R12 墓碑审计：false→true 弃用迁移的必填理由（≤500 字）。 */
+            String deprecateReason,
             Long expectedDraftRev) {}
 
     /** 属性定义含单位、码表、默认值、枚举、范围和主键分面。 */

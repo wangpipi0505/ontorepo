@@ -19,6 +19,7 @@ const form = reactive({
   parentId: null as string | null,
   description: '',
   deprecated: false,
+  deprecateReason: '',
 })
 const allowedParents = computed(() =>
   props.classes.map((item) => ({
@@ -35,6 +36,7 @@ watch(open, (value) => {
       parentId: props.item?.parentId || null,
       description: props.item?.description || '',
       deprecated: props.item?.deprecated ?? false,
+      deprecateReason: '',
     })
     error.value = ''
   }
@@ -48,6 +50,12 @@ async function save() {
   }
   if (props.item && !canReparent(props.classes, props.item.id, form.parentId)) {
     error.value = '父级不能是当前对象或其后代。'
+    return
+  }
+  // R12 墓碑审计：新增弃用（false→true）必须填写理由；恢复无需理由。
+  const deprecating = !!props.item && !props.item.deprecated && form.deprecated
+  if (deprecating && !form.deprecateReason.trim()) {
+    error.value = '弃用是治理动作，请填写弃用理由（将记入审计）。'
     return
   }
   const ok = await run(({ isCurrent }) =>
@@ -102,6 +110,15 @@ async function save() {
       </el-form-item>
       <el-form-item>
         <el-checkbox v-model="form.deprecated">标记为已弃用</el-checkbox>
+      </el-form-item>
+      <el-form-item v-if="props.item && form.deprecated" label="弃用理由（必填，记入审计）">
+        <el-input
+          v-model="form.deprecateReason"
+          type="textarea"
+          :rows="2"
+          maxlength="500"
+          placeholder="例如：该分类已由新结构替代，计划下季度移除"
+        />
       </el-form-item>
       <p v-if="draft.stale.value" class="error-text" role="alert">
         表单已过期。可复制当前输入，关闭后刷新本页，再重新打开以载入最新内容。
