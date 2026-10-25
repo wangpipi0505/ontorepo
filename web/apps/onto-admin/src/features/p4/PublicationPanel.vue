@@ -81,9 +81,10 @@ const health = computed(() => {
 // UIF-O4：门禁明细的实体跳转——建模页 + entityId 深链参数（与 UX-11 定位模式一致）。
 function onFixEntity(entityId: string) {
   if (!workspace.space?.id) return
+  // UIF-O6：entityId 深链——ModelView.focusId 同时识别 classId/entityId 两个参数
   router.push({
     path: `/spaces/${workspace.space.id}/model`,
-    query: { tab: 'classes', entity: entityId },
+    query: { tab: 'classes', entityId },
   })
 }
 const fixTarget = (issue: (typeof health.value.issues)[number]) => {
