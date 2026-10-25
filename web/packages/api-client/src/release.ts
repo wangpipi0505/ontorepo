@@ -160,6 +160,15 @@ export interface TraceGraphData {
   nodes: { id: string; label: string; kind: string; ref?: string | null }[]
   edges: { id: string; from: string; to: string; label: string }[]
 }
+
+/** UIF-O5：PROV-O 泳道映射——节点 kind → Agent/Activity/Entity 三泳道。 */
+export type ProvLane = 'AGENT' | 'ACTIVITY' | 'ENTITY'
+export function provLane(kind: string): ProvLane {
+  const k = kind.toUpperCase()
+  if (k === 'AGENT') return 'AGENT'
+  if (k === 'EXECUTION' || k === 'STEP') return 'ACTIVITY'
+  return 'ENTITY'
+}
 export interface ExecutionTrace {
   execution: TracedExecution
   authorization: { order: number; kind: string; passed: boolean | null; detail: unknown }[]

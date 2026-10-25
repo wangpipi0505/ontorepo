@@ -3,6 +3,8 @@ export interface GraphNode {
   id: string
   label: string
   conflict?: boolean
+  /** UIF-O5：泳道语义（PROV-O：AGENT/ACTIVITY/ENTITY 及其别名），驱动节点底色。 */
+  lane?: string
 }
 export interface GraphEdge {
   id: string

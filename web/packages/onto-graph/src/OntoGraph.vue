@@ -25,13 +25,31 @@ const container = ref<HTMLDivElement>()
 let graph: Graph | null = null
 let observer: ResizeObserver | null = null
 
+/** UIF-O5：泳道语义色——Agent/Activity/Entity 三类节点按 kind 着色，其余中性。 */
+const LANE_COLORS: Record<string, string> = {
+  AGENT: '#c7d2fe',
+  ACTIVITY: '#d1fae5',
+  EVIDENCE: '#fef3c7',
+  EXECUTION: '#d1fae5',
+  STEP: '#d1fae5',
+  SUBJECT: '#fef3c7',
+  ENTITY: '#fef3c7',
+}
+function laneFill(node: GraphNode): string {
+  const lane = String(node.lane ?? '').toUpperCase()
+  return (lane && LANE_COLORS[lane]) || '#ffffff'
+}
+
 function data() {
   return {
     nodes: props.nodes.map((node) => ({
       id: node.id,
       type: 'rect',
       data: { label: node.label, conflict: node.conflict === true },
-      style: { fill: node.id === props.selectedId ? '#dbeafe' : '#ffffff' },
+      style: {
+        fill: node.id === props.selectedId ? '#dbeafe' : laneFill(node),
+        stroke: node.id === props.selectedId ? '#2563eb' : '#94a3b8',
+      },
     })),
     edges: props.edges.map((edge) => ({
       id: edge.id,

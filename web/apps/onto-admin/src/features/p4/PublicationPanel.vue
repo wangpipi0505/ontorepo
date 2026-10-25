@@ -8,6 +8,7 @@ import type {
   Release,
   ReleaseDiff,
 } from '../../../../../packages/api-client/src/release'
+import { useRouter } from 'vue-router'
 import { useWorkspace } from '../../stores/workspace'
 import { useSession } from '../../stores/session'
 import { useResource } from '../../composables/useResource'
@@ -16,6 +17,7 @@ import AsyncState from '@onto/shared-ui/AsyncState.vue'
 import ArtifactList from './ArtifactList.vue'
 import ProjectionDiff from './ProjectionDiff.vue'
 import CandidateTestsPanel from '../p1/CandidateTestsPanel.vue'
+import GateReportPanel from './GateReportPanel.vue'
 import {
   allArtifactsReady,
   canWaiveConsistency,
@@ -35,9 +37,63 @@ const emit = defineEmits<{
   busy: [value: boolean]
   'publication-updated': [value: Publication]
 }>()
-const workspace = useWorkspace(),
+const router = useRouter(),
+  workspace = useWorkspace(),
   api = useSession().api,
   mutation = useMutation()
+// UIF-O2：健康摘要——五门禁结论聚合为"可操作问题"清单（FAILED/NOT_CHECKED 即问题），
+// 每条给出修复动作入口（按门禁类型跳到对应工作区页签），总分卡反映即时健康度。
+const health = computed(() => {
+  const checks = publication.value?.checks ?? []
+  const issues = checks
+    .filter((c) => c.conclusion !== 'PASSED')
+    .map((c) => ({
+      kind: c.kind,
+      conclusion: c.conclusion,
+      severity: c.conclusion === 'FAILED' ? 'critical' : 'warning',
+      message: c.reason || '等待服务端检查',
+      // 跨页修复跳转：conflicts→本体冲突页、tests→验证页、review→发布复核
+      fixRoute:
+        c.kind === 'CONFLICT'
+          ? { tab: 'conflicts' }
+          : c.kind === 'TEST'
+            ? { tab: 'cases' }
+            : c.kind === 'REVIEW'
+              ? { tab: 'review' }
+              : null,
+      fixLabel:
+        c.kind === 'CONFLICT'
+          ? '去处理冲突'
+          : c.kind === 'TEST'
+            ? '去补验收用例'
+            : c.kind === 'REVIEW'
+              ? '去提交复核'
+              : c.kind === 'CONSISTENCY'
+                ? '查看一致性报告'
+                : '重新运行检查',
+    }))
+  const passed = checks.filter((c) => c.conclusion === 'PASSED').length
+  return {
+    score: checks.length ? Math.round((passed / checks.length) * 100) : 0,
+    issues,
+  }
+})
+// UIF-O4：门禁明细的实体跳转——建模页 + entityId 深链参数（与 UX-11 定位模式一致）。
+function onFixEntity(entityId: string) {
+  if (!workspace.space?.id) return
+  router.push({
+    path: `/spaces/${workspace.space.id}/model`,
+    query: { tab: 'classes', entity: entityId },
+  })
+}
+const fixTarget = (issue: (typeof health.value.issues)[number]) => {
+  if (!issue.fixRoute) return null
+  return {
+    path: `/spaces/${workspace.space?.id}/${issue.kind === 'TEST' ? 'testing' : 'model'}`,
+    query: issue.fixRoute.tab ? { tab: issue.fixRoute.tab } : undefined,
+  }
+}
+
 const state = useResource<Publication | null>(null),
   diff = useResource<ReleaseDiff | null>(null)
 const testsBusy = ref(false)
@@ -231,6 +287,34 @@ async function action(kind: 'validate' | 'review' | 'prepare' | 'commit' | 'canc
           通过，消费方无法调用。
         </p>
         <p v-if="publication.releaseId" class="notice">已发布版本：{{ publication.releaseId }}</p>
+        <section v-if="publication.checks.length" class="record health" aria-label="发布健康摘要">
+          <div class="health-score">
+            <b :class="health.score === 100 ? 'ok' : health.score >= 60 ? 'warn' : 'bad'">
+              {{ health.score }}
+            </b>
+            <span class="muted">门禁通过率（{{ publication.checks.filter((c) => c.conclusion === 'PASSED').length }}/{{ publication.checks.length }}）</span>
+          </div>
+          <div v-if="health.issues.length" class="issues">
+            <p class="muted">可操作的问题：</p>
+            <div v-for="issue in health.issues" :key="issue.kind" class="issue-row">
+              <span
+                class="dot"
+                :class="issue.severity"
+                role="img"
+                :aria-label="issue.severity"
+              />
+              <b>{{ gateLabels[issue.kind] }}</b>
+              <span class="muted">{{ issue.message }}</span>
+              <RouterLink
+                v-if="fixTarget(issue)"
+                :to="fixTarget(issue)!"
+                class="fix-link"
+                >{{ issue.fixLabel }}</RouterLink
+              >
+            </div>
+          </div>
+          <p v-else class="muted">五项门禁全部通过，无待处理问题。</p>
+        </section>
         <div class="gates" aria-label="五项发布门禁">
           <article
             v-for="kind in gateKinds"
@@ -251,7 +335,13 @@ async function action(kind: 'validate' | 'review' | 'prepare' | 'commit' | 'canc
             </p>
             <details v-if="publication.checks.some((check) => check.kind === kind)">
               <summary>证据与时间</summary>
-              <pre>{{
+              <!-- UIF-O4：CONFLICT 门禁用三段式报告视图；其余门禁保持原始 JSON。 -->
+              <GateReportPanel
+                v-if="kind === 'CONFLICT'"
+                :check="publication.checks.find((check) => check.kind === kind)!"
+                @fix-entity="onFixEntity"
+              />
+              <pre v-else>{{
                 JSON.stringify(
                   publication.checks.find((check) => check.kind === kind),
                   null,
