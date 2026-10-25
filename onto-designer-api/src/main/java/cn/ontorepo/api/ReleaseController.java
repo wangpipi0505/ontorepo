@@ -23,6 +23,7 @@ public class ReleaseController {
     private final ReleaseGatewayService gateway;
     private final ReleaseEventService events;
     private final TraceAuditService trace;
+    private final cn.ontorepo.release.application.ProposalCommentService proposalComments;
     private final cn.ontorepo.common.infra.Db db;
     private final Transport t;
 
@@ -33,6 +34,7 @@ public class ReleaseController {
             ReleaseGatewayService gateway,
             ReleaseEventService events,
             TraceAuditService trace,
+            cn.ontorepo.release.application.ProposalCommentService proposalComments,
             cn.ontorepo.common.infra.Db db,
             Transport t) {
         this.publication = publication;
@@ -42,6 +44,7 @@ public class ReleaseController {
         this.events = events;
         this.trace = trace;
         this.db = db;
+        this.proposalComments = proposalComments;
         this.t = t;
     }
 
