@@ -6,7 +6,6 @@
  */
 import { ref, watch } from 'vue'
 import { useSession } from '../../stores/session'
-import { useMutation } from '../../composables/useMutation'
 
 const props = defineProps<{ candidateId: string }>()
 const api = useSession().api
@@ -14,7 +13,6 @@ const rows = ref<any[]>([])
 const error = ref('')
 const busy = ref(false)
 const body = ref('')
-const subjectKey = ref('')
 
 async function refresh() {
   if (!props.candidateId) return
@@ -41,7 +39,6 @@ async function submit(subjectKind?: string, subjectKey?: string) {
       body: body.value.trim(),
     })
     body.value = ''
-    subjectKey.value = ''
     await refresh()
   } catch (e: any) {
     error.value = e.message

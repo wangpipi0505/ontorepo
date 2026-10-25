@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 15184 --strictPort",
-    "build": "vite build"
+    "dev:mock": "vite --host 127.0.0.1 --port 15184 --strictPort --mode mock",
+    "build": "vite build",
+    "build:mock": "vite build --mode mock"
   },
   "dependencies": {
     "@onto/api-client": "workspace:*",

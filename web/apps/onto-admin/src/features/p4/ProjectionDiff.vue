@@ -13,7 +13,7 @@ function deriveSeverity(item: Change): Level {
   if (item.severity) return item.severity as Level
   if (item.before !== undefined && item.after === undefined) return 'CRITICAL'
   if (item.before !== undefined && item.after !== undefined) {
-    if (Object.keys(item.before).length > Object.keys(item.after).length) return 'HIGH'
+    if (Object.keys(item.before ?? {}).length > Object.keys(item.after ?? {}).length) return 'HIGH'
     return 'MEDIUM'
   }
   return 'SAFE'
@@ -36,6 +36,7 @@ const severityLabel: Record<Level, { text: string; cls: string }> = {
   MEDIUM: { text: '需回归', cls: 'sev-medium' },
   SAFE: { text: '安全', cls: 'sev-safe' },
 }
+const sectionLabel: Record<string, string> = { added: '新增', removed: '删除', changed: '修改' }
 const summary = computed(() => {
   const counts: Record<Level, number> = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, SAFE: 0 }
   for (const row of rows.value) counts[deriveSeverity(row)]++
@@ -81,7 +82,7 @@ function fields(before: unknown, after: unknown) {
         </span>
         <b>{{ row.kind }}</b>
         <code class="key">{{ row.key }}</code>
-        <span class="muted change-type">{{ row.changeType }}</span>
+        <span class="muted change-type">{{ sectionLabel[row.section] }}</span>
       </div>
       <div v-if="expanded === row.kind + '/' + row.key" class="row-body">
         <p v-if="row.reason" class="muted">影响：{{ row.reason }}</p>

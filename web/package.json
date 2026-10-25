@@ -9,7 +9,9 @@
     "build": "pnpm --filter @onto/admin build",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "api:generate": "openapi-typescript ../contracts/openapi.json -o packages/api-client/src/generated.ts && prettier --write packages/api-client/src/generated.ts"
+    "api:generate": "openapi-typescript ../contracts/openapi.json -o packages/api-client/src/generated.ts && prettier --write packages/api-client/src/generated.ts",
+    "dev:mock": "pnpm --filter @onto/admin dev:mock",
+    "build:mock": "pnpm --filter @onto/admin build:mock"
   },
   "devDependencies": {
     "@vue/test-utils": "2.4.6",

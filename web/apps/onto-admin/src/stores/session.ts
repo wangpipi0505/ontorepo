@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { ApiClient, type User, type LoginResult } from '@onto/api-client'
+import { isMockMode, mockFetcher } from '@onto/api-client/mock'
 /** 会话仅活在本标签页内存；刷新页面需要重新登录。 */
 export const useSession = defineStore('session', () => {
   const token = ref<string | null>(null)
@@ -41,6 +42,8 @@ export const useSession = defineStore('session', () => {
       if (token.value) expiredNotice.value = true
       clear()
     },
+    // 演示模式注入 mock 传输器；undefined 使 ApiClient 回落原生 fetch，联调与生产不受影响。
+    isMockMode() ? mockFetcher : undefined,
   )
   function consumeExpiredNotice() {
     const value = expiredNotice.value
