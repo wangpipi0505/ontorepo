@@ -81,7 +81,8 @@ public final class QueryPolicy {
         try {
             query = QueryFactory.create(text, Syntax.syntaxSPARQL_11);
         } catch (Exception e) {
-            throw new Problem(400, "INVALID_QUERY", "SELECT查询语法错误");
+            // UIF-O7：Jena 解析异常的消息自带 "Line N, Col M" 格式，前端可正则提取定位。
+            throw new Problem(400, "INVALID_QUERY", "SELECT查询语法错误：" + e.getMessage());
         }
         inspect(query);
         query.setLimit(query.hasLimit() ? Math.min(query.getLimit(), maxRows) : maxRows);
