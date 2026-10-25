@@ -248,9 +248,28 @@ public class ReleaseHistoryService {
                 changed.add(change);
         }
         var result = new LinkedHashMap<String, Object>();
+        // R10：逐条变更附影响分级（纯函数），REVIEW 材料与前端变更行着色共用。
+        for (var list : java.util.List.of(added, removed, changed))
+            for (var change : list) change.putAll(cn.ontorepo.release.domain.ChangeImpact.classify(change));
         result.put("added", added);
         result.put("removed", removed);
         result.put("changed", changed);
+        var counts = new java.util.EnumMap<cn.ontorepo.release.domain.ChangeImpact.Level, Integer>(
+                cn.ontorepo.release.domain.ChangeImpact.Level.class);
+        for (var list : java.util.List.of(added, removed, changed))
+            for (var change : list)
+                counts.merge(
+                        cn.ontorepo.release.domain.ChangeImpact.Level.valueOf(
+                                String.valueOf(change.get("severity"))),
+                        1,
+                        Integer::sum);
+        result.put(
+                "impactSummary",
+                java.util.Map.of(
+                        "critical", counts.getOrDefault(cn.ontorepo.release.domain.ChangeImpact.Level.CRITICAL, 0),
+                        "high", counts.getOrDefault(cn.ontorepo.release.domain.ChangeImpact.Level.HIGH, 0),
+                        "medium", counts.getOrDefault(cn.ontorepo.release.domain.ChangeImpact.Level.MEDIUM, 0),
+                        "safe", counts.getOrDefault(cn.ontorepo.release.domain.ChangeImpact.Level.SAFE, 0)));
         return result;
     }
 
