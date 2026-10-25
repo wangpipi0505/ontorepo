@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 维护受限模型查询与资源上限；模板是可编辑起点，后端负责语法、授权及查询边界校验。 */
-import { computed, reactive, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { ApiError, type Operation, type OperationKind, type Space } from '@onto/api-client'
 import { useReferences } from '../features/p1/useReferences'
 import { useDraftRevision } from '../composables/useDraftRevision'
