@@ -23,6 +23,7 @@ public class ReleaseController {
     private final ReleaseGatewayService gateway;
     private final ReleaseEventService events;
     private final TraceAuditService trace;
+    private final cn.ontorepo.common.infra.Db db;
     private final Transport t;
 
     public ReleaseController(
@@ -32,6 +33,7 @@ public class ReleaseController {
             ReleaseGatewayService gateway,
             ReleaseEventService events,
             TraceAuditService trace,
+            cn.ontorepo.common.infra.Db db,
             Transport t) {
         this.publication = publication;
         this.history = history;
@@ -39,6 +41,7 @@ public class ReleaseController {
         this.gateway = gateway;
         this.events = events;
         this.trace = trace;
+        this.db = db;
         this.t = t;
     }
 
@@ -297,6 +300,33 @@ public class ReleaseController {
     @GetMapping("/executions/{id}/trace")
     public Envelope<?> trace(HttpServletRequest r, @PathVariable UUID id) {
         return Envelope.ok(trace.trace(t.user(r), id));
+    }
+
+    /** R11：执行事实的 W3C PROV-O Turtle 投影（审计交换格式，content-type 为 text/turtle）。 */
+    @RequiresPermission("trace.read")
+    @GetMapping(value = "/executions/{id}/provenance", produces = "text/turtle;charset=UTF-8")
+    public String provenance(HttpServletRequest r, @PathVariable UUID id) {
+        var view = trace.trace(t.user(r), id);
+        var fact = (java.util.Map<?, ?>) view.get("execution");
+        var execution = new java.util.LinkedHashMap<String, Object>();
+        for (var e : fact.entrySet()) execution.put(String.valueOf(e.getKey()), e.getValue());
+        @SuppressWarnings("unchecked")
+        var steps = (java.util.List<java.util.Map<String, Object>>) view.get("steps");
+        @SuppressWarnings("unchecked")
+        var evidence = (java.util.List<java.util.Map<String, Object>>) view.get("evidence");
+        String actor = null;
+        if (fact.get("principalId") != null)
+            actor =
+                    String.valueOf(
+                            db.one(
+                                            "SELECT username FROM local_user WHERE id=?",
+                                            java.util.UUID.fromString(
+                                                    String.valueOf(fact.get("principalId"))))
+                                    .get("username"));
+        return cn.ontorepo.release.domain.ProvExporter.turtle(
+                        execution, steps, evidence, (java.util.Map<String, Object>) view.get("graph"), actor)
+                .get("content")
+                .toString();
     }
 
     @RequiresPermission("trace.read")
