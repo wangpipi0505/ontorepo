@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** 维护受限模型查询与资源上限；模板是可编辑起点，后端负责语法、授权及查询边界校验。 */
 import { computed, reactive, watch } from 'vue'
-import type { Operation, OperationKind, Space } from '@onto/api-client'
+import { ApiError, type Operation, type OperationKind, type Space } from '@onto/api-client'
 import { useReferences } from '../features/p1/useReferences'
 import { useDraftRevision } from '../composables/useDraftRevision'
 import { useSession } from '../stores/session'
@@ -14,6 +14,7 @@ const open = defineModel<boolean>({ required: true }),
 const workspace = useWorkspace(),
   api = useSession().api,
   { pending, error, run } = useMutation()
+const queryError = ref('')
 const draft = useDraftRevision()
 const references = useReferences(['rules', 'strategies'])
 const form = reactive({
@@ -94,7 +95,19 @@ async function save() {
         : await api.post<Space>('/operations', body)
       if (isCurrent()) workspace.accept(next)
     }),
-  )
+  ).catch((cause: any) => {
+    // UIF-O7：把查询校验错误回写到编辑器（错误码+消息），保持表单内容不丢失。
+    if (isQuery.value && cause instanceof ApiError) {
+      queryError.value =
+        cause.code === 'INVALID_QUERY'
+          ? 'SPARQL 语法错误：请检查 SELECT 语句（仅支持三元组、可选/联合、基础过滤/绑定与受检子查询）。'
+          : cause.code === 'UNSAFE_QUERY'
+            ? '查询包含本平台不支持的语法、数据集或扩展能力，已被拒绝。'
+            : cause.message
+      throw cause
+    }
+    throw cause
+  })
   if (ok) {
     open.value = false
     notifySaved()
@@ -170,6 +183,7 @@ async function save() {
           spellcheck="false"
         />
       </el-form-item>
+      <p v-if="isQuery && queryError" class="error-text" role="alert">{{ queryError }}</p>
       <p v-if="isQuery" class="muted">
         查询范围是冻结候选中的对象与属性。仅支持 SELECT；外部 SERVICE、FROM 及扩展函数会被拒绝。
       </p>
